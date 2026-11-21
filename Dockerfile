@@ -43,7 +43,7 @@ RUN npm ci --omit=dev --include=optional -w @knowlify/server && npm cache clean 
 RUN mkdir -p /data/models
 COPY --from=build /app/apps/server/dist apps/server/dist
 COPY --from=build /app/apps/web/dist web
-COPY LICENSE THIRD_PARTY_NOTICES.md /app/
+COPY LICENSE /app/
 VOLUME /data
 EXPOSE 8787
 HEALTHCHECK CMD node -e "fetch('http://localhost:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"

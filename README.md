@@ -161,10 +161,7 @@ npm run typecheck -w @knowlify/server   # server typecheck
 npm run build -w @knowlify/server       # server build
 npm run build -w @knowlify/web          # web typecheck and build
 npm run version:check                   # version consistency
-node scripts/third-party-notices.mjs --check  # generated notices are current
 ```
-
-The notices check reads only `package-lock.json` and the committed `scripts/third-party-licenses.json`, so it does not need `npm ci` and gives the same result on every platform, Node.js version and npm version. Regenerate `THIRD_PARTY_NOTICES.md` with `node scripts/third-party-notices.mjs` when the production lockfile changes.
 
 Run `scripts/e2e-account.sh` if you change authentication. Run `scripts/e2e-index.sh` if you change indexing. These scripts start real processes.
 
@@ -236,10 +233,8 @@ This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 Knowlify is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). The full text is in [LICENSE](LICENSE).
 
-Copyright (C) 2026 The Knowlify authors.
+Copyright (C) 2026 Victor Mota Mazzei.
 
 If you modify Knowlify and let users interact with your version over a network, you must offer those users the source code of your version. Section 13 of the license states this condition.
 
 This program is free software. It comes without any warranty, to the extent permitted by law.
-
-Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

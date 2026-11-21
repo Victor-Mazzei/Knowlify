@@ -72,7 +72,11 @@ describe("WorkerPoolMetadataExtractor", () => {
       '  parentPort.postMessage({ type: "result", id: message.id, metadata: { title: "after timeout" } });',
       "});",
     ].join("\n"));
-    const extractor = pool({ workers: 1, workerPath, timeoutMs: 100 });
+    // The recovery task pays for a fresh worker thread. Measured at ~125 ms on a
+    // deliberately starved host (eight busy loops on three cores), so 100 ms rejected
+    // the healthy task too. 1 s keeps a >5x margin; the hung task never answers, so
+    // any finite timeout still proves the rejection and the worker replacement.
+    const extractor = pool({ workers: 1, workerPath, timeoutMs: 1_000 });
     try {
       await expect(extractor.extract(join(root, "hang.pdf"), "pdf")).rejects.toThrow(/timed out/);
       await expect(extractor.extract(join(root, "ok.pdf"), "pdf")).resolves.toEqual({ title: "after timeout" });
