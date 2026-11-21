@@ -1,0 +1,10 @@
+node_modules
+dist
+data
+target
+.env
+# Host folder mounted as the library in docker-compose (default ./library).
+/library/
+
+# Internal documentation (not part of this repository).
+docs/

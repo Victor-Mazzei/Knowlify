@@ -1,0 +1,12 @@
+{
+  "name": "@knowlify/desktop",
+  "version": "1.7.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/prepare-server.mjs && npx --yes --package @tauri-apps/cli@^2 tauri dev",
+    "build": "node scripts/prepare-server.mjs && npx --yes --package @tauri-apps/cli@^2 tauri build",
+    "test": "node --test test/bootstrap.test.mjs test/security-config.test.mjs"
+  }
+}

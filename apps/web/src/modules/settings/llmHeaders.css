@@ -1,0 +1,51 @@
+/* Custom headers editor inside the AI assistant card. */
+.llm-headers { padding-top: var(--space-2); border-top: 1px solid var(--hairline); }
+.llm-headers summary {
+  width: max-content;
+  padding: 2px 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+.llm-headers[open] summary { margin-bottom: var(--space-2); }
+.llm-headers-intro { margin: 0 0 var(--space-2); }
+.llm-headers-warning { margin: 0 0 var(--space-2); }
+.llm-headers-list { display: grid; gap: var(--space-2); }
+.llm-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+}
+.llm-header-field { display: grid; gap: 4px; min-width: 0; }
+.llm-header-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  color: var(--ink);
+  font-weight: 400;
+}
+.llm-header-field input[aria-invalid="true"] { border-color: var(--danger); }
+.llm-header-value { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.llm-header-value input { flex: 1; }
+.llm-header-remove { height: 38px; white-space: nowrap; }
+.llm-headers-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.llm-headers-tools .llm-show-key { flex: none; }
+.llm-headers-hint { margin: var(--space-2) 0 0; }
+.llm-headers .llm-help + .llm-help { margin-top: var(--space-1); }
+
+@media (max-width: 768px) {
+  .llm-header-row { grid-template-columns: 1fr; }
+  .llm-header-remove { width: 100%; }
+  .llm-headers-tools { align-items: stretch; flex-wrap: wrap; }
+}

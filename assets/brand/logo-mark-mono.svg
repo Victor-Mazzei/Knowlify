@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="knowlify-mark-mono-title">
+  <title id="knowlify-mark-mono-title">Knowlify</title>
+  <g fill="currentColor">
+    <path d="M11.5 14H21.5V33.5L29 26.5L34.5 27.7L39.8 30.6L31.2 38.5L47.5 54H33.1L21.6 42.5V54H11.5Z" />
+    <path d="M28 11Q34 12 39.5 17.5L40 29.5Q34 27 28 24.5Z" />
+    <path d="M53 11Q45 12 41 18V29.5Q47 26 53.5 23.5Z" />
+  </g>
+</svg>

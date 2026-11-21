@@ -1,0 +1,25 @@
+@media (max-width: 768px) {
+  header { flex-wrap: wrap; gap: var(--space-2) var(--space-3); padding-top: 10px; padding-bottom: 10px; }
+  .header-actions { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .library { padding-top: var(--space-5); }
+  .toolbar .count { display: none; }
+  .toolbar .search { flex-basis: 100%; max-width: none; }
+  .toolbar .add-book { margin-left: 0; }
+  .grid { grid-template-columns: repeat(2, 1fr); gap: var(--space-3); }
+  .dialog-backdrop { place-items: start center; }
+  .source-form > div, .scan-controls { align-items: stretch; flex-direction: column; }
+  .source-add { align-items: stretch; flex-direction: column; }
+  .source-add .primary { width: 100%; }
+  .source-form .primary { width: 100%; }
+  .folders-card .source-row { flex-wrap: wrap; }
+  .status { display: none; }
+  .reader-page { padding: 12px; border-radius: 0; }
+  .reader-layout, .reader-layout.with-notes { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .reader-main { height: auto; }
+  .reader-main .reader-page, .reader-main .reader-page.epub { height: 70vh; flex: none; }
+  .notes-panel { position: static; height: auto; max-height: none; border-left: 0; border-top: 1px solid var(--hairline); }
+}
+
+@media (hover: none) {
+  .card-actions, .delete, .books-table .row-action { opacity: 1; pointer-events: auto; }
+}

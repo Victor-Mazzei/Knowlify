@@ -1,0 +1,245 @@
+{
+  "description": "SPDX licenses for production npm packages whose package-lock.json entry has no license field. THIRD_PARTY_NOTICES.md uses this table instead of guessing. Add name@version entries when the generator reports a missing license.",
+  "packages": {
+    "@fastify/busboy@3.2.4": {
+      "license": "MIT",
+      "source": "https://github.com/fastify/busboy"
+    },
+    "@fastify/error@4.2.1": {
+      "license": "MIT",
+      "source": "https://github.com/fastify/fastify-error"
+    },
+    "@pdf-lib/standard-fonts@1.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/Hopding/standard-fonts"
+    },
+    "@pdf-lib/upng@1.0.1": {
+      "license": "MIT",
+      "source": "https://github.com/Hopding/upng"
+    },
+    "@pinojs/redact@0.4.0": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/redact"
+    },
+    "abstract-logging@2.0.1": {
+      "license": "MIT",
+      "source": "https://github.com/jsumners/abstract-logging"
+    },
+    "atomic-sleep@1.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/davidmarkclements/atomic-sleep"
+    },
+    "base64-js@1.5.1": {
+      "license": "MIT",
+      "source": "https://github.com/beatgammit/base64-js"
+    },
+    "bindings@1.5.0": {
+      "license": "MIT",
+      "source": "https://github.com/TooTallNate/node-bindings"
+    },
+    "bl@4.1.0": {
+      "license": "MIT",
+      "source": "https://github.com/rvagg/bl"
+    },
+    "buffer@5.7.1": {
+      "license": "MIT",
+      "source": "https://github.com/feross/buffer"
+    },
+    "chownr@1.1.4": {
+      "license": "ISC",
+      "source": "https://github.com/isaacs/chownr"
+    },
+    "decompress-response@6.0.0": {
+      "license": "MIT",
+      "source": "sindresorhus/decompress-response"
+    },
+    "deep-extend@0.6.0": {
+      "license": "MIT",
+      "source": "https://github.com/unclechu/node-deep-extend"
+    },
+    "detect-libc@2.1.2": {
+      "license": "Apache-2.0",
+      "source": "https://github.com/lovell/detect-libc"
+    },
+    "end-of-stream@1.4.5": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/end-of-stream"
+    },
+    "expand-template@2.0.3": {
+      "license": "(MIT OR WTFPL)",
+      "source": "https://github.com/ralphtheninja/expand-template"
+    },
+    "fastq@1.20.3": {
+      "license": "ISC",
+      "source": "https://github.com/mcollina/fastq"
+    },
+    "file-uri-to-path@1.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/TooTallNate/file-uri-to-path"
+    },
+    "fs-constants@1.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/fs-constants"
+    },
+    "github-from-package@0.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/substack/github-from-package"
+    },
+    "ieee754@1.2.1": {
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/feross/ieee754"
+    },
+    "inherits@2.0.4": {
+      "license": "ISC",
+      "source": "https://github.com/isaacs/inherits"
+    },
+    "ini@1.3.8": {
+      "license": "ISC",
+      "source": "https://github.com/isaacs/ini"
+    },
+    "mimic-response@3.1.0": {
+      "license": "MIT",
+      "source": "sindresorhus/mimic-response"
+    },
+    "minimist@1.2.8": {
+      "license": "MIT",
+      "source": "https://github.com/minimistjs/minimist"
+    },
+    "mkdirp-classic@0.5.3": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/mkdirp-classic"
+    },
+    "napi-build-utils@2.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/inspiredware/napi-build-utils"
+    },
+    "node-abi@3.101.0": {
+      "license": "MIT",
+      "source": "https://github.com/electron/node-abi"
+    },
+    "on-exit-leak-free@2.1.2": {
+      "license": "MIT",
+      "source": "https://github.com/mcollina/on-exit-or-gc"
+    },
+    "once@1.4.0": {
+      "license": "ISC",
+      "source": "https://github.com/isaacs/once"
+    },
+    "pako@1.0.11": {
+      "license": "(MIT AND Zlib)",
+      "source": "nodeca/pako"
+    },
+    "pdf-lib@1.17.1": {
+      "license": "MIT",
+      "source": "https://github.com/Hopding/pdf-lib"
+    },
+    "pino-abstract-transport@2.0.0": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/pino-abstract-transport"
+    },
+    "pino-std-serializers@7.1.0": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/pino-std-serializers"
+    },
+    "pino@9.14.0": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/pino"
+    },
+    "prebuild-install@7.1.3": {
+      "license": "MIT",
+      "source": "https://github.com/prebuild/prebuild-install"
+    },
+    "pump@3.0.4": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/pump"
+    },
+    "quick-format-unescaped@4.0.4": {
+      "license": "MIT",
+      "source": "https://github.com/davidmarkclements/quick-format"
+    },
+    "rc@1.2.8": {
+      "license": "(BSD-2-Clause OR MIT OR Apache-2.0)",
+      "source": "https://github.com/dominictarr/rc"
+    },
+    "readable-stream@3.6.2": {
+      "license": "MIT",
+      "source": "https://github.com/nodejs/readable-stream"
+    },
+    "real-require@0.2.0": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/real-require"
+    },
+    "reusify@1.1.0": {
+      "license": "MIT",
+      "source": "https://github.com/mcollina/reusify"
+    },
+    "safe-buffer@5.2.1": {
+      "license": "MIT",
+      "source": "https://github.com/feross/safe-buffer"
+    },
+    "safe-stable-stringify@2.5.0": {
+      "license": "MIT",
+      "source": "https://github.com/BridgeAR/safe-stable-stringify"
+    },
+    "semver@7.8.5": {
+      "license": "ISC",
+      "source": "https://github.com/npm/node-semver"
+    },
+    "simple-concat@1.0.1": {
+      "license": "MIT",
+      "source": "https://github.com/feross/simple-concat"
+    },
+    "simple-get@4.0.1": {
+      "license": "MIT",
+      "source": "https://github.com/feross/simple-get"
+    },
+    "sonic-boom@4.2.1": {
+      "license": "MIT",
+      "source": "https://github.com/pinojs/sonic-boom"
+    },
+    "split2@4.2.0": {
+      "license": "ISC",
+      "source": "https://github.com/mcollina/split2"
+    },
+    "string_decoder@1.3.0": {
+      "license": "MIT",
+      "source": "https://github.com/nodejs/string_decoder"
+    },
+    "strip-json-comments@2.0.1": {
+      "license": "MIT",
+      "source": "sindresorhus/strip-json-comments"
+    },
+    "tar-fs@2.1.5": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/tar-fs"
+    },
+    "tar-stream@2.2.0": {
+      "license": "MIT",
+      "source": "https://github.com/mafintosh/tar-stream"
+    },
+    "thread-stream@3.2.0": {
+      "license": "MIT",
+      "source": "https://github.com/mcollina/thread-stream"
+    },
+    "toad-cache@3.7.4": {
+      "license": "MIT",
+      "source": "https://github.com/kibertoad/toad-cache"
+    },
+    "tslib@1.14.1": {
+      "license": "0BSD",
+      "source": "https://github.com/Microsoft/tslib"
+    },
+    "tunnel-agent@0.6.0": {
+      "license": "Apache-2.0",
+      "source": "https://github.com/mikeal/tunnel-agent"
+    },
+    "util-deprecate@1.0.2": {
+      "license": "MIT",
+      "source": "https://github.com/TooTallNate/util-deprecate"
+    },
+    "wrappy@1.0.2": {
+      "license": "ISC",
+      "source": "https://github.com/npm/wrappy"
+    }
+  }
+}

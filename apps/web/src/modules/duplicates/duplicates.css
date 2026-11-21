@@ -1,0 +1,175 @@
+/* Duplicates review card (Settings). Tokens come from styles.css. */
+
+.duplicates-card { min-width: 0; }
+.duplicates-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.duplicates-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+.duplicates-head > div { min-width: 0; }
+.duplicates-head p { margin: var(--space-1) 0 0; }
+.dup-analyzing {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.dup-progress {
+  display: block;
+  height: 3px;
+  margin-top: var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius-chip);
+  background: var(--hairline);
+}
+.dup-progress-fill { display: block; height: 100%; background: var(--accent); }
+.dup-summary {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.dup-loading { margin: var(--space-3) 0 0; }
+.duplicates-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-control);
+  color: var(--danger);
+  font-size: 13px;
+}
+.duplicates-feedback button { flex: none; color: var(--ink); }
+.dup-outcome[data-tone="warn"] { color: var(--warning); border-color: var(--warning); background: transparent; }
+
+.dup-groups { list-style: none; display: grid; gap: var(--space-3); margin: var(--space-4) 0 0; padding: 0; }
+.dup-group {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+.dup-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  width: 100%;
+  padding: 0;
+}
+.dup-group-title { min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.dup-group-meta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.dup-books { list-style: none; display: grid; margin: var(--space-2) 0 0; padding: 0; border-top: 1px solid var(--hairline); }
+.dup-book {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-chip);
+  cursor: pointer;
+}
+.dup-book:hover { background: var(--panel-2); }
+.dup-book:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+.dup-book input[type="radio"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.dup-book-body { display: grid; min-width: 0; gap: 1px; }
+.dup-book-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dup-book-meta {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dup-traits { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) var(--space-2); color: var(--ink-dim); }
+.dup-trait { display: inline-flex; }
+.dup-suggested {
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-chip);
+  background: var(--accent-wash);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.dup-aliases { margin: var(--space-2) 0 0; font-size: 12px; color: var(--ink-dim); }
+
+.dup-empty {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+}
+.dup-empty strong { color: var(--ink); font-weight: 600; }
+.dup-empty p { margin: var(--space-1) 0 0; }
+.duplicates-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }
+.dup-loaded { margin-right: auto; }
+.dup-scope { margin: var(--space-2) 0 0; }
+
+/* Dry-run modal */
+.dup-dialog { width: min(100%, 560px); }
+.dup-dialog .muted { margin: 0; }
+.dup-safety {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.dup-dialog-body { display: grid; gap: var(--space-3); min-height: 0; overflow-y: auto; }
+.dup-plan {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--sunken);
+}
+.dup-plan div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.dup-plan dt { color: var(--ink-muted); font-size: 12px; }
+.dup-plan dd { margin: 0; font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.dup-warnings { margin: 0; padding-left: var(--space-4); color: var(--warning); font-size: 12.5px; }
+.dup-warning { margin: 0; color: var(--warning); font-size: 12.5px; }
+.dup-dialog-feedback { display: grid; justify-items: start; gap: var(--space-2); }
+.dup-dialog-feedback .error { margin: 0; }
+
+@media (max-width: 768px) {
+  .duplicates-head { flex-direction: column; align-items: stretch; }
+  .dup-group-head { flex-direction: column; align-items: flex-start; }
+  .dup-group-meta { white-space: normal; }
+  .dup-book { grid-template-columns: auto minmax(0, 1fr); }
+  .dup-traits { grid-column: 2; justify-content: flex-start; }
+  .duplicates-actions { align-items: stretch; flex-direction: column; }
+  .dup-loaded { margin-right: 0; }
+  .duplicates-actions button { width: 100%; }
+  .duplicates-feedback { align-items: stretch; flex-direction: column; }
+  .duplicates-feedback button { width: 100%; }
+  .dup-plan { grid-template-columns: 1fr; }
+}

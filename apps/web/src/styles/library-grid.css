@@ -1,0 +1,172 @@
+/* Grid view */
+/*
+ * Sizing contract for the virtualized grid. `bookGrid.ts` reads these values,
+ * so the absolute rows and the cards can never drift apart. The card height
+ * leaves room for a two-line title, author, meta line, index note and the
+ * reading-progress block; the cover takes 53% and the rest belongs to the info.
+ */
+:root {
+  --book-card-height: 380px;
+  --book-card-gap: var(--space-4);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: var(--space-4);
+  margin-top: 0;
+}
+/* Virtualized grid: the container reserves the full scroll height and rows are
+   absolutely placed, so only the visible slice is mounted. */
+.virtual-grid { display: block; position: relative; }
+.grid-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: var(--book-card-gap);
+}
+.grid-row > [role="gridcell"],
+.grid-row > [role="listitem"] {
+  height: var(--book-card-height);
+  /*
+   * Grid items default to a content-based minimum height. Without this reset a
+   * card with a long title, an index note and a progress bar grows past its
+   * absolute row, so the next row paints its top border over it.
+   */
+  min-height: 0;
+  min-width: 0;
+}
+.virtual-grid .card { height: 100%; min-height: 0; max-height: 100%; }
+.virtual-grid .card-link { height: 100%; min-height: 0; }
+.virtual-grid .cover { flex: none; height: 53%; aspect-ratio: auto; }
+.virtual-grid .card-info { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* Secondary lines never shrink the title; long text is truncated, never wrapped. */
+.virtual-grid .card-info > * { flex: none; min-width: 0; }
+.virtual-grid .card-info > .progress { margin-top: auto; }
+.virtual-grid .card p,
+.virtual-grid .book-index-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card {
+  position: relative;
+  display: flex;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  overflow: hidden;
+  /* Keep the status/action overlays inside their own card's stacking context. */
+  isolation: isolate;
+  transition: border-color 0.15s, background 0.15s;
+}
+.card:hover { border-color: var(--hairline-strong); background: var(--panel-2); }
+.card-link { display: flex; flex-direction: column; width: 100%; text-decoration: none; color: inherit; }
+.cover {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: var(--panel-3);
+  border-bottom: 1px solid var(--hairline);
+}
+.placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--ink-dim);
+  background: var(--panel-3);
+}
+.placeholder.pending { background: repeating-linear-gradient(135deg, var(--panel-3) 0 10px, var(--panel-2) 10px 20px); }
+.placeholder.error { color: var(--danger); font-size: 20px; font-weight: 500; }
+.card-info { padding: var(--space-3); }
+.format {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.card h2 {
+  margin: var(--space-2) 0 2px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card p { margin: 0; color: var(--ink-muted); font-size: 13px; }
+.card-meta {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+.card-info > .progress { margin-top: var(--space-2); }
+.book-index-note { display: block; margin-top: var(--space-1); font-size: 11.5px; color: var(--ink-dim); }
+.book-index-note.error-status { color: var(--danger); }
+/* The favorite star stays visible even when the hover actions are hidden, so a
+ * favorited card reads at a glance without adding a layout row. */
+.card .card-favorite {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  border-color: var(--hairline);
+  background: var(--panel);
+}
+.card .card-favorite:hover:not(:disabled) { background: var(--panel-2); }
+.card-actions {
+  position: absolute;
+  top: var(--space-2);
+  /* Leave the star's 32 px target untouched while the row actions appear. */
+  right: calc(var(--space-2) + 36px);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.card:hover .card-actions,
+.card:focus-within .card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.delete {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.delete:hover { color: var(--danger); border-color: var(--danger); }
+.book-index-action { display: inline-flex; align-items: center; gap: var(--space-1); }
+.book-index-button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: var(--hairline);
+  background: var(--panel);
+  font-size: 12px;
+}
+.book-index-button:disabled { cursor: progress; opacity: 0.65; }
+.book-index-feedback { font-size: 11.5px; color: var(--ink-muted); white-space: nowrap; }
+.book-status {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 1;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-chip);
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 500;
+}

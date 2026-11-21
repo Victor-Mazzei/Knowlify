@@ -1,0 +1,180 @@
+/* Selection mode: card checkbox, action bar and the emphasized rows. */
+.select-checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.card-select {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.card:hover .card-select,
+.card:focus-within .card-select,
+.virtual-grid.is-selectable .card.selecting .card-select {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* Touch screens have no hover: the checkbox is always reachable. */
+@media (hover: none) {
+  .card-select { opacity: 1; pointer-events: auto; }
+}
+.card.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.virtual-grid .card.selected .card-link { background: var(--accent-wash); }
+.card.selecting .card-link { cursor: pointer; }
+
+/* Floating action bar; the extra padding on the list keeps the last row clickable. */
+.library.has-selection { padding-bottom: 7rem; }
+.selection-bar {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  width: min(calc(100vw - 2 * var(--space-4)), 52rem);
+  transform: translateX(-50%);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+.selection-summary {
+  display: flex;
+  flex: 1 1 18rem;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--space-3);
+}
+.selection-count { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.selection-hint { font-size: 12.5px; color: var(--ink-muted); }
+.selection-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.selection-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
+.selection-actions .danger-action { color: var(--danger); border-color: var(--danger); }
+.selection-actions .danger-action:hover { background: var(--danger); color: var(--on-accent); }
+
+@media (max-width: 768px) {
+  /* Five actions wrap to two rows: keep the last cards clear of the bar. */
+  .library.has-selection { padding-bottom: 11rem; }
+  .selection-bar {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-3);
+    width: auto;
+    transform: none;
+    padding: var(--space-3);
+  }
+  .selection-summary { flex-basis: 100%; }
+  .selection-actions { width: 100%; margin-left: 0; }
+  .selection-actions button { flex: 1; }
+}
+
+/* Tags in the action bar and on the cards. */
+.tag-popover {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-4) + 6rem);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(calc(100vw - 2 * var(--space-4)), 26rem);
+  max-height: min(60vh, 28rem);
+  padding: var(--space-3);
+  transform: translateX(-50%);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+.tag-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+}
+.tag-popover-error { margin: 0; color: var(--danger); font-size: 12.5px; }
+.tag-popover-list { overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.tag-popover-list > .muted { margin: var(--space-2) 0; font-size: 12.5px; }
+.tag-popover-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 34px;
+  padding: 2px 4px;
+  border-radius: var(--radius-chip);
+}
+.tag-popover-row:hover { background: var(--panel-2); }
+.tag-popover-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.tag-popover-actions { display: flex; gap: var(--space-1); }
+.tag-popover-actions button { min-height: 28px; padding: 0 8px; font-size: 12px; }
+.tag-tri { display: inline-flex; align-items: center; padding: 4px; }
+.tag-create {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+.tag-create:hover { background: var(--accent-wash); }
+.tag-popover-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--hairline);
+  font-size: 12.5px;
+}
+.tag-popover-foot a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.tag-popover-foot .ghost { min-height: 30px; padding: 0 10px; font-size: 12.5px; }
+
+.card-meta { display: flex; align-items: center; gap: var(--space-2); }
+.card-tags { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+.card-tags .tag-more { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); }
+.table-tags { display: inline-flex; align-items: center; gap: 3px; min-width: 0; }
+.table-tags .tag-more { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); }
+
+@media (max-width: 768px) {
+  .tag-popover {
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(var(--space-3) + 8.5rem);
+    width: auto;
+    transform: none;
+  }
+}

@@ -1,0 +1,177 @@
+/* Table view.
+ *
+ * Columns are fixed by the <colgroup> in BookTable.tsx, never by the content of
+ * the rows the virtualizer currently has mounted. A content-derived width would
+ * make every column resize as the window moves while scrolling.
+ *
+ * The page scrolls vertically, but the table needs horizontal overflow on
+ * narrow screens. A single wrapper with overflow-x would become the sticky
+ * containing block, so the visible header is a separate sticky element above
+ * the horizontal scroller; BookTable.tsx mirrors its scroll position.
+ */
+.table-wrap {
+  --books-table-sticky-top: var(--topbar);
+  --books-table-select: 44px;
+  --books-table-tags: 150px;
+  --books-table-title-min: 220px;
+  --books-table-author: 220px;
+  --books-table-type: 136px;
+  --books-table-progress: 96px;
+  --books-table-added: 104px;
+  --books-table-actions: 224px;
+  --books-table-min-width: calc(
+    var(--books-table-title-min) + var(--books-table-author) + var(--books-table-type) +
+    var(--books-table-progress) + var(--books-table-added) + var(--books-table-actions)
+  );
+  margin-top: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+}
+.table-wrap.has-selection {
+  --books-table-min-width: calc(
+    var(--books-table-select) + var(--books-table-title-min) + var(--books-table-author) +
+    var(--books-table-type) + var(--books-table-tags) + var(--books-table-progress) +
+    var(--books-table-added) + var(--books-table-actions)
+  );
+}
+.table-sticky-head {
+  position: sticky;
+  top: var(--books-table-sticky-top);
+  z-index: 10;
+  background: var(--sunken);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+.table-sticky-head-scroll {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+.table-scroll {
+  position: relative;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+.books-table {
+  width: 100%;
+  min-width: var(--books-table-min-width);
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.books-table .col-title { width: auto; }
+.books-table .col-select { width: var(--books-table-select); }
+.books-table .col-tags { width: var(--books-table-tags); }
+.books-table .col-author { width: var(--books-table-author); }
+.books-table .col-type { width: var(--books-table-type); }
+.books-table .col-progress { width: var(--books-table-progress); }
+.books-table .col-added { width: var(--books-table-added); }
+.books-table .col-actions { width: var(--books-table-actions); }
+.books-table th, .books-table td {
+  /* Must match TABLE_ROW_HEIGHT in BookTable.tsx: the virtualizer spaces rows by it. */
+  height: 44px;
+  padding: 0 var(--space-4);
+  vertical-align: middle;
+  text-align: left;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.books-table th {
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+/* The visual header lives outside the horizontal scroller, but the body table
+ * keeps its real <thead> for screen readers. Absolute + clipped removes it
+ * from layout without removing it from the accessibility tree. */
+.books-table-body > thead {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.books-table tbody tr { height: 44px; }
+.books-table tbody tr:last-child td { border-bottom: 0; }
+.books-table tbody tr:hover { background: var(--panel-2); }
+.books-table tbody tr.selected { background: var(--accent-wash); }
+.books-table .select-col, .books-table .select-cell { padding: 0 var(--space-3); text-align: center; }
+.books-table .select-cell .select-checkbox { vertical-align: middle; }
+.books-table .tags-cell { overflow: hidden; padding: 0 var(--space-2); }
+.books-table .tags-cell .tag-chip { max-width: 56px; }
+.books-table .title-cell a { font-weight: 500; text-decoration: none; }
+.books-table .title-cell a:hover { color: var(--accent); }
+.books-table .spacer-row td { padding: 0; border: 0; }
+.books-table tbody tr.spacer-row:hover { background: transparent; }
+.books-table .num { font-variant-numeric: tabular-nums; color: var(--ink-muted); }
+.books-table .type { display: inline-flex; align-items: center; gap: var(--space-2); max-width: 100%; min-width: 0; }
+/* An ellipsis here would look like a menu button; the controls are the content. */
+.books-table .actions { text-align: right; text-overflow: clip; }
+.row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--space-1); }
+/* The star stays visible; the index/delete buttons still appear on hover/focus. */
+.books-table .row-favorite { flex: none; }
+.books-table .book-index-feedback { font-size: 12px; color: var(--ink-muted); }
+.books-table .row-action {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.books-table tr:hover .row-action,
+.books-table tr:focus-within .row-action,
+.books-table .row-action:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: 0;
+  padding: calc(var(--space-6) * 2) var(--space-5);
+  text-align: center;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--radius-card);
+  color: var(--ink-muted);
+}
+.empty strong { color: var(--ink); font-weight: 600; }
+
+/* Progress is secondary to title and type, so it leaves the row first on narrow screens.
+ * Its column keeps a zero width so the remaining tracks stay deterministic. */
+@media (max-width: 768px) {
+  .table-wrap {
+    --books-table-title-min: 160px;
+    --books-table-author: 160px;
+    --books-table-type: 116px;
+    --books-table-progress: 0px;
+    --books-table-tags: 0px;
+    --books-table-added: 96px;
+  }
+  .books-table .progress-col,
+  .books-table .progress-cell,
+  .books-table .tags-col,
+  .books-table .tags-cell {
+    width: 0;
+    padding: 0;
+    border: 0;
+    visibility: hidden;
+  }
+}
+
+/* Favorite star in a row keeps the same 32 px target as the other row actions. */
+.books-table .favorite-button.row-action {
+  border-color: var(--hairline);
+  color: var(--ink-muted);
+}

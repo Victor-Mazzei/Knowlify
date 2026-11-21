@@ -1,0 +1,252 @@
+/* Library filters */
+.filters {
+  position: relative;
+  display: inline-flex;
+}
+.filters-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.filters-trigger:hover,
+.filters-trigger[aria-expanded="true"] {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+/* Same box as the trigger while facets are probed, so the toolbar never reflows. */
+.filters-slot { visibility: hidden; pointer-events: none; }
+.filter-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1;
+}
+.filters-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: 45;
+  width: min(340px, calc(100vw - var(--gutter) * 2));
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+.filters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+}
+.filters-head strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.filters-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+.filters-close:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.filters-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-height: min(60vh, 480px);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-y: auto;
+}
+.filter-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.filter-group legend {
+  margin-bottom: var(--space-1);
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-chip);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.filter-option:hover {
+  background: var(--panel-2);
+}
+.filter-option input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.filter-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.filter-count {
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.filter-option.is-disabled {
+  color: var(--ink-dim);
+  cursor: not-allowed;
+}
+.filter-option.is-disabled:hover {
+  background: transparent;
+}
+.filter-source-list {
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.filters-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--hairline);
+}
+.filters-footer button {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.filters-footer button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.filter-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+  padding-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.filter-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-chip);
+  background: var(--panel);
+  color: var(--ink-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.filter-chip span:last-child {
+  font-size: 14px;
+  line-height: 1;
+}
+.filter-clear {
+  flex: none;
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.filter-clear:hover {
+  color: var(--ink);
+}
+.empty-action {
+  align-self: center;
+  margin-top: var(--space-3);
+}
+
+/* Mobile: the panel becomes a full-width bottom sheet with 44px targets. */
+@media (max-width: 640px) {
+  .filters-panel {
+    position: fixed;
+    inset: auto 0 0;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-height: 82vh;
+    border-width: 1px 0 0;
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
+  }
+  .filters-body {
+    flex: 1 1 auto;
+    max-height: none;
+  }
+  .filter-option {
+    min-height: 44px;
+  }
+  .filters-close {
+    width: 44px;
+    height: 44px;
+  }
+  .filter-chips {
+    padding-right: var(--gutter);
+  }
+}
+
+/* Tag group: dots carry the palette, counts come from the facets. */
+.filter-tag-search {
+  width: 100%;
+  height: 34px;
+  margin-bottom: var(--space-2);
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+}
+.filter-tag-list { display: flex; flex-direction: column; }
+.filter-tag-list .filter-option-label { display: inline-flex; align-items: center; gap: 8px; }
+.filter-tag-empty { margin: var(--space-1) 0; font-size: 12.5px; }
+.filter-tag-manage {
+  display: inline-block;
+  margin-top: var(--space-2);
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

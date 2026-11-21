@@ -1,0 +1,35 @@
+/* Deletion review: strong confirmation without changing the shared dialog shell. */
+.delete-dialog { max-width: 34rem; }
+.delete-message { display: flex; flex-direction: column; gap: var(--space-3); }
+.delete-message p { margin: 0; }
+.delete-safe {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent);
+  color: var(--ink-muted);
+}
+.delete-note-confirm,
+.delete-type-confirm {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--sunken);
+  font-size: 13px;
+}
+.delete-note-confirm { align-items: center; }
+.delete-note-confirm input { width: 18px; height: 18px; margin: 0; accent-color: var(--danger); flex: none; }
+.delete-type-confirm { flex-direction: column; }
+.delete-type-confirm input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+}
+.delete-conflict { margin: var(--space-2) 0 0; }
+.delete-error { margin: var(--space-2) 0 0; }
+.delete-dialog .confirm-actions { margin-top: var(--space-4); }

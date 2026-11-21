@@ -1,0 +1,21 @@
+title = "Knowlify gitleaks config"
+minVersion = "v8.25.0"
+
+[extend]
+useDefault = true
+
+# Do not scope this allowlist with `paths`. Gitleaks treats a matching path as
+# a file-level allowlist even when `condition` is "AND", which would hide any
+# future secret written to scripts/e2e-account.sh. The four anchored expressions
+# below accept only the fixture credentials themselves; a longer secret that
+# contains one of them as a substring is still reported.
+[[allowlists]]
+description = "Fictitious credentials in the end-to-end account test script"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^(?:admin:)?initial-pass-1$''',
+  '''^(?:admin:)?new-pass-2222$''',
+  '''^(?:admin:)?another-pass-3$''',
+  '''^(?:admin:)?zzzzzzzz1$''',
+]

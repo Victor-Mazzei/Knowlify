@@ -1,0 +1,16 @@
+/*
+ * Design tokens and component styles split by area. The order below is the cascade:
+ * keep it when adding a file (later imports override earlier ones).
+ */
+@import "./styles/base.css";
+@import "./styles/shell.css";
+@import "./styles/library.css";
+@import "./styles/library-grid.css";
+@import "./styles/library-table.css";
+@import "./styles/folders.css";
+@import "./styles/login.css";
+@import "./styles/reader.css";
+@import "./styles/responsive.css";
+@import "./styles/dialogs.css";
+@import "./styles/settings.css";
+@import "./styles/news.css";

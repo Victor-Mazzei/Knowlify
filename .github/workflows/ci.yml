@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Check the Node.js version
+        run: |
+          node --version
+          npm --version
+          node -e 'const [major, minor] = process.versions.node.split(".").map(Number); if (major < 22 || (major === 22 && minor < 12)) { console.error("Node.js 22.12 or later is required; found " + process.versions.node); process.exit(1); }'
+
+      - name: Check the third-party notices
+        run: node scripts/third-party-notices.mjs --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the version files
+        run: npm run version:check
+
+      - name: Typecheck the server
+        run: npm run typecheck -w @knowlify/server
+
+      - name: Test the workspaces
+        run: npm test
+
+      - name: Build the server
+        run: npm run build -w @knowlify/server
+
+      - name: Build the web app
+        run: npm run build -w @knowlify/web
+
+  rust:
+    name: Desktop Rust checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the Tauri system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            libxdo-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config
+
+      - name: Add the Rust components
+        run: rustup component add clippy rustfmt
+
+      - name: Prepare the resource directory
+        run: mkdir -p apps/desktop/src-tauri/resources/server
+
+      - name: Check formatting
+        run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Check the desktop app
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Test the desktop app
+        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Run Clippy
+        run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings

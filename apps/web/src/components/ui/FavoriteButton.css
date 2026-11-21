@@ -1,0 +1,60 @@
+/* Star toggle. Component-local sizes keep the control at the 32 px target minimum. */
+.favorite-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-dim);
+  line-height: 1;
+}
+
+.favorite-button:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+.favorite-button[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.favorite-button[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--accent-wash);
+  color: var(--accent-hover);
+}
+
+/* The star <path> carries fill="none", so the pressed fill has to target the path. */
+.favorite-button[aria-pressed="true"] .favorite-button-icon path {
+  fill: currentColor;
+}
+
+.favorite-button-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.favorite-button--compact {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.favorite-button--compact .favorite-button-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.favorite-button--label {
+  padding: 0 var(--space-3);
+  font-size: 13px;
+}
+
+.favorite-button-label {
+  font-weight: 500;
+}

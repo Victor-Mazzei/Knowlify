@@ -1,0 +1,19 @@
+/* Brand mark. The logo is an inline SVG; icons live in apps/web/public. */
+.logo {
+  display: block;
+  flex: none;
+}
+
+/* About card: mark beside the heading block. The extra class outranks
+   .setting-card h2 regardless of the CSS import order. */
+.setting-card .about-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.setting-card .about-brand h2 {
+  margin: 0;
+}
+.setting-card .about-brand p {
+  margin: 2px 0 0;
+}

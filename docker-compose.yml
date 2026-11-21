@@ -1,0 +1,75 @@
+services:
+  knowlify:
+    build:
+      context: .
+      # Optional: usually set by the CI build. For a local build,
+      # set KNOWLIFY_VERSION and, if needed, KNOWLIFY_BUILD_COMMIT/KNOWLIFY_BUILD_DATE
+      # in .env before `docker compose build`.
+      args:
+        VERSION: ${KNOWLIFY_VERSION:-dev}
+        GIT_SHA: ${KNOWLIFY_BUILD_COMMIT:-dev}
+        BUILD_DATE: ${KNOWLIFY_BUILD_DATE:-}
+        SOURCE_URL: ${KNOWLIFY_SOURCE_URL:-}
+    ports:
+      - "${KNOWLIFY_PORT:-8787}:8787"
+    environment:
+      KNOWLIFY_USER: ${KNOWLIFY_USER:-admin}
+      KNOWLIFY_LIBRARY_PATHS: /library
+      # Default: the library paths themselves (/library). `any` turns off the restriction.
+      KNOWLIFY_BROWSE_ROOTS: ${KNOWLIFY_BROWSE_ROOTS:-}
+      KNOWLIFY_SCAN_INTERVAL: ${KNOWLIFY_SCAN_INTERVAL:-600}
+      KNOWLIFY_SCAN_CONCURRENCY: ${KNOWLIFY_SCAN_CONCURRENCY:-8}
+      # Empty lets the server compute min(3, CPUs-1).
+      KNOWLIFY_METADATA_WORKERS: ${KNOWLIFY_METADATA_WORKERS:-}
+      KNOWLIFY_PASSWORD: ${KNOWLIFY_PASSWORD:?set KNOWLIFY_PASSWORD in .env}
+      KNOWLIFY_INDEXING: ${KNOWLIFY_INDEXING:-on}
+      KNOWLIFY_INDEX_CONCURRENCY: ${KNOWLIFY_INDEX_CONCURRENCY:-1}
+      KNOWLIFY_INDEX_MAX_MB: ${KNOWLIFY_INDEX_MAX_MB:-200}
+      KNOWLIFY_INDEX_BACKFILL: ${KNOWLIFY_INDEX_BACKFILL:-auto}
+      # Empty lets the server compute min(3, CPUs-1) and the wiring adjust for the embeddings mode.
+      KNOWLIFY_INDEX_WORKERS: ${KNOWLIFY_INDEX_WORKERS:-}
+      KNOWLIFY_INDEX_VECTORS_MAX_BOOKS: ${KNOWLIFY_INDEX_VECTORS_MAX_BOOKS:-1000}
+      KNOWLIFY_VECTOR_SCAN_MAX: ${KNOWLIFY_VECTOR_SCAN_MAX:-300000}
+      # Image recommendation: local embeddings. Without the optional dependency, it falls back to lexical search.
+      KNOWLIFY_EMBEDDINGS: ${KNOWLIFY_EMBEDDINGS:-local}
+      KNOWLIFY_EMBEDDINGS_MODEL: ${KNOWLIFY_EMBEDDINGS_MODEL:-Xenova/multilingual-e5-small}
+      KNOWLIFY_EMBEDDINGS_URL: ${KNOWLIFY_EMBEDDINGS_URL:-}
+      KNOWLIFY_EMBEDDINGS_API_KEY: ${KNOWLIFY_EMBEDDINGS_API_KEY:-}
+      KNOWLIFY_EMBEDDINGS_OFFLINE: ${KNOWLIFY_EMBEDDINGS_OFFLINE:-}
+      KNOWLIFY_EMBEDDINGS_THREADS: ${KNOWLIFY_EMBEDDINGS_THREADS:-}
+      KNOWLIFY_MODELS_DIR: /data/models
+      # Optional tutor chat. Without URL + key + model, the chat stays off.
+      KNOWLIFY_LLM_URL: ${KNOWLIFY_LLM_URL:-}
+      KNOWLIFY_LLM_API_KEY: ${KNOWLIFY_LLM_API_KEY:-}
+      KNOWLIFY_LLM_MODEL: ${KNOWLIFY_LLM_MODEL:-}
+      KNOWLIFY_LLM_API_STYLE: ${KNOWLIFY_LLM_API_STYLE:-openai}
+      # Pass-through: unset keeps the temporary legacy session-header seed; "" or {} disables it.
+      KNOWLIFY_LLM_HEADERS:
+      KNOWLIFY_LLM_MAX_TOKENS: ${KNOWLIFY_LLM_MAX_TOKENS:-1024}
+      KNOWLIFY_LLM_TIMEOUT_SEC: ${KNOWLIFY_LLM_TIMEOUT_SEC:-120}
+      KNOWLIFY_LLM_RATE_PER_MIN: ${KNOWLIFY_LLM_RATE_PER_MIN:-20}
+      # LLM configuration from the Settings page. For an Ollama server on the host, set
+      # KNOWLIFY_LLM_ALLOW_PRIVATE=on (or the bridge CIDR) in .env.
+      KNOWLIFY_LLM_LOCKED: ${KNOWLIFY_LLM_LOCKED:-}
+      KNOWLIFY_LLM_ALLOW_PRIVATE: ${KNOWLIFY_LLM_ALLOW_PRIVATE:-}
+      # Optional: secret (>= 32 characters) that encrypts the key saved in the UI.
+      KNOWLIFY_SECRET: ${KNOWLIFY_SECRET:-}
+      # Account recovery: set to 1 to sign in with KNOWLIFY_PASSWORD after a changed password is lost.
+      KNOWLIFY_FORCE_ENV_PASSWORD: ${KNOWLIFY_FORCE_ENV_PASSWORD:-}
+      # Online metadata search. Empty values use the defaults (lookup on, no Google Books key, not locked).
+      KNOWLIFY_METADATA_LOOKUP: ${KNOWLIFY_METADATA_LOOKUP:-}
+      KNOWLIFY_GOOGLE_BOOKS_API_KEY: ${KNOWLIFY_GOOGLE_BOOKS_API_KEY:-}
+      KNOWLIFY_METADATA_LOCKED: ${KNOWLIFY_METADATA_LOCKED:-}
+      # Reverse proxy only. Empty = off. Never enable it when clients can reach the port directly.
+      KNOWLIFY_TRUST_PROXY: ${KNOWLIFY_TRUST_PROXY:-}
+      # MCP: Bearer tokens created in Settings. Do not use Traefik basic auth on /mcp.
+      KNOWLIFY_MCP: ${KNOWLIFY_MCP:-on}
+      KNOWLIFY_MCP_RATE_PER_MIN: ${KNOWLIFY_MCP_RATE_PER_MIN:-120}
+      KNOWLIFY_MCP_WRITE_RATE_PER_MIN: ${KNOWLIFY_MCP_WRITE_RATE_PER_MIN:-20}
+      KNOWLIFY_MCP_ALLOWED_ORIGINS: ${KNOWLIFY_MCP_ALLOWED_ORIGINS:-}
+      KNOWLIFY_MCP_ALLOWED_HOSTS: ${KNOWLIFY_MCP_ALLOWED_HOSTS:-}
+    volumes:
+      - ./data:/data
+      # Ebook folder (read-only), for example the SMB share mount point
+      - ${KNOWLIFY_LIBRARY_DIR:-./library}:/library:ro
+    restart: unless-stopped

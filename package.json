@@ -1,0 +1,26 @@
+{
+  "name": "knowlify",
+  "version": "1.7.1",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "apps/*"
+  ],
+  "overrides": {
+    "@xmldom/xmldom": "0.8.15"
+  },
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "test:server": "npm test -w @knowlify/server",
+    "test:web": "npm test -w @knowlify/web",
+    "dev:server": "npm run dev -w @knowlify/server",
+    "dev:web": "npm run dev -w @knowlify/web",
+    "brand:build": "node scripts/brand/build-icons.mjs",
+    "version:check": "node scripts/version.mjs check",
+    "version:set": "node scripts/version.mjs set"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "vite": "^7.3.7"
+  }
+}

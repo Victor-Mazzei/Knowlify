@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Local desktop window only. No shell or filesystem access from JavaScript.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

@@ -1,0 +1,149 @@
+name: Publish container image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/victor-mazzei/knowlify
+
+jobs:
+  publish-main:
+    name: Publish the main image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Log in to the registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the image
+        env:
+          GIT_SHA: ${{ github.sha }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -eu
+          APP_VERSION=$(node -p "require('./package.json').version")
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          docker build \
+            --build-arg VERSION="$APP_VERSION" \
+            --build-arg GIT_SHA="$GIT_SHA" \
+            --build-arg BUILD_DATE="$BUILD_DATE" \
+            --build-arg SOURCE_URL="$SOURCE_URL" \
+            --tag "$IMAGE:sha-$GIT_SHA" \
+            .
+
+      - name: Push the rolling tags
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          # `latest` tracks the newest main build. Version tags stay immutable.
+          docker tag "$IMAGE:sha-$GIT_SHA" "$IMAGE:main"
+          docker tag "$IMAGE:sha-$GIT_SHA" "$IMAGE:latest"
+          docker push "$IMAGE:sha-$GIT_SHA"
+          docker push "$IMAGE:main"
+          docker push "$IMAGE:latest"
+
+  publish-release:
+    name: Publish a release image
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Log in to the registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate the release tag
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          APP_VERSION=$(node -p "require('./package.json').version")
+          if [ "$REF" != "refs/tags/v$APP_VERSION" ]; then
+            echo "ERROR: ref $REF does not match package.json version v$APP_VERSION." >&2
+            exit 1
+          fi
+          echo "Releasing v$APP_VERSION from $REF."
+
+      - name: Verify that the release commit is on main
+        run: |
+          set -eu
+          COMMIT=$(git rev-parse --verify "HEAD^{commit}")
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
+            echo "ERROR: release commit $COMMIT is not reachable from main." >&2
+            exit 1
+          fi
+          echo "Release commit $COMMIT is reachable from main."
+
+      - name: Refuse to overwrite the version tag
+        run: |
+          set -eu
+          APP_VERSION=$(node -p "require('./package.json').version")
+          REF_TAG="$IMAGE:$APP_VERSION"
+          if output=$(docker pull "$REF_TAG" 2>&1); then
+            echo "ERROR: $REF_TAG already exists; version tags are immutable." >&2
+            exit 1
+          fi
+          if printf '%s' "$output" | grep -qiE 'no such manifest|manifest unknown|not found|404'; then
+            echo "$REF_TAG is not published yet."
+          else
+            echo "ERROR: could not determine whether $REF_TAG exists; refusing to publish." >&2
+            printf '%s\n' "$output" >&2
+            exit 1
+          fi
+
+      - name: Publish the version tag
+        env:
+          GIT_SHA: ${{ github.sha }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -eu
+          APP_VERSION=$(node -p "require('./package.json').version")
+          COMMIT=$(git rev-parse --verify "HEAD^{commit}")
+          SOURCE_REF="$IMAGE:sha-$COMMIT"
+          TARGET_REF="$IMAGE:$APP_VERSION"
+          if docker pull "$SOURCE_REF"; then
+            echo "Reusing the image built for commit $COMMIT."
+            docker tag "$SOURCE_REF" "$TARGET_REF"
+          else
+            echo "Image $SOURCE_REF is unavailable; rebuilding the same commit."
+            BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            docker build \
+              --build-arg VERSION="$APP_VERSION" \
+              --build-arg GIT_SHA="$COMMIT" \
+              --build-arg BUILD_DATE="$BUILD_DATE" \
+              --build-arg SOURCE_URL="$SOURCE_URL" \
+              --tag "$TARGET_REF" \
+              .
+          fi
+          docker push "$TARGET_REF"

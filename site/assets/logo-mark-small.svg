@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-labelledby="knowlify-favicon-title">
+  <title id="knowlify-favicon-title">Knowlify</title>
+  <style>
+    .tile { fill: #4b7862; }
+    .mark { fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      .tile { fill: #74b58f; }
+      .mark { fill: #0d100e; }
+    }
+  </style>
+  <rect class="tile" width="16" height="16" rx="3.5" />
+  <g class="mark">
+    <path d="M2.875 3.5H5.375V8.375L7.25 6.625L8.625 6.925L9.95 7.65L7.8 9.625L11.875 13.5H8.275L5.4 10.625V13.5H2.875Z" />
+    <path d="M7 2.75Q8.4 3 9.6 4.2V7.2Q8.3 6.7 7 6.1Z" />
+    <path d="M13.25 2.75Q11.4 3 10.5 4.4V7.2Q11.8 6.5 13.375 5.875Z" />
+  </g>
+</svg>

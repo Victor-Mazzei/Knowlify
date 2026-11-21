@@ -1,0 +1,228 @@
+:root {
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-chip: 6px;
+  --container: 82.5rem;
+  --gutter: clamp(1rem, 3vw, 2rem);
+  --topbar: 3.75rem;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  color-scheme: light;
+  --surface: hsl(0 0% 100%);
+  --panel: hsl(0 0% 100%);
+  --panel-2: hsl(100 17.6% 96.7%);
+  --panel-3: hsl(105 11.1% 92.9%);
+  --sunken: hsl(90 20% 98%);
+  --ink: hsl(132 8.8% 11.2%);
+  --ink-muted: hsl(140 4.7% 37.5%);
+  --ink-dim: hsl(140 4.1% 42.9%);
+  --hairline: hsl(108 9.4% 89.6%);
+  --hairline-strong: hsl(120 7.3% 83.9%);
+  --accent: hsl(150.7 23.1% 38.2%);
+  --accent-hover: hsl(150.7 24% 33.5%);
+  --accent-wash: hsl(135 20% 96.1%);
+  --on-accent: #fff;
+  --danger: hsl(8.6 59.1% 44.1%);
+  --warning: hsl(37.4 67% 35.7%);
+  --shadow-pop: 0 12px 32px hsl(132 8.8% 11.2% / 0.12);
+  --scrim: hsl(132 8.8% 11.2% / 0.35);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface: hsl(140 10.3% 5.7%);
+  --panel: hsl(135 9.5% 8.2%);
+  --panel-2: hsl(132 9.4% 10.4%);
+  --panel-3: hsl(145.7 9.3% 14.7%);
+  --sunken: hsl(140 8.6% 6.9%);
+  --ink: hsl(120 5.6% 92.9%);
+  --ink-muted: hsl(140 5.5% 67.6%);
+  --ink-dim: hsl(140 4.1% 56.7%);
+  --hairline: hsl(137.1 8.4% 16.3%);
+  --hairline-strong: hsl(135 7.3% 21.6%);
+  --accent: hsl(144.9 30.5% 58.2%);
+  --accent-hover: hsl(145.2 34.4% 64.7%);
+  --accent-wash: hsl(138 18.5% 10.6%);
+  --on-accent: hsl(140 10.3% 5.7%);
+  --danger: hsl(9 65.9% 64.3%);
+  --warning: hsl(38.4 61.6% 60%);
+  --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.5);
+  --scrim: hsl(0 0% 0% / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --surface: hsl(140 10.3% 5.7%);
+    --panel: hsl(135 9.5% 8.2%);
+    --panel-2: hsl(132 9.4% 10.4%);
+    --panel-3: hsl(145.7 9.3% 14.7%);
+    --sunken: hsl(140 8.6% 6.9%);
+    --ink: hsl(120 5.6% 92.9%);
+    --ink-muted: hsl(140 5.5% 67.6%);
+    --ink-dim: hsl(140 4.1% 56.7%);
+    --hairline: hsl(137.1 8.4% 16.3%);
+    --hairline-strong: hsl(135 7.3% 21.6%);
+    --accent: hsl(144.9 30.5% 58.2%);
+    --accent-hover: hsl(145.2 34.4% 64.7%);
+    --accent-wash: hsl(138 18.5% 10.6%);
+    --on-accent: hsl(140 10.3% 5.7%);
+    --danger: hsl(9 65.9% 64.3%);
+    --warning: hsl(38.4 61.6% 60%);
+    --shadow-pop: 0 12px 32px hsl(0 0% 0% / 0.5);
+    --scrim: hsl(0 0% 0% / 0.6);
+  }
+}
+
+* { box-sizing: border-box; }
+/* Reserve the vertical scrollbar on every route: pages of different heights must not change content width. */
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
+@supports not (scrollbar-gutter: stable) {
+  html { overflow-y: scroll; }
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+/* Custom chevron: ends 18px inside the border; 40px of text padding keeps long options clear. */
+select {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 40px;
+  text-overflow: ellipsis;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 23px) 50%,
+    calc(100% - 18px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+select:disabled { color: var(--ink-dim); cursor: not-allowed; opacity: 0.55; }
+@media (forced-colors: active) {
+  select { -webkit-appearance: auto; appearance: auto; background-image: none; }
+}
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app, .reader { min-height: 100vh; background: var(--surface); }
+
+/* Reading progress: thin rule plus the remaining amount in text, never color alone. */
+.progress { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.progress-text { font-size: 12px; line-height: 1.2; color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.progress-track {
+  display: block;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--radius-chip);
+  background: var(--hairline);
+}
+.progress-fill { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+
+/* Tags: fixed palette, contrast >= 4.5:1 for text in both themes. */
+:root {
+  --tag-gray-bg: hsl(140 6% 92%);
+  --tag-gray-fg: hsl(140 8% 26%);
+  --tag-red-bg: hsl(8 70% 94%);
+  --tag-red-fg: hsl(8 70% 33%);
+  --tag-orange-bg: hsl(25 85% 92%);
+  --tag-orange-fg: hsl(24 85% 30%);
+  --tag-amber-bg: hsl(43 90% 90%);
+  --tag-amber-fg: hsl(36 80% 26%);
+  --tag-green-bg: hsl(145 40% 90%);
+  --tag-green-fg: hsl(150 50% 24%);
+  --tag-teal-bg: hsl(180 40% 90%);
+  --tag-teal-fg: hsl(184 60% 23%);
+  --tag-blue-bg: hsl(212 65% 93%);
+  --tag-blue-fg: hsl(214 65% 32%);
+  --tag-violet-bg: hsl(263 55% 94%);
+  --tag-violet-fg: hsl(262 50% 36%);
+  --tag-pink-bg: hsl(330 60% 94%);
+  --tag-pink-fg: hsl(330 60% 35%);
+}
+
+:root[data-theme="dark"] {
+  --tag-gray-bg: hsl(140 5% 18%);
+  --tag-gray-fg: hsl(130 6% 78%);
+  --tag-red-bg: hsl(8 35% 20%);
+  --tag-red-fg: hsl(8 65% 74%);
+  --tag-orange-bg: hsl(24 35% 19%);
+  --tag-orange-fg: hsl(28 80% 72%);
+  --tag-amber-bg: hsl(40 35% 17%);
+  --tag-amber-fg: hsl(44 75% 70%);
+  --tag-green-bg: hsl(150 30% 17%);
+  --tag-green-fg: hsl(146 45% 70%);
+  --tag-teal-bg: hsl(182 30% 16%);
+  --tag-teal-fg: hsl(180 45% 68%);
+  --tag-blue-bg: hsl(214 35% 20%);
+  --tag-blue-fg: hsl(212 65% 76%);
+  --tag-violet-bg: hsl(262 30% 22%);
+  --tag-violet-fg: hsl(262 55% 80%);
+  --tag-pink-bg: hsl(330 30% 20%);
+  --tag-pink-fg: hsl(330 55% 78%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --tag-gray-bg: hsl(140 5% 18%);
+    --tag-gray-fg: hsl(130 6% 78%);
+    --tag-red-bg: hsl(8 35% 20%);
+    --tag-red-fg: hsl(8 65% 74%);
+    --tag-orange-bg: hsl(24 35% 19%);
+    --tag-orange-fg: hsl(28 80% 72%);
+    --tag-amber-bg: hsl(40 35% 17%);
+    --tag-amber-fg: hsl(44 75% 70%);
+    --tag-green-bg: hsl(150 30% 17%);
+    --tag-green-fg: hsl(146 45% 70%);
+    --tag-teal-bg: hsl(182 30% 16%);
+    --tag-teal-fg: hsl(180 45% 68%);
+    --tag-blue-bg: hsl(214 35% 20%);
+    --tag-blue-fg: hsl(212 65% 76%);
+    --tag-violet-bg: hsl(262 30% 22%);
+    --tag-violet-fg: hsl(262 55% 80%);
+    --tag-pink-bg: hsl(330 30% 20%);
+    --tag-pink-fg: hsl(330 55% 78%);
+  }
+}
+
+.tag-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.tag-chip {
+  display: inline-block;
+  max-width: 92px;
+  overflow: hidden;
+  padding: 1px 6px;
+  border-radius: var(--radius-chip);
+  font-size: 11px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-color-gray { --tag-dot: var(--tag-gray-fg); background: var(--tag-gray-bg); color: var(--tag-gray-fg); }
+.tag-color-red { --tag-dot: var(--tag-red-fg); background: var(--tag-red-bg); color: var(--tag-red-fg); }
+.tag-color-orange { --tag-dot: var(--tag-orange-fg); background: var(--tag-orange-bg); color: var(--tag-orange-fg); }
+.tag-color-amber { --tag-dot: var(--tag-amber-fg); background: var(--tag-amber-bg); color: var(--tag-amber-fg); }
+.tag-color-green { --tag-dot: var(--tag-green-fg); background: var(--tag-green-bg); color: var(--tag-green-fg); }
+.tag-color-teal { --tag-dot: var(--tag-teal-fg); background: var(--tag-teal-bg); color: var(--tag-teal-fg); }
+.tag-color-blue { --tag-dot: var(--tag-blue-fg); background: var(--tag-blue-bg); color: var(--tag-blue-fg); }
+.tag-color-violet { --tag-dot: var(--tag-violet-fg); background: var(--tag-violet-bg); color: var(--tag-violet-fg); }
+.tag-color-pink { --tag-dot: var(--tag-pink-fg); background: var(--tag-pink-bg); color: var(--tag-pink-fg); }
+.tag-dot.tag-color-gray, .tag-dot.tag-color-red, .tag-dot.tag-color-orange, .tag-dot.tag-color-amber,
+.tag-dot.tag-color-green, .tag-dot.tag-color-teal, .tag-dot.tag-color-blue, .tag-dot.tag-color-violet,
+.tag-dot.tag-color-pink { background: var(--tag-dot); }

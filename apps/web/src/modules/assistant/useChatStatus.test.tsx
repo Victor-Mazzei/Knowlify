@@ -1,0 +1,89 @@
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ApiFn } from "../../components/dialogs";
+import { clearChatStatusCache, useChatStatus } from "./useChatStatus";
+
+const CACHE_KEY = "knowlify.chat.enabled";
+
+const enabledStatus = {
+  enabled: true,
+  model: "deepseek-v4.1-flash",
+  host: "api.example.test",
+  promptVersion: "feynman-2",
+  scopes: { library: true, book: true },
+};
+
+function Harness({ api }: { api: ApiFn }) {
+  const { enabled } = useChatStatus(api);
+  return <output data-testid="ask">{String(enabled)}</output>;
+}
+
+beforeEach(() => sessionStorage.clear());
+
+describe("useChatStatus", () => {
+  it("reserves the Ask link from the session cache before the status answers", () => {
+    sessionStorage.setItem(CACHE_KEY, "1");
+    const pending = vi.fn(() => new Promise<Response>(() => undefined));
+    render(<Harness api={pending} />);
+
+    expect(screen.getByTestId("ask")).toHaveTextContent("true");
+  });
+
+  it("stores only the enabled flag for the next load", async () => {
+    const api = vi.fn(async () => new Response(JSON.stringify({ ...enabledStatus, enabled: false })));
+    render(<Harness api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId("ask")).toHaveTextContent("false"));
+    expect(sessionStorage.getItem(CACHE_KEY)).toBe("0");
+    expect(sessionStorage.length).toBe(1);
+    expect(sessionStorage.getItem(CACHE_KEY)).not.toContain("example");
+  });
+
+  it("hides a stale reserved link when the status request fails", async () => {
+    sessionStorage.setItem(CACHE_KEY, "1");
+    const api = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    render(<Harness api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId("ask")).toHaveTextContent("false"));
+    // The failed probe is not stored: the next load starts from the last confirmed answer.
+    expect(sessionStorage.getItem(CACHE_KEY)).toBe("1");
+  });
+
+  it("keeps a confirmed enabled status through a refresh", async () => {
+    const api = vi.fn(async () => new Response(JSON.stringify(enabledStatus)));
+    render(<Harness api={api} />);
+
+    await waitFor(() => expect(screen.getByTestId("ask")).toHaveTextContent("true"));
+    expect(sessionStorage.getItem(CACHE_KEY)).toBe("1");
+  });
+
+  it("drops the session cache without failing when storage is blocked", () => {
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(() => clearChatStatusCache()).not.toThrow();
+    removeItem.mockRestore();
+  });
+
+  it("does not repopulate the cache when a pending answer lands after sign-out", async () => {
+    sessionStorage.setItem(CACHE_KEY, "1");
+    let resolveResponse!: (response: Response) => void;
+    const api = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+    render(<Harness api={api} />);
+
+    clearChatStatusCache();
+    await act(async () => {
+      resolveResponse(new Response(JSON.stringify(enabledStatus)));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(sessionStorage.getItem(CACHE_KEY)).toBeNull();
+  });
+});
