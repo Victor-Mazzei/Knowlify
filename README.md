@@ -231,10 +231,8 @@ This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-Knowlify is licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). The full text is in [LICENSE](LICENSE).
+Knowlify is released under the GNU AGPL-3.0-only. See [LICENSE](LICENSE).
 
 Copyright (C) 2026 Victor Mota Mazzei.
 
-If you modify Knowlify and let users interact with your version over a network, you must offer those users the source code of your version. Section 13 of the license states this condition.
-
-This program is free software. It comes without any warranty, to the extent permitted by law.
+If you run a modified version and let users interact with it over a network, section 13 requires you to offer those users the Corresponding Source of your version at no charge.
