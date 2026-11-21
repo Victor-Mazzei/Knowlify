@@ -142,7 +142,7 @@ The base model `intfloat/multilingual-e5-small` uses the MIT license. If you put
 
 ## Local development
 
-You need Node.js 22.12 or later. Node 24 also works. If you change the Node version, run `npm install` again to rebuild the native modules `better-sqlite3` and `@napi-rs/canvas`.
+You need Node 22 LTS, current release (tested on 22.23.5); the documented minimum is 22.23.5. Node 24 also works. If you change the Node version, run `npm install` again to rebuild the native modules `better-sqlite3` and `@napi-rs/canvas`.
 
 1. Install the dependencies: `npm install`
 2. Start the API on port 8787: `npm run dev:server`

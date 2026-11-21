@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The documented minimum Node version is now 22.23.5, the oldest 22.x release the test suite passes on; the container image and the CI keep using the current Node 22 LTS release.
+
 <!--
 Integrator: add each user- or operator-visible change under Added, Changed,
 Deprecated, Removed, Fixed or Security, one line per change. This file is written in English. At

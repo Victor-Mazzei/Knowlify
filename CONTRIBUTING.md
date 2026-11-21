@@ -10,7 +10,7 @@ Thank you for your interest. This guide explains how to set up the project, run 
 
 ## Requirements
 
-- Node.js 22.12 or later. Node 24 also works.
+- Node 22 LTS, current release (tested on 22.23.5; the documented minimum is 22.23.5). Node 24 also works.
 - npm.
 - Rust and the Tauri prerequisites for the desktop app. See [apps/desktop/README.md](apps/desktop/README.md).
 
