@@ -15,6 +15,13 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [1.7.3] - 2026-11-21
+
+### Changed
+
+- Simplified the project site captions and the license line in the README.
+- Dependency updates (patch and minor): vite 7.3.8, Fastify plugins (cors, multipart, static), fast-xml-parser 5.12.1, Tauri 2.12.7 and tauri-build 2.7.6.
+
 ## [1.7.2] - 2026-11-21
 
 ### Removed
@@ -241,7 +248,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.3...HEAD
+[1.7.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.6.0...v1.7.0

@@ -361,16 +361,16 @@ h1 .accent {
   color: var(--ink-dim);
 }
 
-.colophon {
+.project-facts {
   padding: 0 0 4px clamp(20px, 3vw, 36px);
   border-left: 1px solid var(--hairline);
 }
 
-.colophon dl {
+.project-facts dl {
   margin: 16px 0 0;
 }
 
-.colophon dl > div {
+.project-facts dl > div {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -378,7 +378,7 @@ h1 .accent {
   border-top: 1px solid var(--hairline);
 }
 
-.colophon dt {
+.project-facts dt {
   font-family: var(--font-mono);
   font-size: 0.65625rem;
   font-weight: 500;
@@ -387,7 +387,7 @@ h1 .accent {
   color: var(--ink-dim);
 }
 
-.colophon dd {
+.project-facts dd {
   margin: 0;
   font-size: 0.9375rem;
   text-align: right;
@@ -426,21 +426,11 @@ h1 .accent {
 }
 
 figcaption {
-  display: flex;
-  gap: 10px;
   margin-top: 12px;
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   line-height: 1.6;
   color: var(--ink-dim);
-}
-
-figcaption span {
-  flex: none;
-  font-weight: 500;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--ink-muted);
 }
 
 .section {
@@ -1108,13 +1098,13 @@ summary:hover {
     gap: 34px;
   }
 
-  .colophon {
+  .project-facts {
     padding: 24px 0 0;
     border-top: 1px solid var(--hairline);
     border-left: 0;
   }
 
-  .colophon dl {
+  .project-facts dl {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0 32px;
@@ -1217,7 +1207,7 @@ summary:hover {
     gap: 8px 18px;
   }
 
-  .colophon dl {
+  .project-facts dl {
     grid-template-columns: minmax(0, 1fr);
   }
 
