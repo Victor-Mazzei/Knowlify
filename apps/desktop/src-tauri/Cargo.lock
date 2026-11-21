@@ -1726,7 +1726,7 @@ dependencies = [
 
 [[package]]
 name = "knowlify-desktop"
-version = "1.7.1"
+version = "1.7.2"
 dependencies = [
  "open",
  "rand 0.8.8",

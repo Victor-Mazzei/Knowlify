@@ -35,10 +35,9 @@ npm run typecheck -w @knowlify/server
 npm run build -w @knowlify/server
 npm run build -w @knowlify/web
 npm run version:check
-node scripts/third-party-notices.mjs --check
 ```
 
-`npm test` runs the tests of every workspace. Use `npm run test:server` or `npm run test:web` for one workspace. The notices check reads only `package-lock.json` and the committed `scripts/third-party-licenses.json`, so it does not need `npm ci` and gives the same result on every platform, Node.js version and npm version. Regenerate `THIRD_PARTY_NOTICES.md` with `node scripts/third-party-notices.mjs` when the production lockfile changes.
+`npm test` runs the tests of every workspace. Use `npm run test:server` or `npm run test:web` for one workspace.
 
 If you change the desktop Rust code, also run:
 

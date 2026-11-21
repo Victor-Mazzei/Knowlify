@@ -15,6 +15,12 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [1.7.2] - 2026-11-21
+
+### Removed
+
+- Generated third-party notices file (THIRD_PARTY_NOTICES.md), its generator and the pipeline check; dependency licenses stay inside each installed package.
+
 ## [1.7.1] - 2026-11-21
 
 Version 1.7.0 was tagged but never published because its release pipeline failed. 1.7.1 is the first published release and includes all 1.7.0 changes.
@@ -235,7 +241,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.5.0...v1.6.0
