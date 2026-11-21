@@ -15,7 +15,7 @@
     "@fastify/compress": "^9.3.0",
     "@fastify/cors": "^11.4.1",
     "@fastify/multipart": "^10.1.8",
-    "@fastify/static": "^10.1.10",
+    "@fastify/static": "^10.1.11",
     "@modelcontextprotocol/node": "^2.1.2",
     "@modelcontextprotocol/server": "^2.4.0",
     "@napi-rs/canvas": "^0.1.100",
