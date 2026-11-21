@@ -6,7 +6,7 @@ The app remembers the last working connection and reconnects on its own at the n
 ## Requirements
 
 - Install Rust and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
-- Install Node.js and npm. Keep Node on `PATH`, or set `KNOWLIFY_NODE` to its absolute executable path.
+- Install Node.js and npm. The local server needs Node 22 LTS, current release (tested on 22.23.5; the documented minimum is 22.23.5). Node 24 also works. Keep Node on `PATH`, or set `KNOWLIFY_NODE` to its absolute executable path.
 - Use the same Node major version to prepare and run the local server. Its `better-sqlite3` module has a native ABI.
 - Prepare packages on each target OS and architecture. Native SQLite dependencies prevent portable cross-platform resource copies.
 

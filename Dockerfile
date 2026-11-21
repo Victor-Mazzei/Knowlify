@@ -2,6 +2,8 @@ ARG VERSION=dev
 ARG GIT_SHA=dev
 ARG BUILD_DATE=
 
+# The floating Node 22 tag pulls the latest 22.x LTS patch on every rebuild,
+# including security fixes. Keep the major at 22.
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

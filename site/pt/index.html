@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<!--
+  Knowlify project page in Portuguese (pt-BR). No build step. No third-party
+  requests.
+
+  Publishing: the export script fills in the repository owner in links, the
+  image name and the canonical and Open Graph URLs. The site is served from the
+  repository subpath (/Knowlify/pt/); keep every asset, style and script link
+  relative so it resolves under that prefix. Everything under site/ is
+  self-contained, and this page shares the main page's styles.css.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowlify - Uma biblioteca de livros PDF e EPUB que funciona localmente</title>
+<meta name="description" content="O Knowlify é uma biblioteca auto-hospedada de livros PDF e EPUB que funciona localmente. Leia no navegador ou no app desktop, guarde notas, pesquise o texto e conecte um tutor de IA opcional.">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://victor-mazzei.github.io/Knowlify/pt/">
+<link rel="alternate" hreflang="en" href="https://victor-mazzei.github.io/Knowlify/">
+<link rel="alternate" hreflang="pt-BR" href="https://victor-mazzei.github.io/Knowlify/pt/">
+<link rel="alternate" hreflang="x-default" href="https://victor-mazzei.github.io/Knowlify/">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d100e" media="(prefers-color-scheme: dark)">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Knowlify">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:title" content="Knowlify - Seus livros. Suas notas. Sua máquina.">
+<meta property="og:description" content="Uma biblioteca auto-hospedada para livros PDF e EPUB, com busca, notas, progresso de leitura e um tutor de IA opcional.">
+<meta property="og:url" content="https://victor-mazzei.github.io/Knowlify/pt/">
+<meta property="og:image" content="https://victor-mazzei.github.io/Knowlify/assets/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Marca do Knowlify e uma captura da grade da biblioteca.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Knowlify - Seus livros. Suas notas. Sua máquina.">
+<meta name="twitter:description" content="Uma biblioteca auto-hospedada para livros PDF e EPUB, com busca, notas, progresso de leitura e um tutor de IA opcional.">
+<meta name="twitter:image" content="https://victor-mazzei.github.io/Knowlify/assets/img/og.png">
+
+<link rel="icon" href="../favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../apple-touch-icon.png">
+<link rel="preload" href="../assets/fonts/geist-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/geist-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../styles.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Knowlify",
+  "applicationCategory": "BooksApplication",
+  "operatingSystem": "Linux, macOS, Windows, Web",
+  "description": "Uma biblioteca auto-hospedada de livros PDF e EPUB que funciona localmente, com progresso de leitura, notas, tags, busca e um tutor de IA opcional.",
+  "inLanguage": "pt-BR",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "codeRepository": "https://github.com/Victor-Mazzei/Knowlify",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Ir para o conteúdo</a>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <a class="brand" href="#top" aria-label="Knowlify, voltar ao topo">
+      <img src="../assets/logo-mark.svg" alt="" width="32" height="32">
+      <span>Knowlify</span>
+    </a>
+    <nav class="site-nav" aria-label="Principal">
+      <a href="#what">O que é</a>
+      <a href="#tour">Tour</a>
+      <a href="#privacy">Privacidade</a>
+      <a href="#start">Início rápido</a>
+      <a href="#tools">Ferramentas</a>
+    </nav>
+    <a class="header-repo" href="https://github.com/Victor-Mazzei/Knowlify">GitHub</a>
+    <nav class="lang-switch" aria-label="Idioma">
+      <a href="../" lang="en" hreflang="en">English</a>
+      <a href="./" lang="pt-BR" hreflang="pt-BR" aria-current="page">Português</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top" aria-labelledby="hero-title">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow">Biblioteca de leitura auto-hospedada</p>
+        <h1 id="hero-title">Seus livros. Suas notas.<span class="accent">Sua máquina.</span></h1>
+        <p class="lede">O Knowlify indexa uma pasta de livros PDF e EPUB e oferece um lugar tranquilo para ler, pesquisar e guardar o que você aprende. Ele roda no seu hardware.</p>
+        <div class="actions">
+          <a class="button" href="#start">Comece com Docker</a>
+          <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify">Ver o código-fonte</a>
+        </div>
+        <ul class="hero-facts">
+          <li>AGPL-3.0</li>
+          <li>Uma conta local</li>
+          <li>Docker ou desktop</li>
+        </ul>
+      </div>
+      <aside class="project-facts" aria-labelledby="project-facts-title">
+        <p class="eyebrow" id="project-facts-title">Ficha do projeto</p>
+        <dl>
+          <div><dt>Biblioteca</dt><dd>PDF e EPUB</dd></div>
+          <div><dt>Leitor</dt><dd>Web e desktop</dd></div>
+          <div><dt>Busca</dt><dd>Texto completo, vetores opcionais</dd></div>
+          <div><dt>Armazenamento</dt><dd>SQLite e arquivos seus</dd></div>
+          <div><dt>Clientes</dt><dd>KOReader e ferramentas MCP</dd></div>
+        </dl>
+      </aside>
+    </div>
+
+    <figure class="wrap hero-plate">
+      <div class="plate-frame">
+        <picture>
+          <source srcset="../assets/img/library-dark-720.webp 720w, ../assets/img/library-dark-1080.webp 1080w, ../assets/img/library-dark.webp 1440w" sizes="(max-width: 1180px) calc(100vw - 40px), 1066px" media="(prefers-color-scheme: dark)">
+          <source srcset="../assets/img/library-light-720.webp 720w, ../assets/img/library-light-1080.webp 1080w, ../assets/img/library-light.webp 1440w" sizes="(max-width: 1180px) calc(100vw - 40px), 1066px">
+          <img src="../assets/img/library-light.webp" width="1440" height="900" alt="A biblioteca do Knowlify em modo grade: 18 livros de domínio público com capas, favoritos, tags e progresso de leitura." fetchpriority="high" decoding="async">
+        </picture>
+      </div>
+      <figcaption>A biblioteca rodando localmente com 18 livros de domínio público. O tema acompanha o sistema. A interface do app está em inglês por enquanto.</figcaption>
+    </figure>
+  </section>
+
+  <section class="section" id="what" aria-labelledby="what-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">01</p>
+        <div>
+          <p class="eyebrow">O que é</p>
+          <h2 id="what-title">Uma biblioteca, não uma loja.</h2>
+          <p class="section-lede">O Knowlify é uma central de conhecimento para os livros que você já tem. Aponte-o para uma pasta. Ele lê capas e metadados em segundo plano e deixa os arquivos onde estão. Notas, tags, progresso de leitura e o índice de busca ficam em um banco SQLite local.</p>
+        </div>
+      </header>
+
+      <div class="what-grid">
+        <div class="what-copy">
+          <p>Use como catálogo privado, mesa de leitura e um lugar para guardar o que você quer lembrar. Não há loja, feed de recomendações nem conta na nuvem. O servidor tem um único usuário.</p>
+          <p>A mesma biblioteca está disponível na interface web, no app desktop em Tauri, no KOReader e, se você quiser, em ferramentas de IA por um endpoint MCP.</p>
+        </div>
+        <ul class="index-list">
+          <li><span class="index-num">01</span><span class="index-name">Livros</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">PDF, EPUB</span></li>
+          <li><span class="index-num">02</span><span class="index-name">Leitura</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">Progresso, notas, citações</span></li>
+          <li><span class="index-num">03</span><span class="index-name">Organização</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">Tags, favoritos, filtros</span></li>
+          <li><span class="index-num">04</span><span class="index-name">Descoberta</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">FTS5, embeddings opcionais</span></li>
+          <li><span class="index-num">05</span><span class="index-name">Assistente</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">Tutor LLM opcional</span></li>
+          <li><span class="index-num">06</span><span class="index-name">Clientes</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">OPDS, KOSync, MCP</span></li>
+          <li><span class="index-num">07</span><span class="index-name">Notícias</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">Feeds RSS que você escolhe</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tour" aria-labelledby="tour-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">02</p>
+        <div>
+          <p class="eyebrow">Um tour rápido</p>
+          <h2 id="tour-title">Feito para o jeito como você usa uma biblioteca.</h2>
+          <p class="section-lede">Navegue, abra, leia, anote e volte depois. Os detalhes abaixo vêm do app em execução, não de um mockup.</p>
+        </div>
+      </header>
+
+      <article class="feature" aria-labelledby="feature-library">
+        <figure class="plate">
+          <div class="plate-frame">
+            <img src="../assets/img/library-filters.webp" srcset="../assets/img/library-filters-720.webp 720w, ../assets/img/library-filters.webp 1440w" sizes="(max-width: 980px) calc(100vw - 40px), 640px" width="1440" height="900" alt="A biblioteca filtrada por favoritos, com seis livros e etiquetas de filtro removíveis." loading="lazy" decoding="async">
+          </div>
+          <figcaption>Favoritos, com etiquetas de filtro e uma contagem na barra de ferramentas.</figcaption>
+        </figure>
+        <div class="feature-copy">
+          <p class="eyebrow">Biblioteca</p>
+          <h3 id="feature-library">Uma estante que você molda.</h3>
+          <p>Alterne entre a grade de capas e a tabela de dados. Filtre por formato, tag, favorito, status de leitura, pasta ou notas. Ordene pelo último livro aberto, por título ou por autor.</p>
+          <ul class="ticks">
+            <li>Visualizações em grade e tabela</li>
+            <li>Tags com nove cores</li>
+            <li>Filtros guardados na URL</li>
+            <li>Ações em lote para tags, favoritos e exclusão</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature reverse" aria-labelledby="feature-details">
+        <figure class="plate">
+          <div class="plate-frame">
+            <img src="../assets/img/book-details.webp" srcset="../assets/img/book-details-720.webp 720w, ../assets/img/book-details.webp 1440w" sizes="(max-width: 980px) calc(100vw - 40px), 640px" width="1440" height="900" alt="A página de detalhes de Orgulho e Preconceito: capa, autoria, botão Continue, estrela de favorito, progresso de leitura, tags, notas e ações de edição." loading="lazy" decoding="async">
+          </div>
+          <figcaption>Detalhes do livro, com notas recentes e metadados editáveis.</figcaption>
+        </figure>
+        <div class="feature-copy">
+          <p class="eyebrow">Detalhes do livro</p>
+          <h3 id="feature-details">Todo livro tem um registro.</h3>
+          <p>A página de detalhes reúne capa, autoria, série, ano, editora, idioma, ISBN e seu progresso de leitura. Edite qualquer campo, adicione uma capa personalizada e desfaça depois. O arquivo EPUB ou PDF não muda.</p>
+          <ul class="ticks">
+            <li>Metadados editados sobrevivem a novas varreduras</li>
+            <li>Busca online só quando você pede</li>
+            <li>Notas recentes na mesma página</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="spotlight" aria-labelledby="feature-reader">
+        <div class="spotlight-copy">
+          <p class="eyebrow">Leitor e tutor</p>
+          <h3 id="feature-reader">Leia com o tutor ao lado.</h3>
+          <p>O leitor abre arquivos EPUB e PDF no navegador ou no app desktop e salva sua posição. Selecione um trecho para perguntar sobre ele ou abra o tutor com Alt+T. As respostas citam os trechos que usam.</p>
+          <ul class="ticks inline">
+            <li>Controle de tamanho do texto no EPUB</li>
+            <li>Painel lateral de notas</li>
+            <li>Este livro ou a biblioteca inteira</li>
+          </ul>
+        </div>
+        <figure class="plate wide">
+          <div class="plate-frame">
+            <img src="../assets/img/reader-tutor.webp" srcset="../assets/img/reader-tutor-720.webp 720w, ../assets/img/reader-tutor-1080.webp 1080w, ../assets/img/reader-tutor.webp 1440w" sizes="(max-width: 1180px) calc(100vw - 40px), 1066px" width="1440" height="900" alt="O leitor mostrando um capítulo de Orgulho e Preconceito, com o painel do tutor aberto e uma resposta citada sobre o primeiro pedido de casamento de Darcy." loading="lazy" decoding="async">
+          </div>
+          <figcaption>O tutor responde a partir dos trechos recuperados e marca as citações.</figcaption>
+        </figure>
+      </article>
+
+      <article class="feature" aria-labelledby="feature-notes">
+        <figure class="plate">
+          <div class="plate-frame">
+            <img src="../assets/img/notes.webp" srcset="../assets/img/notes-720.webp 720w, ../assets/img/notes.webp 1440w" sizes="(max-width: 980px) calc(100vw - 40px), 640px" width="1440" height="900" alt="A página de notas com doze notas agrupadas em cartões por livro, cada uma com uma citação e um comentário." loading="lazy" decoding="async">
+          </div>
+          <figcaption>Notas agrupadas por livro, da mais recente para a mais antiga.</figcaption>
+        </figure>
+        <div class="feature-copy">
+          <p class="eyebrow">Notas</p>
+          <h3 id="feature-notes">As notas ficam com o livro.</h3>
+          <p>Salve uma ideia ou uma citação do leitor. A página de notas agrupa tudo por livro e pesquisa na biblioteca inteira. Cada nota guarda sua localização, para você voltar à página que a originou.</p>
+          <ul class="ticks">
+            <li>Citações e notas livres</li>
+            <li>Busca em todos os livros</li>
+            <li>Recolha um livro ou carregue o restante das notas</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="feature reverse" aria-labelledby="feature-mcp">
+        <figure class="plate">
+          <div class="plate-frame">
+            <img src="../assets/img/settings-mcp.webp" srcset="../assets/img/settings-mcp-720.webp 720w, ../assets/img/settings-mcp.webp 1440w" sizes="(max-width: 980px) calc(100vw - 40px), 640px" width="1440" height="900" alt="O cartão de acesso MCP em Settings: endpoint, nenhum token ativo, campo de nome do token, escopos somente leitura e escrita, e o botão Create token." loading="lazy" decoding="async">
+          </div>
+          <figcaption>Acesso MCP sem tokens. Um novo token é mostrado uma única vez.</figcaption>
+        </figure>
+        <div class="feature-copy">
+          <p class="eyebrow">MCP</p>
+          <h3 id="feature-mcp">Sua biblioteca, dentro das suas ferramentas de IA.</h3>
+          <p>Crie um token em Settings. O Claude Code, o Cursor e o Claude Desktop podem então pesquisar trechos, listar livros, ler notas e, com permissão de escrita, adicionar notas ou tags. Não há ferramenta que apague dados.</p>
+          <ul class="ticks">
+            <li>Escopo somente leitura ou write_notes</li>
+            <li>Só um hash SHA-256 é armazenado</li>
+            <li>A revogação é imediata</li>
+          </ul>
+        </div>
+      </article>
+
+      <div class="tech-grid">
+        <div>
+          <p class="eyebrow">Busca</p>
+          <h3>Palavra-chave e significado.</h3>
+          <p>O FTS5 do SQLite encontra trechos por palavra-chave. Com embeddings ativados, o mesmo índice também encontra trechos por significado. Use um modelo local ou um endpoint HTTP que você controla.</p>
+        </div>
+        <div>
+          <p class="eyebrow">Indexação</p>
+          <h3>Indexado em segundo plano.</h3>
+          <p>Um conjunto de workers extrai texto e imagens de capa. As configurações mostram a fila, a taxa, o tempo estimado e um controle de pausa. Um livro com falha não para a biblioteca.</p>
+        </div>
+        <div>
+          <p class="eyebrow">Tutor</p>
+          <h3>Respostas com fontes.</h3>
+          <p>O tutor opcional primeiro recupera trechos e depois consulta o LLM. Os marcadores de citação levam de volta ao texto. A persona padrão usa o método Feynman e pode ser editada em Settings.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="privacy" aria-labelledby="privacy-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">03</p>
+        <div>
+          <p class="eyebrow">Local por padrão</p>
+          <h2 id="privacy-title">Seus dados continuam seus.</h2>
+          <p class="section-lede">O Knowlify é um software que você roda, não um serviço por assinatura. O banco de dados, as capas, as notas e o progresso de leitura ficam em uma pasta que você controla.</p>
+        </div>
+      </header>
+
+      <div class="privacy-grid">
+        <div class="privacy-copy">
+          <div class="privacy-point">
+            <h3>As pastas de origem são somente leitura.</h3>
+            <p>O Knowlify indexa as pastas que você adiciona e nunca escreve nelas. Apague um livro de uma pasta de origem pelo app e o arquivo continua onde está. Um compartilhamento externo ou um disco montado está a salvo da biblioteca.</p>
+          </div>
+          <div class="privacy-point">
+            <h3>Os segredos são protegidos em repouso.</h3>
+            <p>A senha é armazenada como hash scrypt. Os tokens MCP são armazenados como hashes SHA-256 e mostrados uma única vez. A chave do LLM é cifrada com AES-256-GCM, e as configurações só informam se existe uma chave. Um provedor malicioso já tem a chave e pode repeti-la em uma resposta em streaming; o app não remove a chave da resposta.</p>
+          </div>
+          <div class="privacy-point">
+            <h3>Sem analytics. Sem telemetria.</h3>
+            <p>O app não inclui SDK de analytics. Esta página carrega apenas arquivos da mesma origem: sem CDN, sem fonte hospedada e sem rastreador.</p>
+          </div>
+        </div>
+
+        <div class="egress">
+          <h3>O que pode sair da máquina</h3>
+          <dl>
+            <div>
+              <dt>Arquivos e capas dos livros</dt>
+              <dd><span class="egress-mark">Só os seus clientes</span> Guardados no disco, com as pastas de origem tratadas como somente leitura. Clientes web e OPDS autenticados podem baixar livros e capas. Clientes MCP recebem texto e metadados, não caminhos de arquivo nem imagens de capa.</dd>
+            </div>
+            <div>
+              <dt>Biblioteca e índice de busca</dt>
+              <dd><span class="egress-mark">Só os seus clientes</span> Guardados em <code>data/</code> no seu disco. Clientes web, OPDS e MCP autenticados podem consultar a biblioteca e seu índice de busca. O provedor do cliente MCP recebe o que o cliente pedir.</dd>
+            </div>
+            <div>
+              <dt>Texto dos livros para embeddings</dt>
+              <dd><span class="egress-mark">Quando configurado</span> Um endpoint HTTP de embeddings recebe o texto dos trechos durante a indexação. O modelo local roda na máquina.</dd>
+            </div>
+            <div>
+              <dt>Título, autoria ou ISBN</dt>
+              <dd><span class="egress-mark">A pedido</span> Só quando você busca metadados. O Open Library recebe a consulta; o Google Books é a alternativa.</dd>
+            </div>
+            <div>
+              <dt>Perguntas e trechos</dt>
+              <dd><span class="egress-mark">A pedido</span> Só quando você usa o tutor. Um provedor de LLM remoto recebe a pergunta e os trechos recuperados.</dd>
+            </div>
+            <div>
+              <dt>Trechos e notas</dt>
+              <dd><span class="egress-mark">Quando conectado</span> Só quando um cliente MCP os pede. O cliente e o provedor dele recebem a resposta.</dd>
+            </div>
+            <div>
+              <dt>Requisições de feeds RSS</dt>
+              <dd><span class="egress-mark">Quando buscados</span> As URLs de feeds que você adiciona são requisitadas. O texto dos artigos é sanitizado e guardado localmente.</dd>
+            </div>
+          </dl>
+          <p class="egress-note">Toda requisição de saída é uma configuração deliberada ou uma ação na interface. O servidor bloqueia SSRF para URLs fornecidas pelo usuário e mantém os limites no código, não em uma página de política.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="start" aria-labelledby="start-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">04</p>
+        <div>
+          <p class="eyebrow">Início rápido</p>
+          <h2 id="start-title">Rode na sua máquina.</h2>
+          <p class="section-lede">A imagem publicada contém a API e o app web. O Compose monta sua pasta de ebooks como somente leitura e mantém o banco em <code>./data</code>.</p>
+        </div>
+      </header>
+
+      <div class="start-grid">
+        <div class="start-steps">
+          <ol class="steps">
+            <li>
+              <h3>Salve o arquivo Compose</h3>
+              <p>Use o exemplo abaixo. Defina <code>KNOWLIFY_PASSWORD</code> e <code>KNOWLIFY_LIBRARY_DIR</code> no seu shell ou em um arquivo <code>.env</code> local.</p>
+            </li>
+            <li>
+              <h3>Inicie o contêiner</h3>
+              <p>A primeira varredura começa na inicialização. A pasta da biblioteca é montada em <code>/library</code> e nunca é escrita.</p>
+            </li>
+            <li>
+              <h3>Abra a biblioteca</h3>
+              <p>Acesse <code>http://localhost:8787</code> e entre como <code>admin</code> com a senha que você definiu. Adicione mais pastas em Settings, Folders.</p>
+            </li>
+            <li>
+              <h3>Guarde os dados</h3>
+              <p>Faça backup de <code>./data</code>. Ele contém o banco, os livros enviados e as capas. Para atualizar, baixe a imagem de novo e reinicie o serviço.</p>
+            </li>
+          </ol>
+
+          <details class="source-build">
+            <summary>Compile a partir do código-fonte</summary>
+            <p>Você precisa de Node.js 22.12 ou mais recente e Docker. O app web e o servidor são compilados dentro da imagem.</p>
+            <pre tabindex="0"><code>git clone https://github.com/Victor-Mazzei/Knowlify.git
+cd knowlify
+cp .env.example .env
+# Set KNOWLIFY_PASSWORD and KNOWLIFY_LIBRARY_DIR in .env.
+docker compose up -d --build</code></pre>
+          </details>
+        </div>
+
+        <div class="code-stack">
+          <div class="code-block">
+            <div class="code-head">
+              <span>compose.yaml</span>
+              <button type="button" class="copy" data-copy="compose-code" aria-label="Copiar o arquivo Docker Compose" hidden>Copiar</button>
+            </div>
+            <pre tabindex="0"><code id="compose-code">services:
+  knowlify:
+    image: ghcr.io/victor-mazzei/knowlify:latest
+    ports:
+      - "8787:8787"
+    environment:
+      KNOWLIFY_PASSWORD: ${KNOWLIFY_PASSWORD:?set KNOWLIFY_PASSWORD}
+      KNOWLIFY_LIBRARY_PATHS: /library
+    volumes:
+      - ./data:/data
+      - ${KNOWLIFY_LIBRARY_DIR:-./library}:/library:ro
+    restart: unless-stopped</code></pre>
+          </div>
+
+          <div class="code-block">
+            <div class="code-head">
+              <span>Terminal</span>
+              <button type="button" class="copy" data-copy="start-code" aria-label="Copiar os comandos de inicialização" hidden>Copiar</button>
+            </div>
+            <pre tabindex="0"><code id="start-code">export KNOWLIFY_PASSWORD='choose-a-long-password'
+export KNOWLIFY_LIBRARY_DIR=/path/to/your/ebooks
+docker compose up -d</code></pre>
+          </div>
+          <p class="code-note">O nome da imagem usa a conta ou organização que publica o pacote. Ajuste-o se publicar em outro registro.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tools" aria-labelledby="tools-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">05</p>
+        <div>
+          <p class="eyebrow">Conecte suas ferramentas</p>
+          <h2 id="tools-title">Uma biblioteca, mais de uma janela.</h2>
+          <p class="section-lede">O Knowlify fala os protocolos que leitores e clientes de IA já usam. Use a mesma senha da conta no KOReader. Crie um token separado para o MCP.</p>
+        </div>
+      </header>
+
+      <div class="tool-grid">
+        <section class="tool-card" aria-labelledby="tool-koreader">
+          <p class="eyebrow">KOReader</p>
+          <h3 id="tool-koreader">Navegue e sincronize em um e-reader.</h3>
+          <p>O KOReader abre o catálogo OPDS como uma lista de livros. O KOSync leva a posição de leitura de um lado para o outro. Os dois usam a senha da conta, não um token MCP.</p>
+          <dl class="tool-facts">
+            <div><dt>Catálogo OPDS</dt><dd><code>http://YOUR-SERVER:8787/opds</code></dd></div>
+            <div><dt>KOSync</dt><dd><code>http://YOUR-SERVER:8787/kosync</code></dd></div>
+            <div><dt>Conta</dt><dd>Seu usuário e senha do Knowlify</dd></div>
+          </dl>
+          <p class="tool-note">Use HTTPS quando o servidor estiver acessível fora da sua rede. Um proxy reverso pode terminar o TLS.</p>
+        </section>
+
+        <section class="tool-card" aria-labelledby="tool-mcp">
+          <p class="eyebrow">MCP</p>
+          <h3 id="tool-mcp">Pergunte no Claude Code, Cursor ou Claude Desktop.</h3>
+          <p>O endpoint é Streamable HTTP sem estado. Crie um token em Settings, MCP access. O token é mostrado uma única vez. Substitua o endereço de loopback pelo endereço do seu servidor.</p>
+          <div class="code-block compact">
+            <div class="code-head">
+              <span>Claude Code</span>
+              <button type="button" class="copy" data-copy="mcp-claude-code" aria-label="Copiar o comando do Claude Code" hidden>Copiar</button>
+            </div>
+            <pre tabindex="0"><code id="mcp-claude-code">claude mcp add --transport http knowlify \
+  http://127.0.0.1:8787/mcp \
+  --header "Authorization: Bearer &lt;TOKEN&gt;"</code></pre>
+          </div>
+          <details class="mcp-more">
+            <summary>Cursor e Claude Desktop</summary>
+            <p>O Cursor lê <code>~/.cursor/mcp.json</code>. O Claude Desktop precisa da ponte <code>mcp-remote</code>.</p>
+            <div class="code-block compact">
+              <div class="code-head">
+                <span>Cursor</span>
+                <button type="button" class="copy" data-copy="mcp-cursor" aria-label="Copiar a configuração do Cursor" hidden>Copiar</button>
+              </div>
+              <pre tabindex="0"><code id="mcp-cursor">{
+  "mcpServers": {
+    "knowlify": {
+      "url": "http://127.0.0.1:8787/mcp",
+      "headers": { "Authorization": "Bearer &lt;TOKEN&gt;" }
+    }
+  }
+}</code></pre>
+            </div>
+            <div class="code-block compact">
+              <div class="code-head">
+                <span>Claude Desktop</span>
+                <button type="button" class="copy" data-copy="mcp-desktop" aria-label="Copiar a configuração do Claude Desktop" hidden>Copiar</button>
+              </div>
+              <pre tabindex="0"><code id="mcp-desktop">{
+  "mcpServers": {
+    "knowlify": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote",
+        "http://127.0.0.1:8787/mcp",
+        "--header", "Authorization: Bearer &lt;TOKEN&gt;"]
+    }
+  }
+}</code></pre>
+            </div>
+          </details>
+          <p class="tool-note">O escopo read expõe busca, livros, notas, tags e status da indexação. O escopo write_notes adiciona a criação de notas e mudanças de tags. Nenhuma ferramenta apaga dados. Seu app de IA e o provedor dele recebem os trechos e notas que pedirem.</p>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="desktop" aria-labelledby="desktop-title">
+    <div class="wrap desktop-grid">
+      <div class="desktop-copy">
+        <p class="eyebrow">Desktop e celular</p>
+        <h2 id="desktop-title">Na mesa. Na mochila.</h2>
+        <p>O app desktop em Tauri empacota a mesma interface React em uma janela nativa. O modo local inicia um servidor na sua máquina. O modo remoto conecta ao servidor que você já roda, por HTTPS fora da sua rede. O modo local precisa de Node.js; o modo remoto, não.</p>
+        <ul class="ticks">
+          <li>Linux, macOS e Windows a partir do conjunto de ferramentas do Tauri</li>
+          <li>Servidor local ou remoto na inicialização</li>
+          <li>A interface web se adapta ao navegador do celular</li>
+        </ul>
+        <p><a class="text-link" href="https://github.com/Victor-Mazzei/Knowlify/blob/main/apps/desktop/README.md">Configuração e build do desktop</a></p>
+      </div>
+      <figure class="phone-plate">
+        <div class="plate-frame">
+          <img src="../assets/img/library-mobile.webp" width="390" height="844" alt="A biblioteca em uma tela de 390 pixels de largura: uma grade de duas colunas de capas sob o cabeçalho do Knowlify." loading="lazy" decoding="async">
+        </div>
+        <figcaption>A mesma biblioteca em 390 px.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section license" id="license" aria-labelledby="license-title">
+    <div class="wrap license-grid">
+      <div>
+        <p class="eyebrow">Licença</p>
+        <h2 id="license-title">Software livre, com o código-fonte disponível.</h2>
+      </div>
+      <div>
+        <p>Licenciado sob <a href="https://github.com/Victor-Mazzei/Knowlify/blob/main/LICENSE">AGPL-3.0-only</a>.</p>
+        <div class="actions">
+          <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify">Obter o código-fonte</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap footer-grid">
+    <div>
+      <a class="brand" href="#top" aria-label="Knowlify, voltar ao topo">
+        <img src="../assets/logo-mark.svg" alt="" width="28" height="28">
+        <span>Knowlify</span>
+      </a>
+      <p class="footer-note">Software auto-hospedado para os livros que você tem. Uma conta local. Nenhum serviço na nuvem.</p>
+    </div>
+    <nav aria-label="Rodapé">
+      <a href="#what">O que é</a>
+      <a href="#privacy">Privacidade</a>
+      <a href="#start">Início rápido</a>
+      <a href="#license">Licença</a>
+    </nav>
+    <div class="footer-meta">
+      <p>Feito com React, Fastify, SQLite e Tauri.</p>
+      <p>As capturas usam uma biblioteca de demonstração com livros de domínio público do <a href="https://standardebooks.org/">Standard Ebooks</a>.</p>
+    </div>
+  </div>
+</footer>
+
+<p id="copy-status" class="visually-hidden" aria-live="polite"></p>
+
+<script>
+(() => {
+  const status = document.getElementById("copy-status");
+  const fallback = (text) => {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "-1000px";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("copy failed");
+  };
+  const write = async (text) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    fallback(text);
+  };
+  for (const button of document.querySelectorAll("button[data-copy]")) {
+    button.hidden = false;
+    const label = button.getAttribute("aria-label") || "Copiar";
+    button.addEventListener("click", async () => {
+      const target = document.getElementById(button.dataset.copy);
+      if (!target) return;
+      try {
+        await write(target.textContent);
+        button.textContent = "Copiado";
+        button.setAttribute("aria-label", "Copiado para a área de transferência");
+        status.textContent = "Copiado para a área de transferência.";
+        window.setTimeout(() => {
+          button.textContent = "Copiar";
+          button.setAttribute("aria-label", label);
+        }, 1800);
+      } catch {
+        status.textContent = "Não foi possível copiar. Selecione o texto e copie.";
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>
