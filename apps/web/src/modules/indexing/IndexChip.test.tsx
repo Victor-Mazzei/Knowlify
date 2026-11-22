@@ -59,7 +59,8 @@ describe("IndexChip", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Indexing paused");
     expect(screen.getByRole("button", { name: "Resume search indexing" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/index/pause", { method: "POST" }));
-    expect(refresh).toHaveBeenCalled();
+    // The refresh runs after the pause response body is read, not when the POST starts.
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
   it("rolls back a failed pause and keeps the error available", async () => {

@@ -93,7 +93,8 @@ describe("SearchIndexCard", () => {
     expect(await screen.findByRole("button", { name: "Resume indexing" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Paused")).toBeInTheDocument();
     await waitFor(() => expect(api).toHaveBeenCalledWith("/api/index/pause", { method: "POST" }));
-    expect(refresh).toHaveBeenCalled();
+    // The refresh runs after the pause response body is read, not when the POST starts.
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
   it("rolls back a failed pause with a visible error", async () => {

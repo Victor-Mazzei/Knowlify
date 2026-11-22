@@ -4,7 +4,7 @@ import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import {
@@ -26,6 +26,7 @@ const desktopDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const MAX_INSTALLER_BYTES = 250 * 1024 * 1024;
 const LICENSE_DIR = 'licenses/node/LICENSE';
+const LICENSE_SEGMENTS = LICENSE_DIR.split('/');
 
 function fail(message) {
   throw new Error(message);
@@ -41,7 +42,17 @@ function warn(message) {
 
 function commandExists(command) {
   const result = spawnSync(command, ['--help'], { encoding: 'utf8' });
-  return !result.error && (result.status === 0 || result.status === 1);
+  // A spawned process (any exit code) exists; only the spawn itself can prove
+  // the command is missing. Some Windows tools exit above 1 for --help.
+  return !result.error;
+}
+
+/** True when `file` ends with the given path segments, with either separator. */
+export function pathEndsWithSegments(file, segments) {
+  const parts = String(file).split(/[\\/]/);
+  if (parts.length < segments.length) return false;
+  const offset = parts.length - segments.length;
+  return segments.every((segment, index) => parts[offset + index] === segment);
 }
 
 function run(command, args, options = {}) {
@@ -140,13 +151,14 @@ async function extractBundle(inputPath, workDir) {
     return { root: target, cleanup: async () => {} };
   }
   if (lower.endsWith('.appimage')) {
-    if (commandExists('unsquashfs')) {
-      run('unsquashfs', ['-quiet', '-d', target, inputPath]);
-      return { root: target, cleanup: async () => {} };
-    }
+    // The squashfs starts after the AppImage ELF header, so unsquashfs cannot
+    // open the file directly. The runtime's own extractor handles that layout
+    // and does not mount the image, so it works without FUSE.
     await chmod(inputPath, 0o755).catch(() => {});
     run(inputPath, ['--appimage-extract'], { cwd: target });
-    return { root: join(target, 'squashfs-root'), cleanup: async () => {} };
+    const root = join(target, 'squashfs-root');
+    if (!existsSync(root)) fail(`${basename(inputPath)} did not create ${root} when extracting`);
+    return { root, cleanup: async () => {} };
   }
   fail(`Unsupported bundle type: ${inputPath}. Pass an extracted directory or a .deb, .rpm, .dmg, .exe or .AppImage`);
 }
@@ -471,7 +483,7 @@ export async function verifyBundle({
     const root = extracted.root;
 
     const serverEntry = await loadServerEntry(root);
-    logLine(`server entry ${serverEntry.replace(`${root}/`, '')}`);
+    logLine(`server entry ${relative(root, serverEntry)}`);
 
     const serverRoot = join(serverEntry, '..', '..');
     const nodeModules = join(serverRoot, 'node_modules');
@@ -497,7 +509,7 @@ export async function verifyBundle({
     if (packagedServer.type !== 'module') fail('packaged server package.json lost "type": "module"');
     logLine(`server version ${packagedServer.version}`);
 
-    const license = (await listFiles(root)).find(file => file.endsWith(LICENSE_DIR));
+    const license = (await listFiles(root)).find(file => pathEndsWithSegments(file, LICENSE_SEGMENTS));
     if (!license) fail(`${LICENSE_DIR} is missing from the bundle`);
     if ((await stat(license)).size === 0) fail(`${LICENSE_DIR} is empty`);
     logLine(`${LICENSE_DIR} present`);
@@ -550,7 +562,7 @@ export async function verifyBundle({
     const recorded = await recordedBinaryHash(binariesDir);
     let inferredTarget = null;
     for (const sidecar of sidecars) {
-      const label = sidecar.replace(`${root}/`, '');
+      const label = relative(root, sidecar);
       const hash = await sha256File(sidecar);
       let matchedTarget = null;
       if (explicitTarget) {

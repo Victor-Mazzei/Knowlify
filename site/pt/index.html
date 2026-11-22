@@ -138,7 +138,7 @@
       <div class="what-grid">
         <div class="what-copy">
           <p>Use como catálogo privado, mesa de leitura e um lugar para guardar o que você quer lembrar. Não há loja, feed de recomendações nem conta na nuvem. O servidor tem um único usuário.</p>
-          <p>A mesma biblioteca está disponível na interface web, no app desktop em Tauri, no KOReader e, se você quiser, em ferramentas de IA por um endpoint MCP.</p>
+          <p>Uma biblioteca, três formas de ler: o navegador, o <a href="#desktop">app desktop</a> e o KOReader. O app desktop pode manter a própria biblioteca no seu computador ou conectar-se ao seu servidor. Se você quiser, ferramentas de IA também podem ler a biblioteca por um endpoint MCP.</p>
         </div>
         <ul class="index-list">
           <li><span class="index-num">01</span><span class="index-name">Livros</span><span class="index-dots" aria-hidden="true"></span><span class="index-value">PDF, EPUB</span></li>
@@ -207,7 +207,7 @@
         <div class="spotlight-copy">
           <p class="eyebrow">Leitor e tutor</p>
           <h3 id="feature-reader">Leia com o tutor ao lado.</h3>
-          <p>O leitor abre arquivos EPUB e PDF no navegador ou no app desktop e salva sua posição. Selecione um trecho para perguntar sobre ele ou abra o tutor com Alt+T. As respostas citam os trechos que usam.</p>
+          <p>O leitor abre arquivos EPUB e PDF no navegador ou no <a href="#desktop">app desktop</a> e salva sua posição. Selecione um trecho para perguntar sobre ele ou abra o tutor com Alt+T. As respostas citam os trechos que usam.</p>
           <ul class="ticks inline">
             <li>Controle de tamanho do texto no EPUB</li>
             <li>Painel lateral de notas</li>
@@ -501,24 +501,54 @@ docker compose up -d</code></pre>
   </section>
 
   <section class="section" id="desktop" aria-labelledby="desktop-title">
-    <div class="wrap desktop-grid">
-      <div class="desktop-copy">
-        <p class="eyebrow">Desktop e celular</p>
-        <h2 id="desktop-title">Na mesa. Na mochila.</h2>
-        <p>O app desktop em Tauri empacota a mesma interface React em uma janela nativa. O modo local inicia um servidor na sua máquina. O modo remoto conecta ao servidor que você já roda, por HTTPS fora da sua rede. O modo local precisa de Node.js; o modo remoto, não.</p>
-        <ul class="ticks">
-          <li>Linux, macOS e Windows a partir do conjunto de ferramentas do Tauri</li>
-          <li>Servidor local ou remoto na inicialização</li>
-          <li>A interface web se adapta ao navegador do celular</li>
-        </ul>
-        <p><a class="text-link" href="https://github.com/Victor-Mazzei/Knowlify/blob/main/apps/desktop/README.md">Configuração e build do desktop</a></p>
-      </div>
-      <figure class="phone-plate">
-        <div class="plate-frame">
-          <img src="../assets/img/library-mobile.webp" width="390" height="844" alt="A biblioteca em uma tela de 390 pixels de largura: uma grade de duas colunas de capas sob o cabeçalho do Knowlify." loading="lazy" decoding="async">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">06</p>
+        <div>
+          <p class="eyebrow">Desktop e celular</p>
+          <h2 id="desktop-title">Na mesa. Na mochila.</h2>
+          <p class="section-lede">O app desktop em Tauri empacota a mesma interface React em uma janela nativa para Linux, macOS e Windows. Ele tem dois modos: local e remoto. A interface web também se adapta ao navegador do celular.</p>
         </div>
-        <figcaption>A mesma biblioteca em 390 px.</figcaption>
-      </figure>
+      </header>
+
+      <div class="tool-grid">
+        <section class="tool-card" aria-labelledby="desktop-local">
+          <p class="eyebrow">Modo local</p>
+          <h3 id="desktop-local">Sua biblioteca, neste computador.</h3>
+          <p>O app roda o próprio servidor Knowlify com o Node.js embutido. O banco de dados, os livros enviados, as notas e o progresso de leitura ficam na pasta de dados do app. Você não instala o Node.js.</p>
+        </section>
+        <section class="tool-card" aria-labelledby="desktop-remote">
+          <p class="eyebrow">Modo remoto</p>
+          <h3 id="desktop-remote">Seu servidor, neste computador.</h3>
+          <p>O app se conecta ao servidor Knowlify que você já roda. O navegador e o app desktop passam a usar a mesma biblioteca, as mesmas notas e o mesmo progresso de leitura.</p>
+        </section>
+      </div>
+
+      <div class="desktop-grid desktop-details">
+        <div class="desktop-copy">
+          <p class="eyebrow">Conexão</p>
+          <h3>Conecte o app desktop ao seu servidor.</h3>
+          <ol class="steps">
+            <li><p><strong>Inicie o servidor.</strong> Rode o servidor Knowlify, por exemplo com Docker Compose.</p></li>
+            <li><p><strong>Abra o app desktop.</strong> Selecione <strong>Remote</strong>.</p></li>
+            <li><p><strong>Informe o endereço.</strong> Use a URL do servidor, seu usuário e sua senha.</p></li>
+            <li><p><strong>Mude depois.</strong> Use <strong>Connection settings</strong> no canto inferior direito.</p></li>
+          </ol>
+          <p class="tool-note">Use um endereço HTTPS quando o servidor estiver fora da sua rede local. O app aceita HTTP simples apenas para endereços locais.</p>
+          <ul class="ticks">
+            <li>O servidor guarda a biblioteca, os livros, as notas, o progresso de leitura, o índice de busca e as configurações.</li>
+            <li>O app desktop guarda os dados de conexão neste computador.</li>
+            <li>O KOReader lê o mesmo catálogo por OPDS e mantém a própria posição de leitura pelo KOSync.</li>
+          </ul>
+          <p><a class="text-link" href="https://github.com/Victor-Mazzei/Knowlify/blob/main/apps/desktop/README.md">Configuração e build do desktop</a></p>
+        </div>
+        <figure class="phone-plate">
+          <div class="plate-frame">
+            <img src="../assets/img/library-mobile.webp" width="390" height="844" alt="A biblioteca em uma tela de 390 pixels de largura: uma grade de duas colunas de capas sob o cabeçalho do Knowlify." loading="lazy" decoding="async">
+          </div>
+          <figcaption>A mesma biblioteca em 390 px.</figcaption>
+        </figure>
+      </div>
     </div>
   </section>
 

@@ -1,5 +1,5 @@
 import { LLM_LIMITS, type LlmSettingsView } from "./llmTypes";
-import { llmFieldId, type LlmField, type LlmFieldErrors } from "./llmForm";
+import { llmFieldId, type LlmField, type LlmFieldErrors } from "./llmFormModel";
 import { LLM_STYLE_PROFILES } from "./llmStyles";
 import { LlmHeadersEditor } from "./LlmHeadersEditor";
 import { LlmStyleField } from "./LlmStyleField";

@@ -112,7 +112,8 @@ describe("BookDetailsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add tags" }));
     const popover = await screen.findByRole("group", { name: "Tag selected books" });
-    const checkbox = within(popover).getAllByRole("checkbox")[0]!;
+    // The popover opens before the tag list arrives; the checkbox needs GET /api/tags.
+    const checkbox = (await within(popover).findAllByRole("checkbox"))[0]!;
     fireEvent.click(checkbox);
     await waitFor(() => expect(checkbox).toBeChecked());
     expect(star).toHaveAttribute("aria-pressed", "true");

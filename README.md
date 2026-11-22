@@ -4,8 +4,6 @@
 
 Knowlify is a self-hosted, local-first library for ebooks. It reads PDF and EPUB files in a web or desktop app and keeps your notes, tags and reading progress.
 
-License: AGPL-3.0-only. See [License](#license).
-
 ## What it does
 
 - **Library.** Upload PDF and EPUB files, or index source folders in place. Knowlify reads covers and metadata in the background. View the library as a grid or a table.
@@ -19,7 +17,7 @@ License: AGPL-3.0-only. See [License](#license).
 - **MCP server.** Connect Claude Code, Cursor or Claude Desktop to your library.
 - **OPDS and KOSync.** Browse the library and sync reading progress from KOReader.
 - **News (RSS).** Follow topics and feeds that you choose, and save articles to read later.
-- **Desktop app.** The Tauri app runs a local server with its own bundled Node.js, or it connects to a remote server.
+- **One library on every device.** Use the same library from the browser, the desktop app and KOReader. The desktop app runs a local server with its own bundled Node.js, or it connects to a remote server. See [One library on every device](#one-library-on-every-device).
 - **Accounts.** Knowlify has one user. Change the password in Settings.
 
 ## Quick start with Docker
@@ -58,6 +56,36 @@ The image stores its data in `/data`. Mount a volume there to keep your data.
 
 To see the running version and commit, open `/api/about` after you sign in.
 
+## One library on every device
+
+Knowlify is one server with several clients. Use the same library from the browser, the desktop app and KOReader.
+
+| Client | How it connects |
+| --- | --- |
+| Browser | Open the server address. The server serves the web app. |
+| Desktop app | Use local mode or remote mode. |
+| KOReader | Add the OPDS catalog and the KOSync server. See [Connect other clients](#connect-other-clients). |
+
+### Local mode and remote mode
+
+The desktop app has two modes:
+
+- **Local.** The app starts its own Knowlify server with the bundled Node.js. The database, uploaded books, covers, notes and reading progress stay in the app data folder on that computer. Source folders are indexed in place. You do not install Node.js.
+- **Remote.** The app connects to a Knowlify server that you already run, for example the Docker container. The library, book files, covers, notes, reading progress, search index and settings stay on that server. The browser and the remote desktop app use the same data. The desktop app keeps the server URL, user name and password on the computer in `connection.json`.
+
+### Connect the desktop app to your server
+
+1. Start the server. See [Quick start with Docker](#quick-start-with-docker).
+2. Open the desktop app.
+3. Select **Remote**.
+4. Enter the server URL and your user name and password.
+
+Use an `https://` address when the server is outside your home network. The desktop app accepts a plain `http://` address only for local destinations. This includes loopback, private networks and the Tailscale range `100.64.0.0/10`.
+
+The app remembers the last working connection and opens it at the next start. To change the mode or the server, open **Connection settings** in the lower right corner.
+
+KOReader uses the same server for the OPDS catalog and KOSync. KOSync keeps the KOReader reading position. The browser and the desktop app use the server reading progress.
+
 ## Download the desktop app
 
 Get the installer for your system from the [GitHub Releases page](https://github.com/Victor-Mazzei/Knowlify/releases). Download the file for your system and the `SHA256SUMS` file.
@@ -72,6 +100,8 @@ Get the installer for your system from the [GitHub Releases page](https://github
 Replace `X.Y.Z` with the version of the release. The app needs Windows 10 version 1809 or later, macOS 13.5 or later, or Linux with glibc 2.35 or later. The Linux installers are built on Ubuntu 22.04, so older distributions are not supported.
 
 The desktop app includes its own Node.js. You do not need to install Node.
+
+The app can run its own server or connect to the server you run. See [One library on every device](#one-library-on-every-device) for the two modes and the connection steps.
 
 ### Check the download
 
@@ -124,13 +154,6 @@ chmod +x Knowlify_X.Y.Z_linux-x64.AppImage
 ```
 
 For the `.deb`, run `sudo apt install ./Knowlify_X.Y.Z_linux-x64.deb`. For the `.rpm`, run `sudo dnf install ./Knowlify_X.Y.Z_linux-x64.rpm`.
-
-### Local or remote mode
-
-At the first start, select one mode:
-
-- **Local.** The app starts its own server with the bundled Node.js. Your library stays on your computer.
-- **Remote.** The app connects to a Knowlify server that you already run, for example the Docker container. The library stays on that server.
 
 ### Your data
 
@@ -233,28 +256,7 @@ The base model `intfloat/multilingual-e5-small` uses the MIT license. If you put
 
 ## Local development
 
-You need Node 22 LTS, current release (tested on 22.23.5); the documented minimum is 22.23.5. Node 24 also works for the server and web app; the desktop commands need Node 22. If you change the Node version, run `npm install` again to rebuild the native modules `better-sqlite3` and `@napi-rs/canvas`.
-
-1. Install the dependencies: `npm install`
-2. Start the API on port 8787: `npm run dev:server`
-3. In a second terminal, start the web app on port 5174: `npm run dev:web`
-
-The web app proxies `/api` to the API.
-
-To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Then run `npm run dev -w @knowlify/desktop`. In development, the app uses the system Node.js; the packaged app includes its own runtime. See [apps/desktop/README.md](apps/desktop/README.md).
-
-Checks:
-
-```bash
-npm install
-npm test                                # tests for every workspace
-npm run typecheck -w @knowlify/server   # server typecheck
-npm run build -w @knowlify/server       # server build
-npm run build -w @knowlify/web          # web typecheck and build
-npm run version:check                   # version consistency
-```
-
-Run `scripts/e2e-account.sh` if you change authentication. Run `scripts/e2e-index.sh` if you change indexing. These scripts start real processes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for requirements, setup, checks and tests. For the desktop app, see [apps/desktop/README.md](apps/desktop/README.md).
 
 ## Architecture
 
@@ -264,9 +266,9 @@ Knowlify is an npm workspaces monorepo with three apps:
 - `apps/web`: React, TypeScript and Vite. The desktop app uses the same UI.
 - `apps/desktop`: Tauri v2 (Rust) with a bundled Node.js runtime for local mode.
 
-The server follows Clean Architecture with lean Domain-Driven Design. Dependencies point inward: `domain`, `ports`, `use-cases`, then `adapters`. The web app and the server share no code. They communicate through the HTTP API.
+The server follows Clean Architecture with lean Domain-Driven Design. The web app and the server share no code; they communicate through the HTTP API. See [CONTRIBUTING.md](CONTRIBUTING.md#architecture-rules) for the layer rules.
 
-The server has six contexts: Library, Reading, Catalog, Knowledge, Assistant and News. See [CONTRIBUTING.md](CONTRIBUTING.md#architecture-rules) for the layer rules.
+The server has six contexts: Library, Reading, Catalog, Knowledge, Assistant and News.
 
 ## Security
 
@@ -277,7 +279,6 @@ The server has six contexts: Library, Reading, Catalog, Knowledge, Assistant and
 - The server encrypts the LLM key with AES-256-GCM. It never returns the key in a response and never writes it to a log.
 - If you use a remote LLM, the tutor sends your question and passages from your books to that provider.
 - The server rate-limits chat, MCP and metadata requests.
-
 - At start, the server writes a warning to the log if the password is a default value (`admin` or `change-this-password`) and the server listens on a non-loopback address. Change the password.
 - The desktop app accepts a plain `http://` server address only for local destinations. This includes private networks and the Tailscale range `100.64.0.0/10`. For other addresses, use HTTPS.
 
@@ -301,30 +302,24 @@ Use a dedicated host name or port for Knowlify. A sub-path such as `/knowlify/` 
 - `KNOWLIFY_TRUST_PROXY` is `off` by default, and the server then uses the socket address as the client address. Behind a proxy, every client has the proxy address, so the per-IP limits (MCP authentication failures and password changes) affect all users together. Set the variable to the proxy address or CIDR (for example `172.18.0.0/16`), to `on`, or to a number of proxy hops. Turn it on only when the proxy is under your control and clients cannot reach the port directly. If they can, they can forge `X-Forwarded-For` and bypass the limits.
 - MCP: do not add proxy authentication to `/mcp`. If the server listens on `127.0.0.1` (`HOST=127.0.0.1`), set `KNOWLIFY_MCP_ALLOWED_HOSTS` to your host name (without a port). A browser-based MCP client needs its address in `KNOWLIFY_MCP_ALLOWED_ORIGINS`. The server answers `403` without the reason when the check fails.
 
-To report a vulnerability, do not open a public issue. Read [SECURITY.md](SECURITY.md) for the private reporting steps and the supported versions.
+## Contact
 
-## Contact and security
+For a vulnerability, follow the private reporting steps in [SECURITY.md](SECURITY.md). Do not open a public issue.
 
-- Report a vulnerability through the **Security** tab of [github.com/Victor-Mazzei/Knowlify](https://github.com/Victor-Mazzei/Knowlify) (**Report a vulnerability**), or send a private email to [contact@vmmazz.com](mailto:contact@vmmazz.com).
-- Use the same email address for other private questions about the project.
-- The source code, releases and issue tracker are at [github.com/Victor-Mazzei/Knowlify](https://github.com/Victor-Mazzei/Knowlify).
+For other private questions about the project, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com).
+
+The source code, releases and issue tracker are at [github.com/Victor-Mazzei/Knowlify](https://github.com/Victor-Mazzei/Knowlify).
 
 ## Versioning
 
-Knowlify uses [Semantic Versioning](https://semver.org/). One version applies to the server, web app and desktop app. The [CHANGELOG](CHANGELOG.md) lists the changes in each release. Use `npm run version:check` to verify that all version files match.
+Knowlify uses [Semantic Versioning](https://semver.org/). The [CHANGELOG](CHANGELOG.md) lists the changes in each release.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before you change code. It explains the setup, the checks, the code style and the architecture rules.
-
-Before you open a change, run the checks in [Local development](#local-development). Add a test for each bug that you fix. Write identifiers, comments and commit messages in English.
-
-This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, code style and architecture rules. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
 Knowlify is released under the GNU AGPL-3.0-only. See [LICENSE](LICENSE).
 
-Copyright (C) 2026 Victor Mota Mazzei.
-
-If you run a modified version and let users interact with it over a network, section 13 requires you to offer those users the Corresponding Source of your version at no charge.
+Copyright (C) 2026 Knowlify.

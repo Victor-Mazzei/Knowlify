@@ -162,7 +162,8 @@ describe("FoldersCard", () => {
       ),
     );
     await waitFor(() => expect(scan.refreshSources).toHaveBeenCalled());
-    expect(scan.refresh).toHaveBeenCalled();
+    // refresh() and wake() run after refreshSources() settles.
+    await waitFor(() => expect(scan.refresh).toHaveBeenCalled());
     expect(scan.wake).toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Choose a library folder" })).not.toBeInTheDocument(),

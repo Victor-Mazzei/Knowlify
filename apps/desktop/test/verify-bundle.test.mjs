@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { zipExtractor } from '../scripts/node-runtime.mjs';
 import {
-  artifactFormat, artifactPlatform, assertArtifactTarget, sidecarHashSkippedMessage, verifyBundle, verifyCodesign,
+  artifactFormat, artifactPlatform, assertArtifactTarget, pathEndsWithSegments, sidecarHashSkippedMessage,
+  verifyBundle, verifyCodesign,
 } from '../scripts/verify-bundle.mjs';
 import { storedTarGz, storedZip } from '../test-support/fixtures.mjs';
 
@@ -252,6 +253,15 @@ test('rejects an explicit target whose pinned archive is not cached', zipTestOpt
   );
 });
 
+test('matches bundle paths with Windows or POSIX separators', () => {
+  const segments = ['licenses', 'node', 'LICENSE'];
+  assert.equal(pathEndsWithSegments('C:\\bundle\\licenses\\node\\LICENSE', segments), true);
+  assert.equal(pathEndsWithSegments('/bundle/licenses/node/LICENSE', segments), true);
+  assert.equal(pathEndsWithSegments('/bundle/licenses/node/LICENSE.md', segments), false);
+  assert.equal(pathEndsWithSegments('/bundle/node/LICENSE', segments), false);
+  assert.equal(pathEndsWithSegments('licenses\\node\\LICENSE', segments), true);
+});
+
 test('pins the exact messages used for rewritten bundle formats', () => {
   assert.deepEqual(
     ['AppImage', 'dmg', 'app'].map(sidecarHashSkippedMessage),
@@ -458,6 +468,45 @@ test('accepts a rewritten AppImage sidecar whose hash changed and reports the sk
   if (process.platform === 'linux') {
     assert.equal(result.version, `v${manifest.version}`);
   }
+});
+
+const appImageExtractionOnly = process.platform === 'win32'
+  ? { skip: 'the AppImage runtime fixture is a POSIX shell script' }
+  : {};
+
+test('extracts an AppImage with its runtime before inspecting the bundle', appImageExtractionOnly, async t => {
+  const { directory, bundle } = await createBundle(t, {
+    bundleName: 'source-bundle',
+    sidecar: VERSION_SCRIPT,
+    sidecarName: UNIX_SIDECAR,
+  });
+  const imagePath = join(directory, 'Knowlify.AppImage');
+  // The runtime extracts squashfs-root from the ELF payload; this fixture proves
+  // verify-bundle uses that path and never hands the file to unsquashfs.
+  await writeFile(imagePath, [
+    '#!/bin/sh',
+    'set -eu',
+    'rm -rf squashfs-root',
+    'mkdir squashfs-root',
+    `cp -R ${JSON.stringify(bundle)}/. squashfs-root/`,
+    '',
+  ].join('\n'));
+  const cacheDir = await createArchiveCache(directory, linuxManifest, LINUX_TARGET, linuxArchive);
+  const { binariesDir } = await createPrePackagingSidecar(directory, LINUX_TARGET);
+  const raw = [];
+
+  const result = await verifyBundle(verifyOptions(imagePath, directory, {
+    explicitTarget: null,
+    manifest: linuxManifest,
+    cacheDir,
+    binariesDir,
+    rawLine: line => raw.push(line),
+  }));
+
+  assert.equal(result.format, 'AppImage');
+  assert.equal(result.target, LINUX_TARGET);
+  assert.equal(result.hashCheck, 'skipped-rewritten');
+  assert.deepEqual(raw, [sidecarHashSkippedMessage('AppImage')]);
 });
 
 const linuxExecutionOnly = process.platform === 'linux'

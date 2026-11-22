@@ -23,6 +23,9 @@ export function useTags(api: ApiFn, options: { enabled?: boolean } = {}): TagsSt
   const enabled = options.enabled !== false;
   const [tags, setTags] = useState<TagWithCount[]>([]);
   const [loading, setLoading] = useState(enabled);
+  // The first read settles asynchronously. `loaded` lets callers tell "empty list"
+  // apart from "the list has not arrived yet" on the render that enables the hook.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [unavailable, setUnavailable] = useState(false);
   const [token, setToken] = useState(0);
@@ -51,7 +54,10 @@ export function useTags(api: ApiFn, options: { enabled?: boolean } = {}): TagsSt
           setError(formatError(e));
         }
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoaded(true);
+          setLoading(false);
+        }
       }
     })();
     return () => controller.abort();
@@ -85,8 +91,12 @@ export function useTags(api: ApiFn, options: { enabled?: boolean } = {}): TagsSt
     [api],
   );
 
+  // `loading` is still false on the render that enables the hook; a caller must
+  // not read the empty list as an authoritative answer before the first read settles.
+  const pending = enabled && (loading || !loaded);
+
   return useMemo(
-    () => ({ tags, loading, error, unavailable, reload, create, update, remove }),
-    [create, error, loading, reload, remove, tags, unavailable, update],
+    () => ({ tags, loading: pending, error, unavailable, reload, create, update, remove }),
+    [create, error, pending, reload, remove, tags, unavailable, update],
   );
 }

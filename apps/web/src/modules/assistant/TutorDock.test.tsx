@@ -267,8 +267,10 @@ describe("TutorDock", () => {
     fireEvent.click(await screen.findByRole("button", { name: "History" }));
     expect(screen.getByRole("button", { name: "History" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Recent conversations")).toBeInTheDocument();
+    // The list is filled by GET /api/chat/conversations, a different request than
+    // the panel render that exposes the History tab.
     expect(
-      screen.getByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
+      await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^How does spaced repetition work\?/ }));

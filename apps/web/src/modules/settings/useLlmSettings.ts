@@ -10,7 +10,7 @@ import {
   type LlmField,
   type LlmFieldErrors,
   type LlmFieldValues,
-} from "./llmForm";
+} from "./llmFormModel";
 import { headerFieldId } from "./llmHeaders";
 import type { LlmApiStyle, LlmSaveRequest, LlmSettingsView } from "./llmTypes";
 import { useLlmHeadersDraft } from "./useLlmHeadersDraft";
