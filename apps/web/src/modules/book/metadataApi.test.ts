@@ -108,6 +108,31 @@ describe("metadataApi", () => {
     });
   });
 
+  it("keeps known reasons and drops unknown or absent ones without rejecting the response", async () => {
+    const api = vi.fn(async () =>
+      json({
+        candidates: [],
+        errors: [
+          { source: "googlebooks", code: "unavailable", reason: "service_disabled" },
+          { source: "googlebooks", code: "unavailable", reason: "future_reason" },
+          { source: "openlibrary", code: "timeout", reason: 7 },
+          { source: "openlibrary", code: "rate_limited", reason: null },
+          { source: "googlebooks", code: "unavailable" },
+        ],
+      }),
+    );
+    await expect(searchBookMetadata(api, { isbn: "9780306406157" })).resolves.toEqual({
+      candidates: [],
+      errors: [
+        { source: "googlebooks", code: "unavailable", reason: "service_disabled" },
+        { source: "googlebooks", code: "unavailable" },
+        { source: "openlibrary", code: "timeout" },
+        { source: "openlibrary", code: "rate_limited" },
+        { source: "googlebooks", code: "unavailable" },
+      ],
+    });
+  });
+
   it("keeps field errors from a 400 and rejects malformed candidates", async () => {
     const bad = vi.fn(async () => json({ message: "ISBN invalid", field: "isbn13" }, 400));
     const failure = await searchBookMetadata(bad, { isbn: "9780306406157" }).catch((error: unknown) => error);
@@ -117,6 +142,11 @@ describe("metadataApi", () => {
 
     const malformed = vi.fn(async () => json({ candidates: [{ title: "No source" }], errors: [] }));
     await expect(searchBookMetadata(malformed, { isbn: "9780306406157" })).rejects.toThrow(
+      "unexpected metadata search",
+    );
+
+    const badError = vi.fn(async () => json({ candidates: [], errors: [{ source: "elsewhere", code: "unavailable" }] }));
+    await expect(searchBookMetadata(badError, { isbn: "9780306406157" })).rejects.toThrow(
       "unexpected metadata search",
     );
   });

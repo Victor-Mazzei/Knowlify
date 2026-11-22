@@ -109,15 +109,31 @@ export class McpAccess {
    * produce null; the HTTP layer answers the same generic 401 for every case.
    */
   authenticate(token: string): McpPrincipal | null {
-    if (!isMcpTokenFormatted(token)) return null;
-    const rows = this.tokens.byPrefix(this.codec.prefix(token));
-    const hash = this.codec.hash(token);
-    const active = rows.find((row) => row.revokedAt === null && sameHash(row.tokenHash, hash));
+    const active = this.active(token);
     if (!active) return null;
     const now = this.clock.now();
     if (active.lastUsedAt === null || now - active.lastUsedAt >= this.limits.lastUsedThrottleMs) {
       this.tokens.markUsed(active.id, now);
     }
     return { tokenId: active.id, name: active.name, prefix: active.prefix, scope: active.scope };
+  }
+
+  /**
+   * Diagnosis only, after `authenticate` returned null. It reads revoked rows only on
+   * this failure path, so a valid request keeps using the partial prefix index.
+   */
+  failureReason(token: string): "revoked" | "invalid" {
+    if (!isMcpTokenFormatted(token)) return "invalid";
+    const hash = this.codec.hash(token);
+    const revoked = this.tokens.revokedByPrefix(this.codec.prefix(token))
+      .some((row) => sameHash(row.tokenHash, hash));
+    return revoked ? "revoked" : "invalid";
+  }
+
+  private active(token: string): McpToken | null {
+    if (!isMcpTokenFormatted(token)) return null;
+    const hash = this.codec.hash(token);
+    return this.tokens.byPrefix(this.codec.prefix(token))
+      .find((row) => sameHash(row.tokenHash, hash)) ?? null;
   }
 }

@@ -188,7 +188,19 @@
 .metadata-find > .metadata-feedback { margin: var(--space-3) var(--space-5) 0; }
 .metadata-results { display: grid; gap: var(--space-3); padding: var(--space-4) var(--space-5) 0; }
 .metadata-results-count { margin: 0; color: var(--ink-muted); font-family: var(--font-mono); font-size: 12px; }
-.metadata-provider-notes { margin: 0; padding-left: 18px; color: var(--warning); font-size: 12px; }
+.metadata-provider-feedback { display: grid; gap: var(--space-2); }
+.metadata-provider-notes { margin: 0; padding-left: 18px; color: var(--warning); font-size: 12px; line-height: 1.5; }
+.metadata-provider-primary {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--warning);
+  color: var(--warning);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.metadata-provider-feedback a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.metadata-debug-hint { margin: 0; color: var(--ink-dim); font-size: 11.5px; line-height: 1.5; }
+.metadata-debug-hint code { font-family: var(--font-mono); font-size: inherit; }
 .metadata-empty { margin: 0; color: var(--ink-muted); }
 .metadata-candidates { margin: 0; padding: 0; border-top: 1px solid var(--hairline); list-style: none; }
 .metadata-candidate {

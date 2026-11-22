@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { CredentialVerifier } from "../../ports/account.js";
+import { safeAddress } from "../outboundDebug.js";
 
 /**
  * A Basic challenge makes browsers pop up their own login dialog on any failed fetch(), on
@@ -20,6 +21,8 @@ export function basicAuth(credentials: CredentialVerifier) {
     const [user = "", ...rest] = Buffer.from(header.slice(6), "base64").toString().split(":");
     if (credentials.verify(user, rest.join(":"))) return;
   }
+  // Category only: the header, the user name and the password never reach the log.
+  req.log.debug(`auth failed provider=basic ip=${safeAddress(req.ip)} reason=${header === "" ? "credentials_missing" : "credentials_invalid"}`);
   // A challenge is useful to OPDS readers and to direct navigation only. Keying it off
   // Sec-Fetch-Dest is wrong on http://<LAN IP>, where browsers omit Sec-Fetch-* and the
   // app's own fetches would open the native login dialog over the form.

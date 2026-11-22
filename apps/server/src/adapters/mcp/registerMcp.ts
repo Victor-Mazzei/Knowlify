@@ -3,6 +3,7 @@ import type { AuthInfo, McpHttpHandler } from "@modelcontextprotocol/server";
 import { validateHostHeader } from "@modelcontextprotocol/server";
 import { toNodeHandler, type FetchLikeMcpHandler } from "@modelcontextprotocol/node";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { safeAddress } from "../outboundDebug.js";
 import type { config } from "../../config.js";
 import type { Logger } from "../../ports/index.js";
 import type { Library } from "../../use-cases/Library.js";
@@ -297,6 +298,8 @@ export async function registerMcp(app: FastifyInstance, opts: McpRouteOptions): 
 
     const authenticated = auth.authenticate(req.headers.authorization, req.ip);
     if (!authenticated.ok) {
+      // Category and client IP only; the header and the token never reach the log.
+      opts.log.debug?.(`mcp auth failed ip=${safeAddress(req.ip)} reason=${authenticated.reason}`);
       if (authenticated.status === 429) return tooMany(reply, authenticated.retryAfterSec ?? 1);
       return reply
         .header("WWW-Authenticate", 'Bearer realm="knowlify"')
@@ -320,6 +323,10 @@ export async function registerMcp(app: FastifyInstance, opts: McpRouteOptions): 
     }
 
     const calls = toolCalls(req.body);
+    if (authenticated.principal.scope !== "write_notes" && calls.some((call) => call !== null && WRITE_TOOL_SET.has(call))) {
+      // The read handler refuses the call; this line names the scope mismatch for diagnosis.
+      opts.log.debug?.(`mcp scope rejected ip=${safeAddress(req.ip)} scope=read`);
+    }
     const authInfo = authInfoFor(authenticated.principal, authenticated.token);
     const nodeReq = req.raw as IncomingMessage & { auth?: AuthInfo };
     nodeReq.auth = authInfo;
@@ -332,7 +339,7 @@ export async function registerMcp(app: FastifyInstance, opts: McpRouteOptions): 
       await withMcpCallRecord(record, () => handler(nodeReq, reply.raw, req.body));
     } catch (error) {
       failed = true;
-      opts.log.error(new Error("mcp request failed"), error instanceof Error ? error.name : "mcp request failed");
+      opts.log.error(error, "mcp request failed");
       if (!reply.raw.headersSent) {
         reply.raw.writeHead(500, { "content-type": "application/json" });
         reply.raw.end(JSON.stringify({ message: "Internal server error" }));
@@ -343,7 +350,7 @@ export async function registerMcp(app: FastifyInstance, opts: McpRouteOptions): 
       opts.log.info(JSON.stringify({
         event: "mcp_call",
         tokenId: authenticated.principal.tokenId,
-        prefix: authenticated.principal.prefix,
+        scope: authenticated.principal.scope,
         tool: record.tool,
         ok: !failed && reply.raw.statusCode < 400,
         ms: Date.now() - started,

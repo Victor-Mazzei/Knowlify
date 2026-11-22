@@ -3,10 +3,6 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
-// The package test script pins this entry point; importing the other suite here
-// keeps `npm test -w @knowlify/desktop` covering every test under test/.
-import './prepare-server.test.mjs';
-
 const source = await readFile(
   new URL('../src-tauri/src/bootstrap.js', import.meta.url),
   'utf8',

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb", "rpm", "appimage", "dmg", "app", "nsis"],
+    "externalBin": ["binaries/knowlify-node"],
+    "resources": {
+      "resources/server/": "server/",
+      "resources/licenses/": "licenses/"
+    },
+    "macOS": {
+      "minimumSystemVersion": "13.5",
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

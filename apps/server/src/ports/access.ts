@@ -7,8 +7,16 @@ import type { McpToken } from "../domain/access/McpToken.js";
 export interface McpTokenRepository {
   listActive(): McpToken[];
   get(id: string): McpToken | undefined;
-  /** Active rows with this visible prefix; the partial index in v10 covers the lookup. */
+  /**
+   * Active rows with this visible prefix; the partial index in v10 covers the lookup.
+   * Revoked rows stay out of the hot path.
+   */
   byPrefix(prefix: string): McpToken[];
+  /**
+   * Revoked rows with this visible prefix. Called only after an authentication failure,
+   * to name a revoked token in the debug log; never on the success path.
+   */
+  revokedByPrefix(prefix: string): McpToken[];
   save(token: McpToken): void;
   countActive(): number;
   /** Marks a token revoked; false when it was already revoked or does not exist. */

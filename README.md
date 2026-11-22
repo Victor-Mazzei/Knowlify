@@ -19,7 +19,7 @@ License: AGPL-3.0-only. See [License](#license).
 - **MCP server.** Connect Claude Code, Cursor or Claude Desktop to your library.
 - **OPDS and KOSync.** Browse the library and sync reading progress from KOReader.
 - **News (RSS).** Follow topics and feeds that you choose, and save articles to read later.
-- **Desktop app.** The Tauri app runs a local server or connects to a remote server.
+- **Desktop app.** The Tauri app runs a local server with its own bundled Node.js, or it connects to a remote server.
 - **Accounts.** Knowlify has one user. Change the password in Settings.
 
 ## Quick start with Docker
@@ -58,6 +58,96 @@ The image stores its data in `/data`. Mount a volume there to keep your data.
 
 To see the running version and commit, open `/api/about` after you sign in.
 
+## Download the desktop app
+
+Get the installer for your system from the [GitHub Releases page](https://github.com/Victor-Mazzei/Knowlify/releases). Download the file for your system and the `SHA256SUMS` file.
+
+| System | File |
+| --- | --- |
+| Windows 10 or 11, 64-bit | `Knowlify_X.Y.Z_windows-x64-setup.exe` |
+| macOS, Apple Silicon (M1 and later) | `Knowlify_X.Y.Z_macos-arm64.dmg` |
+| macOS, Intel | `Knowlify_X.Y.Z_macos-x64.dmg` |
+| Linux, 64-bit | `Knowlify_X.Y.Z_linux-x64.AppImage`, `.deb` or `.rpm` |
+
+Replace `X.Y.Z` with the version of the release. The app needs Windows 10 version 1809 or later, macOS 13.5 or later, or Linux with glibc 2.35 or later. The Linux installers are built on Ubuntu 22.04, so older distributions are not supported.
+
+The desktop app includes its own Node.js. You do not need to install Node.
+
+### Check the download
+
+The `SHA256SUMS` file lists the SHA-256 hash of each installer. Compare the hash of your file with its line in that file.
+
+Linux:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+macOS:
+
+```bash
+shasum -a 256 -c SHA256SUMS
+```
+
+Windows (PowerShell):
+
+```powershell
+Get-FileHash .\Knowlify_X.Y.Z_windows-x64-setup.exe -Algorithm SHA256
+```
+
+On Linux and macOS, `sha256sum -c` and `shasum -a 256 -c` print `OK` for each file that matches. Files that you did not download are reported as `FAILED open or read`; ignore those lines, and note that the command exits nonzero because of them. The `OK` lines for the files you downloaded are the result that matters.
+
+On Windows, `Get-FileHash` prints only the hash; it does not compare it. Open `SHA256SUMS`, find the line for your file, and compare the expected hash (the first field) with the printed `Hash` value manually. The comparison is not case-sensitive. If they match, the file is intact.
+
+### Install
+
+The installers are not signed yet. Your system shows a warning the first time you open the app. The warning is expected. Install the app only if you downloaded it from this repository.
+
+**Windows.** SmartScreen shows "Windows protected your PC". Select **More info**, then **Run anyway**. The installer does not need administrator rights.
+
+**macOS.** Open the `.dmg` and move Knowlify to **Applications**. If macOS says that the app cannot be opened or is damaged:
+
+1. Try to open the app once.
+2. Open **System Settings > Privacy & Security**. Select **Open Anyway** next to the Knowlify message.
+
+On older macOS versions, you can also Control-click the app and select **Open**. Or run this command in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Knowlify.app
+```
+
+**Linux.** For the AppImage, make the file executable and run it:
+
+```bash
+chmod +x Knowlify_X.Y.Z_linux-x64.AppImage
+./Knowlify_X.Y.Z_linux-x64.AppImage
+```
+
+For the `.deb`, run `sudo apt install ./Knowlify_X.Y.Z_linux-x64.deb`. For the `.rpm`, run `sudo dnf install ./Knowlify_X.Y.Z_linux-x64.rpm`.
+
+### Local or remote mode
+
+At the first start, select one mode:
+
+- **Local.** The app starts its own server with the bundled Node.js. Your library stays on your computer.
+- **Remote.** The app connects to a Knowlify server that you already run, for example the Docker container. The library stays on that server.
+
+### Your data
+
+The app stores its data in these folders:
+
+- Windows: `%APPDATA%\com.knowlify.desktop`
+- macOS: `~/Library/Application Support/com.knowlify.desktop`
+- Linux: `~/.local/share/com.knowlify.desktop`
+
+Updates keep your data. To remove all data, uninstall the app and delete that folder.
+
+Uninstall:
+
+- Windows: open **Settings > Apps**, select Knowlify and uninstall it. The uninstaller can also delete the app data; this option is off by default.
+- macOS: move Knowlify from **Applications** to the Trash.
+- Linux: run `sudo apt remove knowlify` or `sudo dnf remove knowlify`.
+
 ## Configuration
 
 Set variables in `.env`. The file `.env.example` lists every variable with comments.
@@ -79,6 +169,7 @@ Set variables in `.env`. The file `.env.example` lists every variable with comme
 | `KNOWLIFY_METADATA_LOCKED` | No | `0` | `1` locks the toggle and the key to the environment. `PUT /api/settings/metadata` returns `403`. |
 | `KNOWLIFY_MCP` | No | `on` | `off` removes the `/mcp` route. |
 | `KNOWLIFY_TRUST_PROXY` | No | `off` | `on`, a hop count, or a list of proxy IPs/CIDRs. Use it only behind a reverse proxy that you control. See [Behind a reverse proxy](#behind-a-reverse-proxy). |
+| `KNOWLIFY_LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `debug`, `trace` or `silent`. `debug` never logs secrets or the content of your library. |
 | `KNOWLIFY_FORCE_ENV_PASSWORD` | No | none | Set to `1` to sign in with `KNOWLIFY_PASSWORD` after you forget a changed password. |
 
 Never commit the `.env` file. It contains secrets.
@@ -142,7 +233,7 @@ The base model `intfloat/multilingual-e5-small` uses the MIT license. If you put
 
 ## Local development
 
-You need Node 22 LTS, current release (tested on 22.23.5); the documented minimum is 22.23.5. Node 24 also works. If you change the Node version, run `npm install` again to rebuild the native modules `better-sqlite3` and `@napi-rs/canvas`.
+You need Node 22 LTS, current release (tested on 22.23.5); the documented minimum is 22.23.5. Node 24 also works for the server and web app; the desktop commands need Node 22. If you change the Node version, run `npm install` again to rebuild the native modules `better-sqlite3` and `@napi-rs/canvas`.
 
 1. Install the dependencies: `npm install`
 2. Start the API on port 8787: `npm run dev:server`
@@ -150,7 +241,7 @@ You need Node 22 LTS, current release (tested on 22.23.5); the documented minimu
 
 The web app proxies `/api` to the API.
 
-To run the desktop app, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Then run `npm run dev -w @knowlify/desktop`. See [apps/desktop/README.md](apps/desktop/README.md).
+To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). Then run `npm run dev -w @knowlify/desktop`. In development, the app uses the system Node.js; the packaged app includes its own runtime. See [apps/desktop/README.md](apps/desktop/README.md).
 
 Checks:
 
@@ -171,7 +262,7 @@ Knowlify is an npm workspaces monorepo with three apps:
 
 - `apps/server`: Node.js, TypeScript, Fastify and SQLite (`better-sqlite3`).
 - `apps/web`: React, TypeScript and Vite. The desktop app uses the same UI.
-- `apps/desktop`: Tauri v2 (Rust).
+- `apps/desktop`: Tauri v2 (Rust) with a bundled Node.js runtime for local mode.
 
 The server follows Clean Architecture with lean Domain-Driven Design. Dependencies point inward: `domain`, `ports`, `use-cases`, then `adapters`. The web app and the server share no code. They communicate through the HTTP API.
 
@@ -206,6 +297,7 @@ Use a dedicated host name or port for Knowlify. A sub-path such as `/knowlify/` 
 
 ### Behind a reverse proxy
 
+- When you run behind a proxy, client IPs in the logs need `KNOWLIFY_TRUST_PROXY`.
 - `KNOWLIFY_TRUST_PROXY` is `off` by default, and the server then uses the socket address as the client address. Behind a proxy, every client has the proxy address, so the per-IP limits (MCP authentication failures and password changes) affect all users together. Set the variable to the proxy address or CIDR (for example `172.18.0.0/16`), to `on`, or to a number of proxy hops. Turn it on only when the proxy is under your control and clients cannot reach the port directly. If they can, they can forge `X-Forwarded-For` and bypass the limits.
 - MCP: do not add proxy authentication to `/mcp`. If the server listens on `127.0.0.1` (`HOST=127.0.0.1`), set `KNOWLIFY_MCP_ALLOWED_HOSTS` to your host name (without a port). A browser-based MCP client needs its address in `KNOWLIFY_MCP_ALLOWED_ORIGINS`. The server answers `403` without the reason when the check fails.
 

@@ -2,6 +2,7 @@ import type { CredentialVerifier } from "../../ports/account.js";
 import type { FastifyInstance } from "fastify";
 import { config } from "../../config.js";
 import type { SyncProgress } from "../../use-cases/Progress.js";
+import { safeAddress } from "../outboundDebug.js";
 
 interface Progress {
   document: string;
@@ -13,10 +14,15 @@ interface Progress {
 
 export async function kosyncRoutes(app: FastifyInstance, opts: { syncProgress: SyncProgress; credentials: CredentialVerifier }) {
   app.addHook("preHandler", async (req, reply) => {
-    if (typeof req.headers["x-auth-user"] !== "string" || typeof req.headers["x-auth-key"] !== "string" ||
-      !opts.credentials.verifyKosync(req.headers["x-auth-user"], req.headers["x-auth-key"])) {
+    const fail = (reason: "credentials_missing" | "credentials_invalid") => {
+      // Category only: the KOSync header carries an md5 and is never logged.
+      req.log.debug(`auth failed provider=kosync ip=${safeAddress(req.ip)} reason=${reason}`);
       return reply.code(401).send({ message: "Unauthorized" });
-    }
+    };
+    const user = req.headers["x-auth-user"];
+    const key = req.headers["x-auth-key"];
+    if (typeof user !== "string" || typeof key !== "string") return fail("credentials_missing");
+    if (!opts.credentials.verifyKosync(user, key)) return fail("credentials_invalid");
   });
 
   app.post("/users/create", async (_req, reply) => reply.code(201).send({ username: config.user }));

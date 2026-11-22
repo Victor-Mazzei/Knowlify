@@ -3,13 +3,20 @@ import {
   normalizeLookupQuery,
   type NormalizedLookupQuery,
 } from "../domain/library/BookMetadata.js";
+import {
+  knownProviderErrorReason,
+  knownProviderErrorStatus,
+} from "../domain/library/ProviderErrorIdentifiers.js";
 import type {
   ExternalMetadataSource,
   LookupSwitch,
   MetadataCandidate,
+  MetadataFailureLogger,
+  MetadataLookupError,
   MetadataLookupErrorCode,
-  MetadataProvider,
   MetadataLookupFailure,
+  MetadataLookupReason,
+  MetadataProvider,
 } from "../ports/library-metadata.js";
 
 export interface MetadataLookupStatus {
@@ -19,7 +26,7 @@ export interface MetadataLookupStatus {
 
 export interface MetadataSearchResult {
   candidates: MetadataCandidate[];
-  errors: Array<{ source: ExternalMetadataSource; code: MetadataLookupErrorCode }>;
+  errors: MetadataLookupError[];
 }
 
 /** 429 with `Retry-After`; the route maps fields to the response. */
@@ -56,10 +63,67 @@ const isFailure = (value: unknown): value is MetadataLookupFailure =>
   typeof value === "object" && value !== null && "code" in value
   && ["rate_limited", "timeout", "unavailable"].includes(String((value as { code?: unknown }).code));
 
-const failureCode = (error: unknown, signal: AbortSignal): MetadataLookupErrorCode => {
-  if (isFailure(error)) return error.code;
-  if (signal.aborted || (error as { name?: unknown } | null)?.name === "TimeoutError") return "timeout";
-  return "unavailable";
+const REASONS: readonly MetadataLookupReason[] = [
+  "key_unreadable",
+  "key_rejected",
+  "service_disabled",
+  "referrer_or_ip_blocked",
+  "forbidden",
+  "not_found",
+  "rate_limited",
+  "upstream_error",
+  "http_error",
+  "network",
+  "blocked_destination",
+  "bad_response",
+  "timeout",
+];
+
+const isReason = (value: unknown): value is MetadataLookupReason =>
+  typeof value === "string" && REASONS.includes(value as MetadataLookupReason);
+
+const TOKEN = /^[A-Za-z0-9_.-]{1,64}$/;
+
+const token = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return TOKEN.test(trimmed) ? trimmed : undefined;
+};
+
+const httpStatus = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599 ? value : undefined;
+
+/** The legacy code still decides the coarse bucket; the reason adds the diagnosis. */
+const defaultReason = (code: MetadataLookupErrorCode): MetadataLookupReason => {
+  if (code === "rate_limited") return "rate_limited";
+  if (code === "timeout") return "timeout";
+  return "network";
+};
+
+interface FailureDetails {
+  code: MetadataLookupErrorCode;
+  reason: MetadataLookupReason;
+  status?: number;
+  networkCode?: string;
+  errorStatus?: string;
+  errorReason?: string;
+}
+
+const failureDetails = (error: unknown, signal: AbortSignal): FailureDetails => {
+  if (isFailure(error)) {
+    return {
+      code: error.code,
+      reason: isReason(error.reason) ? error.reason : defaultReason(error.code),
+      status: httpStatus(error.status),
+      networkCode: token(error.networkCode),
+      errorStatus: knownProviderErrorStatus(error.errorStatus),
+      errorReason: knownProviderErrorReason(error.errorReason),
+    };
+  }
+  if (signal.aborted || (error as { name?: unknown } | null)?.name === "TimeoutError") {
+    return { code: "timeout", reason: "timeout" };
+  }
+  return { code: "unavailable", reason: "network" };
 };
 
 const completeness = (candidate: MetadataCandidate): number => {
@@ -110,7 +174,7 @@ export class MetadataLookup {
     };
   }
 
-  async search(raw: unknown): Promise<MetadataSearchResult> {
+  async search(raw: unknown, log?: MetadataFailureLogger): Promise<MetadataSearchResult> {
     if (!this.isEnabled()) throw new MetadataDisabledError();
     const query = normalizeLookupQuery(raw);
     // Validation still teaches the caller the contract; the limit only counts valid calls.
@@ -120,8 +184,8 @@ export class MetadataLookup {
     const errors: MetadataSearchResult["errors"] = [];
     const merged: Array<{ candidate: MetadataCandidate; order: number }> = [];
     for (const provider of this.providers) {
-      const result = await this.one(provider, query);
-      if (result.error) errors.push({ source: result.provider, code: result.error });
+      const result = await this.one(provider, query, log);
+      if (result.error) errors.push(result.error);
       for (const candidate of result.candidates) merged.push({ candidate, order: merged.length });
       if (merged.length > 0) break;
     }
@@ -143,10 +207,14 @@ export class MetadataLookup {
     this.hits.push(now);
   }
 
-  private async one(provider: MetadataProvider, query: NormalizedLookupQuery): Promise<{
+  private async one(
+    provider: MetadataProvider,
+    query: NormalizedLookupQuery,
+    log?: MetadataFailureLogger,
+  ): Promise<{
     provider: ExternalMetadataSource;
     candidates: MetadataCandidate[];
-    error?: MetadataLookupErrorCode;
+    error?: MetadataLookupError;
   }> {
     const cached = this.cache.get(provider.id, query);
     if (cached) return { provider: provider.id, candidates: cached };
@@ -156,8 +224,36 @@ export class MetadataLookup {
       this.cache.set(provider.id, query, candidates);
       return { provider: provider.id, candidates };
     } catch (error) {
-      return { provider: provider.id, candidates: [], error: failureCode(error, signal) };
+      const failure = failureDetails(error, signal);
+      this.logFailure(provider.id, failure, log);
+      return {
+        provider: provider.id,
+        candidates: [],
+        error: { source: provider.id, code: failure.code, reason: failure.reason },
+      };
     }
+  }
+
+  /**
+   * One line per failed provider per request. It carries only stable identifiers and the
+   * HTTP/transport metadata: never the query, the ISBN, the key, a URL or provider text.
+   * `errorStatus`/`errorReason` are re-checked against the closed allowlist so a provider
+   * that echoes the key or the query in those fields cannot reach the log.
+   */
+  private logFailure(
+    provider: ExternalMetadataSource,
+    failure: FailureDetails,
+    log?: MetadataFailureLogger,
+  ): void {
+    if (!log?.warn) return;
+    const fields = [`provider=${provider}`, `reason=${failure.reason}`];
+    if (failure.status !== undefined) fields.push(`status=${failure.status}`);
+    if (failure.networkCode !== undefined) fields.push(`networkCode=${failure.networkCode}`);
+    const errorStatus = knownProviderErrorStatus(failure.errorStatus);
+    if (errorStatus !== undefined) fields.push(`errorStatus=${errorStatus}`);
+    const errorReason = knownProviderErrorReason(failure.errorReason);
+    if (errorReason !== undefined) fields.push(`errorReason=${errorReason}`);
+    log.warn(`metadata lookup failed ${fields.join(" ")}`);
   }
 }
 

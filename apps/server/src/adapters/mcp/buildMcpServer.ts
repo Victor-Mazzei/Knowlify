@@ -62,8 +62,8 @@ export function createMcpHandlers(deps: McpToolDeps, options: BuildMcpOptions): 
       {
         legacy: "stateless",
         maxRequestBodySize: options.maxRequestBodyBytes,
-        // Never log arguments, queries or note text; the error name is enough for triage.
-        onerror: (error) => options.log.warn?.(`mcp handler error (${error.name})`),
+        // Never log arguments, queries or note text; the safe error category is enough.
+        onerror: (error) => options.log.error(error, "mcp handler failed"),
       },
     );
 

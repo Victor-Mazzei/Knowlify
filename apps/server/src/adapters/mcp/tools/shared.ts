@@ -126,7 +126,7 @@ export const toolError = (deps: Pick<McpToolDeps, "log">, error: unknown): CallT
   if (error instanceof ConflictError) {
     return toolFailure(error.code ?? "conflict", error.message, error.details);
   }
-  deps.log.error(new Error("mcp tool failed"), error instanceof Error ? error.name : "mcp tool failed");
+  deps.log.error(error, "mcp tool failed");
   return toolFailure("internal_error", "The tool failed unexpectedly");
 };
 

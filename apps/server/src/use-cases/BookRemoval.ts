@@ -288,7 +288,7 @@ export class BookRemoval {
           if (await this.files.removeManaged(book.path)) removed += 1;
         } catch (error) {
           errors += 1;
-          this.log.warn?.(`cannot remove managed book file ${book.path}: ${(error as Error).message}`);
+          this.log.error(error, "cannot remove a managed book file");
         }
       }
       // A custom cover and the file-extracted cover can both exist: the effective path
@@ -299,14 +299,14 @@ export class BookRemoval {
           if (await this.files.removeManaged(path)) removed += 1;
         } catch (error) {
           errors += 1;
-          this.log.warn?.(`cannot remove cover ${path}: ${(error as Error).message}`);
+          this.log.error(error, "cannot remove a cover file");
         }
       }
       try {
         await this.coverThumbs.invalidate(book.id);
       } catch (error) {
         errors += 1;
-        this.log.warn?.(`cannot invalidate thumbnail ${book.id}: ${(error as Error).message}`);
+        this.log.error(error, "cannot invalidate a thumbnail");
       }
     }
     return { removed, errors };

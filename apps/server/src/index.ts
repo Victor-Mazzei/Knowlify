@@ -35,7 +35,9 @@ import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import Fastify, { LogController, type FastifyError, type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from "fastify";
+import { REDACT_PATHS, SafeLogController, safeErrorForLog, safeRequestForLog } from "./adapters/logging/safeLogger.js";
+import { safeErrorType } from "./adapters/logging/safeError.js";
 import { existsSync } from "node:fs";
 import { basicAuth } from "./adapters/http/auth.js";
 import { config, defaultPasswordWarning } from "./config.js";
@@ -71,6 +73,7 @@ import { Chat } from "./use-cases/Chat.js";
 import { createLlmClient } from "./adapters/llm/createLlmClient.js";
 import { SwitchableLlmClient } from "./adapters/llm/SwitchableLlmClient.js";
 import { createGuardedFetch } from "./adapters/llm/GuardedFetch.js";
+import { observedFetch } from "./adapters/outboundDebug.js";
 import { OpenAiModelsProbe } from "./adapters/llm/OpenAiModelsProbe.js";
 import { AnthropicModelsProbe } from "./adapters/llm/AnthropicModelsProbe.js";
 import { NoLlmClient } from "./adapters/llm/NoLlmClient.js";
@@ -92,6 +95,8 @@ import { readVersion } from "./adapters/runtime/buildInfo.js";
 import { parseAllowPrivate } from "./domain/net/IpClassification.js";
 import { SqliteConversationRepository } from "./adapters/storage/SqliteConversationRepository.js";
 import type { EmbedderConfig } from "./adapters/indexing/embed/create.js";
+
+export { REDACT_PATHS };
 
 /**
  * Placeholder used when no ingestion adapter is wired. Keeping the API usable without a
@@ -133,14 +138,15 @@ type JsonBodyParser = (
 ) => void;
 
 function logIndexing(message: string, error?: unknown): void {
-  if (error) console.error(`[indexing] ${message}`, error);
+  // The worker/console path has no Pino serializer; keep only the safe error class.
+  if (error) console.error(`[indexing] ${message} (${safeErrorType(error)})`);
   else console.warn(`[indexing] ${message}`);
 }
 
 export function createServices(
   db: Db,
   log: Logger = { info: () => {}, error: () => {}, warn: () => {} },
-  rss: RssSource = new SafeRssSource(),
+  rss: RssSource = new SafeRssSource(undefined, undefined, log),
   ingestionRunner?: IngestionRunner,
 ) {
   const books = new SqliteBookRepository(db);
@@ -227,12 +233,17 @@ export function createServices(
     bookLocks,
   );
   const allowPrivate = parseAllowPrivate(config.llmAllowPrivate);
-  const guardedFetch = createGuardedFetch({ policy: allowPrivate.policy });
+  const outbound = (provider: string) => ({ provider, log });
+  const guardedFetch = createGuardedFetch({ policy: allowPrivate.policy, debug: outbound("llm") });
   // External metadata is always public: it must not inherit the operator's LLM private
   // exception, so it uses its own policy that blocks loopback/private/link-local (ADR-5).
-  const publicFetch = createGuardedFetch({ policy: { mode: "off" } });
+  const publicPolicy = { mode: "off" } as const;
+  const openLibraryFetch = createGuardedFetch({ policy: publicPolicy, debug: outbound("openlibrary") });
+  const googleBooksFetch = createGuardedFetch({ policy: publicPolicy, debug: outbound("googlebooks") });
+  const coverFetch = createGuardedFetch({ policy: publicPolicy, debug: outbound("cover") });
+  const plainLlmFetch = observedFetch(globalThis.fetch, "llm", log);
   const userAgent = `Knowlify/${readVersion(undefined, (message) => log.warn?.(message))}`;
-  const coverDownloader = new CoverDownloader({ fetch: publicFetch, userAgent });
+  const coverDownloader = new CoverDownloader({ fetch: coverFetch, userAgent });
   const bookMetadata = new BookMetadata(
     books,
     bookMetadataRepository,
@@ -248,8 +259,8 @@ export function createServices(
   );
   const metadataLookup = new MetadataLookup(
     [
-      new OpenLibrary(publicFetch, { userAgent }),
-      new GoogleBooks(publicFetch, { resolveKey: () => metadataSettings.googleBooksKey(), userAgent }),
+      new OpenLibrary(openLibraryFetch, { userAgent }),
+      new GoogleBooks(googleBooksFetch, { resolveKey: () => metadataSettings.googleBooksKey(), userAgent }),
     ],
     new MetadataCache(),
     { enabled: () => metadataSettings.isLookupEnabled() },
@@ -265,7 +276,7 @@ export function createServices(
         apiStyle: runtime.apiStyle,
         headers: runtime.headers,
       },
-      { fetch: runtime.guard ? guardedFetch : globalThis.fetch, warn: (message) => log.warn?.(message) },
+      { fetch: runtime.guard ? guardedFetch : plainLlmFetch, warn: (message) => log.warn?.(message) },
     );
   });
   const llmSettings = new LlmSettings({
@@ -274,12 +285,12 @@ export function createServices(
     runtime: llmRuntime,
     probes: {
       plain: {
-        openai: new OpenAiModelsProbe(globalThis.fetch),
-        anthropic: new AnthropicModelsProbe(globalThis.fetch),
+        openai: new OpenAiModelsProbe(observedFetch(globalThis.fetch, "llm-probe", log)),
+        anthropic: new AnthropicModelsProbe(observedFetch(globalThis.fetch, "llm-probe", log)),
       },
       guarded: {
-        openai: new OpenAiModelsProbe(guardedFetch),
-        anthropic: new AnthropicModelsProbe(guardedFetch),
+        openai: new OpenAiModelsProbe(createGuardedFetch({ policy: allowPrivate.policy, debug: outbound("llm-probe") })),
+        anthropic: new AnthropicModelsProbe(createGuardedFetch({ policy: allowPrivate.policy, debug: outbound("llm-probe") })),
       },
     },
     clock,
@@ -379,6 +390,8 @@ const QUIET_ROUTES = /^\/(?:api\/books\/[^/?]+\/cover|api\/index\/status|api\/sc
 
 export const suppressesRequestLogging = (url: string): boolean => QUIET_ROUTES.test(url);
 
+type AppLogger = boolean | { stream: NodeJS.WritableStream };
+
 /**
  * Compress only text-like payloads above 1 KB (ADR-D2). File streams and images are
  * excluded, and `text/event-stream` must never pass through a transform: the chat route
@@ -398,7 +411,12 @@ export async function registerHttpCompression(app: FastifyInstance): Promise<voi
   });
 }
 
-export async function buildApp(db: Db, logger = false, rss?: RssSource, ingestionRunner?: IngestionRunner) {
+export async function buildApp(
+  db: Db,
+  logger: AppLogger = false,
+  rss?: RssSource,
+  ingestionRunner?: IngestionRunner,
+) {
   // Fastify 5 fails closed on a numeric trustProxy because hop-count trust cannot validate
   // the peer. The env still offers the conventional hop count for deployments reachable only
   // through the proxy; the IP/CIDR form is the safe choice and is documented first.
@@ -408,14 +426,21 @@ export async function buildApp(db: Db, logger = false, rss?: RssSource, ingestio
     : trustProxy;
   const app = Fastify({
     trustProxy: trustProxyOption,
-    ...(logger ? {
-      logger: { redact: [
-        "req.headers.authorization", 'req.headers["x-auth-key"]',
-        "req.body.current", "req.body.next", "req.body.apiKey", "req.body.googleBooksKey", "req.body.systemPrompt",
-      ] },
-      logController: new LogController({ disableRequestLogging: (req) => suppressesRequestLogging(req.url) }),
+    ...(logger !== false ? {
+      logger: {
+        level: config.logLevel,
+        redact: REDACT_PATHS,
+        serializers: { req: safeRequestForLog, err: safeErrorForLog },
+        ...(typeof logger === "object" ? { stream: logger.stream } : {}),
+      },
+      logController: new SafeLogController({
+        disableRequestLogging: (req) => suppressesRequestLogging(req.url),
+      }),
     } : { logger: false }),
   });
+  // One useful line at boot, without a new route. With `silent` nothing is emitted.
+  app.log.info(`log level: ${config.logLevel}`);
+  app.log.debug(`database schema version: ${String(db.pragma("user_version", { simple: true }))}`);
   // Fastify 5 rejects an empty body when the content type is application/json, but clients
   // send that header on body-less requests (DELETE). Fastify 4 parsed those as {}. Keep the
   // built-in parser for non-empty bodies so invalid JSON, prototype poisoning and the body
@@ -433,6 +458,7 @@ export async function buildApp(db: Db, logger = false, rss?: RssSource, ingestio
     info: (message) => app.log.info(message),
     error: (error, message) => app.log.error(error, message),
     warn: (message) => app.log.warn(message),
+    debug: (message) => app.log.debug(message),
   };
   const services = createServices(db, log, rss, ingestionRunner);
   const { scanner, indexing } = services;

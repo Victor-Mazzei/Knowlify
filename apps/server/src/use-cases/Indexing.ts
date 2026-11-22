@@ -402,6 +402,7 @@ export class Indexing implements IndexScheduler {
     if (book.status === "error") {
       // A book whose metadata cannot be read is not indexable; record a terminal row so the
       // queue stops claiming it, and drop any text from a previous version of the file.
+      this.log.debug?.(`index job skipped book=${job.bookId} reason=unreadable`);
       if (this.owns(job)) {
         this.indexes.save({
           ...withoutIndex(job),
@@ -416,10 +417,12 @@ export class Indexing implements IndexScheduler {
       return;
     }
     if (book.status !== "ready") {
+      this.log.debug?.(`index job deferred book=${job.bookId} reason=metadata_not_ready`);
       this.defer(job);
       return;
     }
     if (book.size > this.options.maxBytes) {
+      this.log.debug?.(`index job skipped book=${job.bookId} reason=too_large`);
       if (this.owns(job)) {
         this.indexes.save(failure(withoutIndex(job), "too_large", `Book is larger than ${Math.floor(this.options.maxBytes / (1024 * 1024))} MB`, this.clock.now()));
         this.passages.clear(job.bookId);
@@ -430,6 +433,9 @@ export class Indexing implements IndexScheduler {
     const capturedVersion = this.runner.indexVersion();
     const allowVectors = this.vectorsAllowed(job);
     const version = allowVectors ? capturedVersion : toLexicalVersion(capturedVersion);
+    const started = Date.now();
+    // Book id, format and shape only: never the book text or a path.
+    this.log.debug?.(`index job start book=${job.bookId} format=${book.format} vectors=${allowVectors}`);
     let current = job;
     let discarded = false;
     const sink = {
@@ -483,9 +489,15 @@ export class Indexing implements IndexScheduler {
         : ready(current, { contentHash: outcome.contentHash, indexVersion: outcome.indexVersion, chunkCount: outcome.chunkCount }, now);
       this.indexes.save(current);
       this.trackVersion(job.bookId, outcome.indexVersion);
+      const chunks = outcome.kind === "done" ? outcome.chunkCount : null;
+      this.log.debug?.(
+        `index job done book=${job.bookId} state=${outcome.kind} chunks=${chunks ?? 0} `
+        + `durationMs=${Date.now() - started}`,
+      );
     } catch (error) {
       if (!this.running || !this.owns(job)) return;
       const { code, message } = describeFailure(error);
+      this.log.debug?.(`index job failed book=${job.bookId} code=${code} durationMs=${Date.now() - started}`);
       // Terminal content errors must not leave stale text searchable. Once onStart discarded the
       // previous chunks there is no complete index to fall back to, so a mid-run failure also
       // clears the partial batches. Failures before onStart keep the previous index intact so a

@@ -7,6 +7,7 @@ import type {
   MetadataField,
   MetadataLookupError,
   MetadataLookupQuery,
+  MetadataLookupReason,
   MetadataLookupStatus,
   MetadataPatch,
   MetadataSearchResult,
@@ -40,6 +41,24 @@ const METADATA_FIELDS: MetadataField[] = [
   "series",
   "cover",
 ];
+
+const LOOKUP_REASONS: readonly MetadataLookupReason[] = [
+  "key_unreadable",
+  "key_rejected",
+  "service_disabled",
+  "referrer_or_ip_blocked",
+  "forbidden",
+  "not_found",
+  "rate_limited",
+  "upstream_error",
+  "http_error",
+  "network",
+  "blocked_destination",
+  "bad_response",
+  "timeout",
+];
+const isLookupReason = (value: unknown): value is MetadataLookupReason =>
+  typeof value === "string" && (LOOKUP_REASONS as readonly string[]).includes(value);
 
 /** A server that predates the metadata contract answers 200 with a list DTO (no `metadata`). */
 export class MetadataUnsupportedError extends Error {
@@ -94,6 +113,14 @@ const isLookupError = (value: unknown): value is MetadataLookupError =>
   isRecord(value) &&
   (value.source === "googlebooks" || value.source === "openlibrary") &&
   (value.code === "rate_limited" || value.code === "timeout" || value.code === "unavailable");
+
+/** Drops an unknown/future reason instead of rejecting the whole response. */
+const readLookupError = (value: unknown): MetadataLookupError | null => {
+  if (!isLookupError(value)) return null;
+  return isLookupReason(value.reason)
+    ? { source: value.source, code: value.code, reason: value.reason }
+    : { source: value.source, code: value.code };
+};
 
 const isLookupStatus = (value: unknown): value is MetadataLookupStatus =>
   isRecord(value) &&
@@ -188,10 +215,12 @@ export async function searchBookMetadata(
   if (!isRecord(body) || !Array.isArray(body.candidates) || !Array.isArray(body.errors)) {
     throw new Error("The server sent an unexpected metadata search.");
   }
-  if (!body.candidates.every(isCandidate) || !body.errors.every(isLookupError)) {
+  const candidates = body.candidates.filter(isCandidate);
+  const errors = body.errors.map(readLookupError).filter((error): error is MetadataLookupError => error !== null);
+  if (candidates.length !== body.candidates.length || errors.length !== body.errors.length) {
     throw new Error("The server sent an unexpected metadata search.");
   }
-  return { candidates: body.candidates, errors: body.errors };
+  return { candidates, errors };
 }
 
 /** A 404 on `/api/metadata/*` means a server without the lookup contract. */

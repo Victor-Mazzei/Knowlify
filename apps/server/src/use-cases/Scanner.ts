@@ -162,6 +162,8 @@ export class Scanner {
     this.skippedDuplicates = 0;
     this.movedFiles = 0;
     this.ignoredSkipped = 0;
+    const started = Date.now();
+    this.log.debug?.(`scan start sources=${this.sources().length}`);
     try {
       const evidence = new Map<string, ScanEvidence>();
       const lost: LostPath[] = [];
@@ -174,7 +176,13 @@ export class Scanner {
         this.log.info(`scan dedup: ${this.skippedDuplicates} duplicate(s) skipped, ${this.movedFiles} file(s) moved`);
       }
     } catch (e) { this.log.error(e, "scan failed"); }
-    finally { this.scanning = false; }
+    finally {
+      this.scanning = false;
+      this.log.debug?.(
+        `scan done durationMs=${Date.now() - started} duplicateSkipped=${this.skippedDuplicates} `
+        + `moved=${this.movedFiles} ignored=${this.ignoredSkipped}`,
+      );
+    }
     try { this.dedup?.onScanComplete?.(); }
     catch (e) { this.log.error(e, "scan completion hook failed"); }
     void this.processPending();
@@ -193,14 +201,18 @@ export class Scanner {
       // not treat the part that was not visited yet as proof that a file moved.
       evidence.set(source.id, result);
       await this.flush(pending, changed, evidence);
-    } catch (e) { this.log.error(e, `cannot read source ${source.path}; keeping existing index`); return; }
+      this.log.debug?.(
+        `scan source=${source.id} seen=${result.seen.size} indexed=${indexed.size} `
+        + `unreadable=${result.unreadable.length} failedStat=${result.failedStat.size}`,
+      );
+    } catch (e) { this.log.error(e, `cannot read source ${source.id}; keeping existing index`); return; }
     // Removal owns the rows from this point; reconciliation must not touch them.
     if (this.removedSources.has(source.id)) return;
     // An unmounted share or an empty mount point hides every file at once. Removing the
     // index then would drop books and their reading progress until a rescan sees files
     // again, so keep them; explicit source removal remains the way to discard a source.
     if (result.seen.size === 0 && (indexed.size > 0 || aliases.size > 0)) {
-      this.log.info(`source ${source.path} shows no files; keeping ${indexed.size} indexed books`);
+      this.log.info(`source ${source.id} shows no files; keeping ${indexed.size} indexed books`);
       return;
     }
     for (const [path, row] of indexed) {
@@ -313,7 +325,7 @@ export class Scanner {
     catch (e) {
       if (isRoot) throw e;
       result.unreadable.push(dir);
-      this.log.error(e, `skipping ${dir}; keeping indexed books under it`);
+      this.log.error(e, "skipping an unreadable directory; keeping indexed books under it");
       return;
     }
     const files = entries.filter((entry) => !entry.name.startsWith(".") && !entry.directory && entry.file && supportedFormat(this.files.extension(entry.name)));
@@ -402,7 +414,7 @@ export class Scanner {
         } catch (e) {
           // Hashing failed (unreadable file). Keep the old behaviour: persist the pending
           // row and let metadata extraction report the error on this book.
-          this.log.error(e, `cannot resolve content identity for ${book.path}`);
+          this.log.error(e, "cannot resolve content identity for a book");
           this.books.save(book);
         }
       };
@@ -428,7 +440,7 @@ export class Scanner {
           for (const book of ready) {
             if (!updated.has(book.id)) continue;
             try { this.indexer?.schedule(book, 0); }
-            catch (e) { this.log.error(e, `cannot enqueue indexing for ${book.path}`); }
+            catch (e) { this.log.error(e, "cannot enqueue indexing for a book"); }
           }
         }
         await yieldToLoop();
@@ -447,7 +459,7 @@ export class Scanner {
   }
 
   private failedBook(book: Book, error: unknown): Book | null {
-    this.log.error(error, `metadata failed for ${book.path}`);
+    this.log.error(error, "metadata failed for a book");
     const current = this.books.get(book.id);
     // Keep the extracted version as the guard: a rescan that changed the file
     // must leave the book pending instead of marking this older attempt as done.

@@ -3,9 +3,10 @@
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use std::{
+    ffi::OsStr,
     fs,
     net::TcpListener,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::Mutex,
     time::Duration,
@@ -15,6 +16,13 @@ use url::Url;
 
 /// Keep one rotated copy of the local server log; growth is bounded by the next launch.
 const MAX_SERVER_LOG_BYTES: u64 = 5 * 1024 * 1024;
+
+/// The Tauri bundler installs `externalBin` next to the app executable and drops
+/// the target-triple suffix, so the installed name is stable on every platform.
+#[cfg(windows)]
+const SIDECAR_FILE_NAME: &str = "knowlify-node.exe";
+#[cfg(not(windows))]
+const SIDECAR_FILE_NAME: &str = "knowlify-node";
 
 fn open_server_log(dir: &std::path::Path, max_bytes: u64) -> Result<fs::File, String> {
     let path = dir.join("server.log");
@@ -172,6 +180,109 @@ fn local_password(dir: &std::path::Path) -> Result<String, String> {
     Ok(value)
 }
 
+/// Why the Node runtime that runs the local server could not be resolved.
+#[derive(Debug, PartialEq, Eq)]
+enum NodeExecutableError {
+    OverrideNotAbsolute(PathBuf),
+    OverrideMissing(PathBuf),
+    OverrideNotFile(PathBuf),
+    SidecarMissing(PathBuf),
+}
+
+impl std::fmt::Display for NodeExecutableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OverrideNotAbsolute(path) => write!(
+                f,
+                "KNOWLIFY_NODE must be an absolute path to the Node executable, got \"{}\".",
+                path.display()
+            ),
+            Self::OverrideMissing(path) => write!(
+                f,
+                "KNOWLIFY_NODE points to a file that does not exist: \"{}\".",
+                path.display()
+            ),
+            Self::OverrideNotFile(path) => write!(
+                f,
+                "KNOWLIFY_NODE must point to the Node executable file, not \"{}\".",
+                path.display()
+            ),
+            Self::SidecarMissing(path) => write!(
+                f,
+                "The bundled Node runtime is missing ({}). Reinstall Knowlify.",
+                path.display()
+            ),
+        }
+    }
+}
+
+/// Classifies a path for the lookup below: `Some(true)` for a regular file,
+/// `Some(false)` for any other existing entry, `None` when it does not exist.
+fn regular_file(path: &Path) -> Option<bool> {
+    fs::metadata(path).ok().map(|metadata| metadata.is_file())
+}
+
+/// Picks the Node binary for the local server. An explicit `KNOWLIFY_NODE`
+/// override wins, then the sidecar installed next to the app executable. Only
+/// debug builds may fall back to `node` from `PATH`; a release build never
+/// searches `PATH` and fails with a clear error when the sidecar is absent.
+fn node_executable(
+    exe_dir: &Path,
+    override_path: Option<&OsStr>,
+    allow_path_fallback: bool,
+    sidecar_name: &str,
+    probe: impl Fn(&Path) -> Option<bool>,
+) -> Result<PathBuf, NodeExecutableError> {
+    if let Some(value) = override_path {
+        let path = PathBuf::from(value);
+        if !path.is_absolute() {
+            return Err(NodeExecutableError::OverrideNotAbsolute(path));
+        }
+        match probe(&path) {
+            Some(true) => return Ok(path),
+            Some(false) => return Err(NodeExecutableError::OverrideNotFile(path)),
+            None => return Err(NodeExecutableError::OverrideMissing(path)),
+        }
+    }
+    let sidecar = exe_dir.join(sidecar_name);
+    if matches!(probe(&sidecar), Some(true)) {
+        return Ok(sidecar);
+    }
+    if allow_path_fallback {
+        return Ok(PathBuf::from("node"));
+    }
+    Err(NodeExecutableError::SidecarMissing(sidecar))
+}
+
+/// Resolves the runtime for the current launch. A blank `KNOWLIFY_NODE` counts
+/// as unset; any other value must name an existing absolute file.
+fn resolve_node_executable() -> Result<PathBuf, String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Cannot locate the Knowlify executable: {e}"))?;
+    let exe_dir = current_exe
+        .parent()
+        .ok_or_else(|| "The Knowlify executable has no parent directory.".to_string())?;
+    let override_path = std::env::var_os("KNOWLIFY_NODE").filter(|value| !value.is_empty());
+    node_executable(
+        exe_dir,
+        override_path.as_deref(),
+        cfg!(debug_assertions),
+        SIDECAR_FILE_NAME,
+        regular_file,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Explains a failed spawn: release builds ship their own runtime, while debug
+/// builds may still rely on the system Node.
+fn spawn_error(error: &std::io::Error) -> String {
+    if cfg!(debug_assertions) {
+        format!("Cannot start Node: {error}. Install Node or set KNOWLIFY_NODE.")
+    } else {
+        format!("Cannot start the bundled Node runtime: {error}. Reinstall Knowlify.")
+    }
+}
+
 /// Remembers the last working connection so the next launch connects on its own.
 #[tauri::command]
 async fn connect(
@@ -253,7 +364,7 @@ async fn establish(
                 .map_err(|e| e.to_string())?
                 .join("server")
         };
-        let node = std::env::var_os("KNOWLIFY_NODE").unwrap_or_else(|| "node".into());
+        let node = resolve_node_executable()?;
         let mut last_error = String::new();
         for _ in 0..3 {
             let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
@@ -276,6 +387,11 @@ async fn establish(
                 .env("KNOWLIFY_LLM_ALLOW_PRIVATE", "on")
                 .env_remove("KNOWLIFY_FORCE_ENV_PASSWORD")
                 .env_remove("KNOWLIFY_WEB_DIR")
+                // The user's environment must not inject code into the bundled runtime,
+                // and the override only picks the binary; the child does not inherit it.
+                .env_remove("NODE_OPTIONS")
+                .env_remove("NODE_PATH")
+                .env_remove("KNOWLIFY_NODE")
                 .stdin(Stdio::null())
                 .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
                 .stderr(Stdio::from(log));
@@ -284,9 +400,7 @@ async fn establish(
                 use std::os::windows::process::CommandExt;
                 command.creation_flags(0x08000000);
             }
-            let child = command.spawn().map_err(|e| {
-                format!("Cannot start Node: {e}. Install Node or set KNOWLIFY_NODE.")
-            })?;
+            let child = command.spawn().map_err(|e| spawn_error(&e))?;
             *slot = Some(child);
             // Keep ownership in state even if readiness checks fail or the app exits.
             let base = format!("http://127.0.0.1:{port}");
@@ -536,10 +650,10 @@ mod tests {
     #[cfg(unix)]
     use super::ensure_private_file;
     use super::{
-        is_allowed_navigation, is_local_http_url, open_server_log, validate_external_url,
-        validate_remote_url, NavigationGuard,
+        is_allowed_navigation, is_local_http_url, node_executable, open_server_log, regular_file,
+        validate_external_url, validate_remote_url, NavigationGuard, NodeExecutableError,
     };
-    use std::{fs, path::PathBuf};
+    use std::{ffi::OsStr, fs, path::PathBuf};
     use url::Url;
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -896,5 +1010,148 @@ mod tests {
         // The folder picker needs `open`; other dialog commands stay unavailable, and the
         // webview gains no filesystem or shell access.
         assert_eq!(permissions, ["core:default", "dialog:allow-open"]);
+    }
+
+    const SIDECAR: &str = "knowlify-node";
+
+    fn resolve_node(
+        exe_dir: &std::path::Path,
+        override_path: Option<&OsStr>,
+        allow_path_fallback: bool,
+    ) -> Result<PathBuf, NodeExecutableError> {
+        node_executable(
+            exe_dir,
+            override_path,
+            allow_path_fallback,
+            SIDECAR,
+            regular_file,
+        )
+    }
+
+    #[test]
+    fn test_node_executable_uses_the_sidecar_next_to_the_app() {
+        let dir = temp_dir("node-sidecar");
+        let sidecar = dir.join(SIDECAR);
+        fs::write(&sidecar, b"fake node").expect("write sidecar");
+        assert_eq!(
+            resolve_node(&dir, None, false).expect("resolve sidecar"),
+            sidecar
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_prefers_an_explicit_override() {
+        let dir = temp_dir("node-override");
+        fs::write(dir.join(SIDECAR), b"fake sidecar").expect("write sidecar");
+        let custom_dir = dir.join("custom");
+        fs::create_dir_all(&custom_dir).expect("create custom dir");
+        let custom = custom_dir.join("node-custom");
+        fs::write(&custom, b"fake node").expect("write custom node");
+        assert_eq!(
+            resolve_node(&dir, Some(custom.as_os_str()), false).expect("resolve override"),
+            custom
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_rejects_a_relative_override() {
+        let dir = temp_dir("node-override-relative");
+        let error = resolve_node(&dir, Some(OsStr::new("node")), false)
+            .expect_err("a relative override must be refused");
+        assert_eq!(
+            error,
+            NodeExecutableError::OverrideNotAbsolute(PathBuf::from("node"))
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_rejects_a_missing_override() {
+        let dir = temp_dir("node-override-missing");
+        let missing = dir.join("missing-node");
+        let error = resolve_node(&dir, Some(missing.as_os_str()), false)
+            .expect_err("a missing override must be refused");
+        assert_eq!(error, NodeExecutableError::OverrideMissing(missing));
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_rejects_a_directory_override() {
+        let dir = temp_dir("node-override-dir");
+        let error = resolve_node(&dir, Some(dir.as_os_str()), false)
+            .expect_err("a directory override must be refused");
+        assert_eq!(error, NodeExecutableError::OverrideNotFile(dir.clone()));
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_release_requires_the_sidecar() {
+        let dir = temp_dir("node-sidecar-missing");
+        let error =
+            resolve_node(&dir, None, false).expect_err("release builds must not fall back to PATH");
+        assert_eq!(
+            error,
+            NodeExecutableError::SidecarMissing(dir.join(SIDECAR))
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_release_ignores_a_sidecar_directory() {
+        let dir = temp_dir("node-sidecar-dir");
+        fs::create_dir(dir.join(SIDECAR)).expect("create sidecar dir");
+        let error =
+            resolve_node(&dir, None, false).expect_err("a sidecar directory is not an executable");
+        assert_eq!(
+            error,
+            NodeExecutableError::SidecarMissing(dir.join(SIDECAR))
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_debug_falls_back_to_path() {
+        let dir = temp_dir("node-debug-fallback");
+        assert_eq!(
+            resolve_node(&dir, None, true).expect("debug fallback"),
+            PathBuf::from("node")
+        );
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn test_node_executable_uses_the_windows_sidecar_name() {
+        let dir = temp_dir("node-sidecar-exe");
+        let sidecar = dir.join("knowlify-node.exe");
+        fs::write(&sidecar, b"fake node").expect("write sidecar");
+        let resolved = node_executable(&dir, None, false, "knowlify-node.exe", regular_file)
+            .expect("resolve Windows sidecar");
+        assert_eq!(resolved, sidecar);
+        // The extension-less name is not a candidate on Windows.
+        assert!(node_executable(&dir, None, false, "knowlify-node", regular_file).is_err());
+        fs::remove_dir_all(&dir).expect("remove temp dir");
+    }
+
+    /// Mirrors an installed layout: a fake `knowlify-node` script next to the app.
+    #[cfg(unix)]
+    #[test]
+    fn test_node_executable_finds_a_fake_sidecar_script() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::Command;
+
+        let dir = temp_dir("node-sidecar-script");
+        let sidecar = dir.join(SIDECAR);
+        fs::write(&sidecar, b"#!/bin/sh\necho v22.23.5\n").expect("write sidecar");
+        fs::set_permissions(&sidecar, fs::Permissions::from_mode(0o755)).expect("chmod sidecar");
+        let resolved = resolve_node(&dir, None, false).expect("resolve sidecar");
+        assert_eq!(resolved, sidecar);
+        let output = Command::new(&resolved)
+            .arg("--version")
+            .output()
+            .expect("run fake sidecar");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "v22.23.5");
+        fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 }

@@ -104,9 +104,56 @@ export interface MetadataCandidate {
 
 export type MetadataLookupErrorCode = "rate_limited" | "timeout" | "unavailable";
 
+/**
+ * Stable classification of a provider failure. It refines `code` for diagnostics and is
+ * safe to log or return: it never carries provider text, a URL, the query or the key.
+ */
+export type MetadataLookupReason =
+  | "key_unreadable"
+  | "key_rejected"
+  | "service_disabled"
+  | "referrer_or_ip_blocked"
+  | "forbidden"
+  | "not_found"
+  | "rate_limited"
+  | "upstream_error"
+  | "http_error"
+  | "network"
+  | "blocked_destination"
+  | "bad_response"
+  | "timeout";
+
+/** Diagnostic fields of a provider failure; optional so lightweight test doubles stay valid. */
+export interface MetadataFailureDetails {
+  readonly reason?: MetadataLookupReason;
+  /** HTTP status of the provider response, when one arrived. */
+  readonly status?: number;
+  /** Transport/DNS/TLS code (ENOTFOUND, ECONNREFUSED, CERT_*, blocked...). */
+  readonly networkCode?: string;
+  /** Google's `error.status` (for example PERMISSION_DENIED). Never its message. */
+  readonly errorStatus?: string;
+  /**
+   * Stable Google error identifier: the first `errors[].reason`, or a specific
+   * `details[].reason` when the former is only `badRequest`/`forbidden`. Never its message.
+   */
+  readonly errorReason?: string;
+}
+
 /** Shape adapters throw (Error & this) so the use case can report partial failures. */
-export interface MetadataLookupFailure {
+export interface MetadataLookupFailure extends MetadataFailureDetails {
   readonly code: MetadataLookupErrorCode;
+}
+
+/** One failed provider in the search response; `reason` is additive next to `code`. */
+export interface MetadataLookupError {
+  source: ExternalMetadataSource;
+  code: MetadataLookupErrorCode;
+  reason?: MetadataLookupReason;
+}
+
+/** Request-scoped failure log; the route passes the Fastify `req.log`. */
+export interface MetadataFailureLogger {
+  warn?(message: string): void;
 }
 
 /**

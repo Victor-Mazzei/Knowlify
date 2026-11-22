@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- The documented minimum Node version is now 22.23.5, the oldest 22.x release the test suite passes on; the container image and the CI keep using the current Node 22 LTS release.
-
 <!--
 Integrator: add each user- or operator-visible change under Added, Changed,
 Deprecated, Removed, Fixed or Security, one line per change. This file is written in English. At
@@ -18,6 +14,23 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 `## [X.Y.Z] - YYYY-MM-DD` section right below it with the entries; add the
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
+
+## [1.8.0] - 2026-11-21
+
+### Added
+
+- Desktop installers for Windows x64 (NSIS), macOS (Apple Silicon and Intel, `.dmg`) and Linux x64 (AppImage, `.deb` and `.rpm`), built by the release workflow. The installers are unsigned.
+- `KNOWLIFY_LOG_LEVEL` (`error`, `warn`, `info`, `debug`, `trace` or `silent`; default `info`) with diagnostic debug events that never include secrets or user content.
+- Metadata search errors carry an optional `reason`, and the dialog explains why a provider failed (Google Books permission, key, rate limit or network).
+
+### Changed
+
+- The desktop app bundles Node.js 22, so local mode no longer needs a system Node.js. `KNOWLIFY_NODE` is now only an explicit override of the bundled runtime.
+- The documented minimum Node version is now 22.23.5, the oldest 22.x release the test suite passes on; the container image and the CI keep using the current Node 22 LTS release.
+
+### Fixed
+
+- Metadata lookup failures are now logged instead of silent.
 
 ## [1.7.3] - 2026-11-21
 
@@ -252,7 +265,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.3...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.3...v1.8.0
 [1.7.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.0...v1.7.1

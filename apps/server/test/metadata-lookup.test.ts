@@ -61,7 +61,7 @@ describe("MetadataLookup use case", () => {
     );
     const result = await lookup.search({ isbn: "9780132350884" });
     expect(result.candidates).toEqual([candidate({ source: "openlibrary", id: "OL1W" })]);
-    expect(result.errors).toEqual([{ source: "googlebooks", code: "rate_limited" }]);
+    expect(result.errors).toEqual([{ source: "googlebooks", code: "rate_limited", reason: "rate_limited" }]);
   });
 
   it("maps unknown and aborted failures without leaking details", async () => {
@@ -78,8 +78,8 @@ describe("MetadataLookup use case", () => {
     );
     const result = await lookup.search({ title: "Clean Code" });
     expect(result.errors).toEqual([
-      { source: "googlebooks", code: "unavailable" },
-      { source: "openlibrary", code: "timeout" },
+      { source: "googlebooks", code: "unavailable", reason: "network" },
+      { source: "openlibrary", code: "timeout", reason: "timeout" },
     ]);
     expect(JSON.stringify(result)).not.toContain("secret");
   });
@@ -163,7 +163,7 @@ describe("MetadataLookup use case", () => {
     );
     const result = await failing.search({ title: "Rare" });
     expect(result.candidates.map((entry) => entry.id)).toEqual(["g"]);
-    expect(result.errors).toEqual([{ source: "openlibrary", code: "timeout" }]);
+    expect(result.errors).toEqual([{ source: "openlibrary", code: "timeout", reason: "timeout" }]);
   });
 
   it("validates the query and the feature switch before calling a provider", async () => {
