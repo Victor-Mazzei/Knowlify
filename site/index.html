@@ -71,6 +71,7 @@
       <a href="#privacy">Privacy</a>
       <a href="#start">Quick start</a>
       <a href="#tools">Tools</a>
+      <a href="#download">Download</a>
     </nav>
     <a class="header-repo" href="https://github.com/Victor-Mazzei/Knowlify">GitHub</a>
     <nav class="lang-switch" aria-label="Language">
@@ -89,6 +90,7 @@
         <p class="lede">Knowlify indexes a folder of PDF and EPUB books, then gives you a quiet place to read, search and keep what you learn. It runs on your hardware.</p>
         <div class="actions">
           <a class="button" href="#start">Start with Docker</a>
+          <a class="button secondary" href="#download">Download the app</a>
           <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify">View the source</a>
         </div>
         <ul class="hero-facts">
@@ -548,6 +550,80 @@ docker compose up -d</code></pre>
     </div>
   </section>
 
+  <section class="section download" id="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <header class="section-head">
+        <p class="section-index">07</p>
+        <div>
+          <p class="eyebrow">Download</p>
+          <h2 id="download-title" tabindex="-1">Take the library to the desk.</h2>
+          <p class="section-lede">The desktop app wraps the same library in a native window on Windows, macOS and Linux. Choose the installer for your system. It can run its own server or connect to the one you run.</p>
+        </div>
+      </header>
+
+      <div class="download-body">
+        <ul class="download-list" role="list">
+          <li class="download-option" data-download-platform="windows">
+            <div class="download-what">
+              <div class="download-heading">
+                <h3 class="download-os">Windows</h3>
+                <span class="download-flag" hidden>Your system</span>
+              </div>
+              <span class="download-meta">10 or 11, 64-bit (x64)</span>
+            </div>
+            <div class="download-actions">
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download .exe<span class="visually-hidden"> for Windows x64</span></a>
+            </div>
+          </li>
+          <li class="download-option" data-download-platform="macos-arm64">
+            <div class="download-what">
+              <div class="download-heading">
+                <h3 class="download-os">macOS</h3>
+                <span class="download-flag" hidden>Your system</span>
+              </div>
+              <span class="download-meta">Apple Silicon (arm64)</span>
+            </div>
+            <div class="download-actions">
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download .dmg<span class="visually-hidden"> for macOS Apple Silicon</span></a>
+            </div>
+          </li>
+          <li class="download-option" data-download-platform="macos-x64">
+            <div class="download-what">
+              <div class="download-heading">
+                <h3 class="download-os">macOS</h3>
+                <span class="download-flag" hidden>Your system</span>
+              </div>
+              <span class="download-meta">Intel (x64)</span>
+            </div>
+            <div class="download-actions">
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download .dmg<span class="visually-hidden"> for macOS Intel</span></a>
+            </div>
+          </li>
+          <li class="download-option" data-download-platform="linux">
+            <div class="download-what">
+              <div class="download-heading">
+                <h3 class="download-os">Linux</h3>
+                <span class="download-flag" hidden>Your system</span>
+              </div>
+              <span class="download-meta">64-bit (x64), glibc 2.35 or later</span>
+            </div>
+            <div class="download-actions">
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download AppImage<span class="visually-hidden"> for Linux x64</span></a>
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download .deb<span class="visually-hidden"> for Linux x64</span></a>
+              <a class="button secondary" href="https://github.com/Victor-Mazzei/Knowlify/releases/latest">Download .rpm<span class="visually-hidden"> for Linux x64</span></a>
+            </div>
+          </li>
+        </ul>
+
+        <aside class="download-note" aria-labelledby="download-note-title">
+          <h3 id="download-note-title">Before you install</h3>
+          <p>Every button opens the latest release on GitHub. The file names include the version. Download the file for your system and the <code>SHA256SUMS</code> file, then compare the hash before you install.</p>
+          <p>The installers are not signed yet. Windows shows "Windows protected your PC": select <strong>More info</strong>, then <strong>Run anyway</strong>. On macOS, move Knowlify to Applications, try to open the app once, then select <strong>Open Anyway</strong> in <strong>System Settings &gt; Privacy &amp; Security</strong>. In Terminal, you can also run <code><span class="download-nowrap">xattr -dr</span> com.apple.quarantine /Applications/Knowlify.app</code>.</p>
+        </aside>
+      </div>
+    </div>
+  </section>
+
   <section class="section license" id="license" aria-labelledby="license-title">
     <div class="wrap license-grid">
       <div>
@@ -577,6 +653,7 @@ docker compose up -d</code></pre>
       <a href="#what">What it is</a>
       <a href="#privacy">Privacy</a>
       <a href="#start">Quick start</a>
+      <a href="#download">Download</a>
       <a href="#license">License</a>
     </nav>
     <div class="footer-meta">
@@ -629,6 +706,56 @@ docker compose up -d</code></pre>
         status.textContent = "Copy failed. Select the text and copy it.";
       }
     });
+  }
+})();
+
+(() => {
+  const downloadTitle = document.getElementById("download-title");
+  const focusDownload = () => {
+    if (location.hash !== "#download" || !downloadTitle) return;
+    downloadTitle.focus({ preventScroll: true });
+  };
+  if (location.hash === "#download") {
+    focusDownload();
+  }
+  window.addEventListener("hashchange", focusDownload);
+  for (const link of document.querySelectorAll('a[href="#download"]')) {
+    link.addEventListener("click", () => {
+      window.requestAnimationFrame(focusDownload);
+    });
+  }
+
+  const mark = (name) => {
+    const option = document.querySelector(`[data-download-platform="${name}"]`);
+    if (!option) return;
+    option.dataset.detected = "true";
+    option.setAttribute("aria-current", "true");
+    const flag = option.querySelector(".download-flag");
+    if (flag) {
+      flag.hidden = false;
+    }
+  };
+  const ua = navigator.userAgent || "";
+  const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  // iPadOS reports a Mac platform, and macOS user agents do not name the chip.
+  const isAndroid = /android/i.test(ua);
+  const isIPad = /mac/i.test(platform) && navigator.maxTouchPoints > 1;
+  const isWindows = /win/i.test(platform) || /windows/i.test(ua);
+  const isLinux = !isAndroid && (/linux|x11/i.test(platform) || /linux/i.test(ua));
+  const isLinuxX64 = isLinux && /x86_64|amd64/i.test(`${platform} ${ua}`);
+  const isMac = !isIPad && (/mac/i.test(platform) || /mac os x/i.test(ua));
+  if (isWindows) {
+    mark("windows");
+  } else if (isLinuxX64) {
+    mark("linux");
+  } else if (isMac && navigator.userAgentData && typeof navigator.userAgentData.getHighEntropyValues === "function") {
+    navigator.userAgentData.getHighEntropyValues(["architecture"]).then((data) => {
+      if (data.architecture === "arm") {
+        mark("macos-arm64");
+      } else if (data.architecture === "x86") {
+        mark("macos-x64");
+      }
+    }).catch(() => {});
   }
 })();
 </script>

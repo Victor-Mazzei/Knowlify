@@ -15,11 +15,17 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.0.2] - 2026-11-22
+
+### Fixed
+
+- Library selection stops at 100 explicit books: clicks, shift ranges and "select loaded books" no longer grow an id selection past the bulk-delete ceiling, and the selection bar shows "100 of 100 selected" with an accessible warning that points to the uncapped "select every result of the current filter" path.
+
 ## [2.0.1] - 2026-11-22
 
 ### Fixed
 
-- The desktop Node.js lockstep test detects the Gitea repository and the GitHub export layouts, so `npm test` passes in both without reading files that belong to the other layout.
+- The desktop Node.js lockstep test detects the source and export layouts, so `npm test` passes in both without reading files that belong to the other layout.
 - Web assistant tests wait for the answer stream to finish before asserting citation links and for the Retry control after stream errors, removing a flaky `ChatPanel` failure under load.
 
 ## [2.0.0] - 2026-11-22
@@ -31,7 +37,7 @@ comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 ### Changed
 
 - BREAKING: minimum Node.js is now 26 (LTS). Source builds and the container image need Node.js 26 or later (`engines` is `>=26`); the desktop installers bundle their own Node.js and are not affected.
-- The container image, the Gitea and GitHub CI workflows, the desktop sidecar and the development setup now use Node.js 26 LTS (Lithium). The desktop bundles Node.js 26.13.1 with its SHA-256 hashes, and `node:fetch` verifies them.
+- The container image, the CI workflows, the desktop sidecar and the development setup now use Node.js 26 LTS (Lithium). The desktop bundles Node.js 26.13.1 with its SHA-256 hashes, and `node:fetch` verifies them.
 - The minimum Node.js version for source builds is now 26: `engines` is `>=26` in the root and workspace manifests, and `.nvmrc` selects 26. The desktop build fails closed when the host major is not 26.
 - The web reader renders PDFs with PDF.js 6.5.438 and loads its module worker from the Vite build. The reader releases the document through the loading task, because PDF.js 6 removed `PDFDocumentProxy.destroy()`, and passes the canvas explicitly to `page.render`.
 - The web client builds with Vite 8 and its tests run on Vitest 5.1, jsdom 31 and Testing Library jest-dom 8; the server test suite also moved to Vitest 5.1. Facet filter checkboxes now separate the label from the count for assistive technology ("PDF 4" instead of "PDF4").
@@ -313,7 +319,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.1...v2.0.0
 [1.8.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.0...v1.8.1

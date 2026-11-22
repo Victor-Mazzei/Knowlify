@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SelectionBar } from "./SelectionBar";
+import { SELECTION_LIMIT } from "./useSelection";
 
 function setup(overrides: Partial<Parameters<typeof SelectionBar>[0]> = {}) {
   const props = {
@@ -37,6 +38,64 @@ describe("SelectionBar", () => {
     setup({ count: 100, allMode: true, total: 100 });
     expect(screen.getByText("All 100 results selected", { selector: ".selection-count" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Select all/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the limit, warns, and points to the filtered selection", () => {
+    const onSelectAll = vi.fn();
+    setup({ count: SELECTION_LIMIT, total: 120, loadedCount: 60, onSelectAll });
+
+    expect(screen.getByText("100 of 100 selected", { selector: ".selection-count" })).toBeInTheDocument();
+    const warning = screen.getByText(/Selection limit reached/, { selector: ".selection-limit" });
+    expect(warning).toHaveTextContent(
+      "Selection limit reached (100 books). Deselect some books, or select every result of the current filter.",
+    );
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveTextContent(
+      "100 of 100 selected. Selection limit reached (100 books). Deselect some books, or select every result of the current filter.",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "select every result of the current filter" }));
+    expect(onSelectAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the filtered advice when every result is already selected", () => {
+    setup({ count: SELECTION_LIMIT, total: SELECTION_LIMIT, loadedCount: SELECTION_LIMIT });
+    expect(screen.getByText(/Selection limit reached/, { selector: ".selection-limit" })).toHaveTextContent(
+      "Deselect some books to select more.",
+    );
+    expect(screen.queryByRole("button", { name: /every result/i })).not.toBeInTheDocument();
+  });
+
+  it("still offers the filtered selection when every result is loaded", () => {
+    setup({ count: SELECTION_LIMIT, total: 120, loadedCount: 120 });
+    expect(screen.getByRole("button", { name: "select every result of the current filter" })).toBeInTheDocument();
+  });
+
+  it("drops the warning when the selection goes below the limit", () => {
+    const props = {
+      count: SELECTION_LIMIT,
+      total: 120,
+      loadedCount: 60,
+      allMode: false,
+      onSelectAll: vi.fn(),
+      onDelete: vi.fn(),
+      onClear: vi.fn(),
+    };
+    const { rerender } = render(<SelectionBar {...props} />);
+    expect(screen.getByText(/Selection limit reached/, { selector: ".selection-limit" })).toBeInTheDocument();
+
+    rerender(<SelectionBar {...props} count={SELECTION_LIMIT - 1} />);
+    expect(screen.queryByText(/Selection limit reached/, { selector: ".selection-limit" })).not.toBeInTheDocument();
+    expect(screen.getByText("99 selected", { selector: ".selection-count" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).not.toHaveTextContent("Selection limit reached");
+  });
+
+  it("does not apply the id ceiling to the filtered all-results mode", () => {
+    setup({ count: 120, allMode: true, total: 120, loadedCount: 120 });
+    expect(screen.getByText("All 120 results selected", { selector: ".selection-count" })).toBeInTheDocument();
+    expect(screen.queryByText(/Selection limit reached/, { selector: ".selection-limit" })).not.toBeInTheDocument();
   });
 
   it("wires Tag, Delete and Clear without dropping the count", () => {
