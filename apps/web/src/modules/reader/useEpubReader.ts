@@ -27,7 +27,7 @@ export function useEpubReader({
 }: {
   book: Book;
   data: ArrayBuffer;
-  container: RefObject<HTMLDivElement>;
+  container: RefObject<HTMLDivElement | null>;
   initialPosition: string;
   notes: Note[];
   scheduleProgress: (progress: Progress) => void;

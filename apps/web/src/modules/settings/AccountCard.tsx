@@ -36,7 +36,7 @@ export function AccountCard({ credentials, onLogout, onCredentialsChange }: Prop
   const currentRef = useRef<HTMLInputElement>(null);
   const nextRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
-  const inputs: Record<Field, RefObject<HTMLInputElement>> = { current: currentRef, next: nextRef, confirm: confirmRef };
+  const inputs: Record<Field, RefObject<HTMLInputElement | null>> = { current: currentRef, next: nextRef, confirm: confirmRef };
   useAutoDismiss(message, setMessage);
 
   useEffect(() => {

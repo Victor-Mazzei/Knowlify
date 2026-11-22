@@ -10,7 +10,7 @@ Thank you for your interest. This guide explains how to set up the project, run 
 
 ## Requirements
 
-- Node 22 LTS, current release (tested on 22.23.5; the documented minimum is 22.23.5). Node 24 also works.
+- Node.js 26 LTS. The repository pins 26.13.1 (`.nvmrc`, the desktop runtime manifest and CI); 26.13.1 is the tested minimum.
 - npm.
 - Rust and the Tauri prerequisites for the desktop app. See [apps/desktop/README.md](apps/desktop/README.md).
 
@@ -22,7 +22,7 @@ Thank you for your interest. This guide explains how to set up the project, run 
 
 The web app runs on port 5174 and proxies `/api` to the API on port 8787.
 
-If you change the Node version, run `npm install` again. The native modules `better-sqlite3` and `@napi-rs/canvas` must match the Node ABI.
+If you change the Node version, run `npm ci` again. The native modules `better-sqlite3` and `@napi-rs/canvas` ship N-API prebuilds, so they do not need a compiler or a rebuild for each Node release.
 
 ## Checks
 

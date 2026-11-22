@@ -7,6 +7,7 @@ import {
   assertBundledNodeMajor,
   assertSinglePlatform,
   buildServerManifest,
+  overlayNodeModules,
   platformPackageAllowed,
   prepareServer,
   pruneServerTree,
@@ -58,8 +59,10 @@ async function createServerTree(t) {
     'better-sqlite3/src/binding.cc': 'source',
     'better-sqlite3/deps/sqlite3.c': 'sqlite source',
     'better-sqlite3/build/Makefile': 'make',
-    'better-sqlite3/build/Release/better_sqlite3.node': 'binary',
-    'better-sqlite3/build/Release/obj.target/binding.o': 'object file',
+    'better-sqlite3/prebuilds/linux-x64.node': 'linux binary',
+    'better-sqlite3/prebuilds/linuxmusl-x64.node': 'musl binary',
+    'better-sqlite3/prebuilds/win32-x64.node': 'windows binary',
+    'better-sqlite3/prebuilds/darwin-arm64.node': 'macos binary',
     'better-sqlite3/LICENSE': 'MIT',
     'better-sqlite3/README.md': 'readme',
     'better-sqlite3/test/index.js': 'test',
@@ -131,9 +134,11 @@ test('prune keeps only the target native payloads and preserves licenses', async
   const sqlite = join(nodeModules, 'better-sqlite3');
   assert.equal(await exists(join(sqlite, 'deps')), false);
   assert.equal(await exists(join(sqlite, 'src')), false);
-  assert.equal(await exists(join(sqlite, 'build', 'Makefile')), false);
-  assert.equal(await exists(join(sqlite, 'build', 'Release', 'obj.target')), false);
-  assert.equal(await exists(join(sqlite, 'build', 'Release', 'better_sqlite3.node')), true);
+  assert.equal(await exists(join(sqlite, 'build')), false);
+  assert.equal(await exists(join(sqlite, 'prebuilds', 'linux-x64.node')), true);
+  assert.equal(await exists(join(sqlite, 'prebuilds', 'linuxmusl-x64.node')), false);
+  assert.equal(await exists(join(sqlite, 'prebuilds', 'win32-x64.node')), false);
+  assert.equal(await exists(join(sqlite, 'prebuilds', 'darwin-arm64.node')), false);
   assert.equal(await exists(join(sqlite, 'test')), false);
   assert.equal(await exists(join(sqlite, 'LICENSE')), true);
   assert.equal(await exists(join(sqlite, 'README.md')), true);
@@ -190,24 +195,55 @@ test('platform matcher follows the target triple instead of the host', () => {
 const abiMessage = (pinnedMajor, found) => `prepare-server must run with Node ${pinnedMajor} (found ${found}): the native modules must match the bundled Node ABI. Run: nvm use ${pinnedMajor}`;
 
 test('accepts the bundled Node major regardless of minor and patch', () => {
-  assert.doesNotThrow(() => assertBundledNodeMajor('22.0.0', '22.23.5'));
-  assert.doesNotThrow(() => assertBundledNodeMajor('22.23.5', '22.23.5'));
+  assert.doesNotThrow(() => assertBundledNodeMajor('26.0.0', '26.13.1'));
+  assert.doesNotThrow(() => assertBundledNodeMajor('26.13.1', '26.13.1'));
 });
 
 test('rejects another Node major with the ABI message', () => {
   assert.throws(
-    () => assertBundledNodeMajor('23.1.2', '22.23.5'),
-    { message: abiMessage(22, '23.1.2') },
+    () => assertBundledNodeMajor('23.1.2', '26.13.1'),
+    { message: abiMessage(26, '23.1.2') },
   );
   assert.throws(
-    () => assertBundledNodeMajor('20.19.0', '22.23.5'),
-    { message: abiMessage(22, '20.19.0') },
+    () => assertBundledNodeMajor('22.23.5', '26.13.1'),
+    { message: abiMessage(26, '22.23.5') },
   );
   // The major in the message comes from the manifest, not from the host.
   assert.throws(
-    () => assertBundledNodeMajor('23.1.2', '24.5.0'),
-    { message: abiMessage(24, '23.1.2') },
+    () => assertBundledNodeMajor('23.1.2', '28.5.0'),
+    { message: abiMessage(28, '23.1.2') },
   );
+});
+
+test('overlays a workspace-nested dependency over the hoisted copy', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knowlify-prepare-overlay-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const hoisted = join(directory, 'hoisted');
+  const workspace = join(directory, 'workspace');
+  await writeTree(hoisted, {
+    'pdfjs-dist/package.json': '{"version":"4.10.38"}',
+    'pdfjs-dist/build/pdf.mjs': 'old build',
+    'fastify/package.json': '{"version":"5.12.8"}',
+    '.bin/fastify': 'bin',
+  });
+  await writeTree(workspace, {
+    'pdfjs-dist/package.json': '{"version":"6.5.438"}',
+    'pdfjs-dist/legacy/build/pdf.mjs': 'new build',
+    '@scope/tool/package.json': '{"version":"1.0.0"}',
+    '.bin/tsx': 'bin',
+  });
+
+  await overlayNodeModules(workspace, hoisted);
+
+  assert.deepEqual(
+    JSON.parse(await readFile(join(hoisted, 'pdfjs-dist/package.json'), 'utf8')),
+    { version: '6.5.438' },
+  );
+  assert.equal(await exists(join(hoisted, 'pdfjs-dist/build/pdf.mjs')), false);
+  assert.equal(await exists(join(hoisted, 'pdfjs-dist/legacy/build/pdf.mjs')), true);
+  assert.equal(await exists(join(hoisted, '@scope/tool/package.json')), true);
+  assert.equal(await exists(join(hoisted, 'fastify/package.json')), true);
+  assert.equal(await exists(join(hoisted, '.bin/tsx')), false);
 });
 
 test('aborts before touching resources or installing on a major mismatch', async t => {
@@ -224,7 +260,7 @@ test('aborts before touching resources or installing on a major mismatch', async
       skipBuild: true,
       log: () => {},
     }),
-    { message: abiMessage(22, '23.1.2') },
+    { message: abiMessage(26, '23.1.2') },
   );
 
   assert.equal(await readFile(join(resourcesDir, 'server', 'sentinel.txt'), 'utf8'), 'kept');

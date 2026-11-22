@@ -159,6 +159,7 @@ describe("useChat", () => {
 
     act(() => result.current.send("Question"));
     await waitFor(() => expect(result.current.error).toBe("The model took too long."));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
     expect(result.current.messages.map((message) => message.role)).toEqual(["user"]);
     expect(result.current.conversationId).toBeUndefined();
     expect(result.current.canRetry).toBe(true);
@@ -224,6 +225,7 @@ describe("useChat", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     act(() => result.current.send("Follow-up"));
     await waitFor(() => expect(result.current.error).toBe("The model took too long."));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
     expect(result.current.conversationId).toBe("c9");
 
     act(() => result.current.retry());

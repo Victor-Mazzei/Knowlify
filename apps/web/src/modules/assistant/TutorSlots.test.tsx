@@ -44,6 +44,9 @@ function renderReader(api: ApiFn, status = tutorChatStatus()) {
 
 const readerTutor = () => screen.getByRole("button", { name: "Reader tutor" });
 
+const streamSettled = () =>
+  waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument());
+
 describe("Tutor slots", () => {
   it("keeps independent book and library conversations and never crosses scopes", async () => {
     const bodies: unknown[] = [];
@@ -114,6 +117,9 @@ describe("Tutor slots", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await screen.findByText(`Answer ${book === "a" ? 1 : book === "b" ? 2 : book === "c" ? 3 : 4}`);
+      // Slot eviction skips live streams, so each previous answer must settle
+      // before the next book is opened for the cap to be deterministic.
+      await streamSettled();
     }
 
     expect(document.querySelectorAll('[data-tutor-slot^="book:"]').length).toBe(3);
@@ -152,6 +158,7 @@ describe("Tutor slots", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await screen.findByText(`Answer ${book === "b" ? 2 : book === "c" ? 3 : 4}`);
+      await streamSettled();
     }
 
     expect(document.querySelector('[data-tutor-slot="book:a"]')).not.toBeNull();

@@ -4,7 +4,7 @@ import type { Progress } from "../../types";
 
 export function useReadingProgress(api: ApiFn, bookId: string, initial: Progress) {
   const latestProgress = useRef(initial);
-  const timer = useRef<number>();
+  const timer = useRef<number | undefined>(undefined);
   // Live value for the on-screen indicator; the PUT still waits for the debounce.
   const [percentage, setPercentage] = useState(initial.percentage);
 

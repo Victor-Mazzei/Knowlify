@@ -12,7 +12,7 @@ import {
   validateManifest, SUPPORTED_TARGETS,
 } from './node-runtime.mjs';
 import {
-  buildServerManifest, directorySizeBytes, formatBytes, platformPackageAllowed, targetProfile,
+  betterSqlitePrebuildFile, buildServerManifest, directorySizeBytes, formatBytes, platformPackageAllowed, targetProfile,
 } from './prepare-server.mjs';
 
 /**
@@ -424,6 +424,15 @@ async function requireExecutable(sidecarPath) {
   }
 }
 
+/** N-API prebuilds must exist for the artifact target, not only for the host. */
+function requireBetterSqlitePrebuild(nodeModules, target) {
+  const profile = targetProfile(target, { libc: target === 'x86_64-unknown-linux-gnu' ? null : undefined });
+  const required = join('better-sqlite3', 'prebuilds', betterSqlitePrebuildFile(profile));
+  if (!existsSync(join(nodeModules, required))) {
+    fail(`server/node_modules is missing ${required}`);
+  }
+}
+
 async function findForeignPayloads(root, target) {
   const profile = targetProfile(target, { libc: target === 'x86_64-unknown-linux-gnu' ? null : undefined });
   const foreign = [];
@@ -490,7 +499,7 @@ export async function verifyBundle({
     for (const required of [
       'fastify/package.json',
       'better-sqlite3/package.json',
-      'better-sqlite3/build/Release/better_sqlite3.node',
+      'better-sqlite3/prebuilds',
       '@napi-rs/canvas/package.json',
     ]) {
       if (!existsSync(join(nodeModules, required))) {
@@ -533,6 +542,7 @@ export async function verifyBundle({
         fail(`a ${format} bundle must contain exactly one knowlify-node sidecar, found ${sidecars.length}`);
       }
       const target = await resolveRewrittenBundleTarget({ format, explicitTarget, binariesDir });
+      requireBetterSqlitePrebuild(nodeModules, target);
       const packaging = await verifyPrePackagingSidecar({ binariesDir, target, pinnedHashes, logLine });
       const sidecar = sidecars[0];
       await requireExecutable(sidecar);
@@ -594,6 +604,7 @@ export async function verifyBundle({
     }
 
     const effectiveTarget = inferredTarget;
+    requireBetterSqlitePrebuild(nodeModules, effectiveTarget);
     const foreign = await findForeignPayloads(root, effectiveTarget);
     if (foreign.length > 0) fail(`bundle contains payloads for another platform: ${foreign.join(', ')}`);
     logLine(`no payloads for platforms other than ${effectiveTarget}`);

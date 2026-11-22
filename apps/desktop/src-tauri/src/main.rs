@@ -1143,7 +1143,7 @@ mod tests {
 
         let dir = temp_dir("node-sidecar-script");
         let sidecar = dir.join(SIDECAR);
-        fs::write(&sidecar, b"#!/bin/sh\necho v22.23.5\n").expect("write sidecar");
+        fs::write(&sidecar, b"#!/bin/sh\necho v26.13.1\n").expect("write sidecar");
         fs::set_permissions(&sidecar, fs::Permissions::from_mode(0o755)).expect("chmod sidecar");
         let resolved = resolve_node(&dir, None, false).expect("resolve sidecar");
         assert_eq!(resolved, sidecar);
@@ -1151,7 +1151,7 @@ mod tests {
             .arg("--version")
             .output()
             .expect("run fake sidecar");
-        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "v22.23.5");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "v26.13.1");
         fs::remove_dir_all(&dir).expect("remove temp dir");
     }
 }

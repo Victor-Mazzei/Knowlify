@@ -42,13 +42,13 @@ export function useChat({
   const [stopped, setStopped] = useState(false);
 
   const conversationRef = useRef(initialConversationId);
-  const controllerRef = useRef<AbortController>();
-  const draftRef = useRef<string>();
+  const controllerRef = useRef<AbortController | undefined>(undefined);
+  const draftRef = useRef<string | undefined>(undefined);
   const alive = useRef(true);
   const scopeRef = useRef(scope);
   const apiRef = useRef(api);
   const onConversationRef = useRef(onConversation);
-  const lastTurn = useRef<{ message: string; excerpt?: ChatExcerpt }>();
+  const lastTurn = useRef<{ message: string; excerpt?: ChatExcerpt } | undefined>(undefined);
   scopeRef.current = scope;
   apiRef.current = api;
   onConversationRef.current = onConversation;

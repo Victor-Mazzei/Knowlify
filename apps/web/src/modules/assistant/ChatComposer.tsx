@@ -24,7 +24,7 @@ export function ChatComposer({
   excerpt?: ChatExcerpt;
   onClearExcerpt?: () => void;
   onUseVisibleText?: () => void;
-  inputRef: RefObject<HTMLTextAreaElement>;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
   disabled?: boolean;
 }) {
   const inputId = useId();

@@ -25,6 +25,10 @@ export const defaultCacheDir = join(desktopDir, '.cache', 'node');
 
 const DIST_ORIGIN = 'https://nodejs.org';
 const DIST_INDEX_URL = `${DIST_ORIGIN}/dist/index.json`;
+
+/** Node.js major the desktop sidecar is allowed to bundle. */
+export const SUPPORTED_NODE_MAJOR = 26;
+
 export const MAX_ARCHIVE_BYTES = 200 * 1024 * 1024;
 export const MAX_METADATA_BYTES = 1024 * 1024;
 export const FETCH_TIMEOUT_MS = 300_000;
@@ -102,7 +106,9 @@ export function validateManifest(manifest) {
   if (!isRecord(manifest)) fail('node-runtime.json must be a JSON object');
   const version = parseNodeVersion(manifest.version);
   if (!version) fail(`node-runtime.json has an invalid version: ${JSON.stringify(manifest.version)}`);
-  if (version.major !== 22) fail(`node-runtime.json must pin Node.js 22.x, got ${manifest.version}`);
+  if (version.major !== SUPPORTED_NODE_MAJOR) {
+    fail(`node-runtime.json must pin Node.js ${SUPPORTED_NODE_MAJOR}.x, got ${manifest.version}`);
+  }
   const expectedBase = `${DIST_ORIGIN}/dist/v${manifest.version}/`;
   if (manifest.baseUrl !== expectedBase) {
     fail(`node-runtime.json baseUrl must be ${expectedBase}, got ${JSON.stringify(manifest.baseUrl)}`);
@@ -524,12 +530,12 @@ export function pickLatestLts(entries) {
   for (const entry of entries) {
     if (!isRecord(entry) || typeof entry.version !== 'string') continue;
     const version = parseNodeVersion(entry.version.replace(/^v/, ''));
-    if (!version || version.major !== 22 || entry.lts === false || entry.lts == null) continue;
+    if (!version || version.major !== SUPPORTED_NODE_MAJOR || entry.lts === false || entry.lts == null) continue;
     if (best === null || compareVersions([version.major, version.minor, version.patch], best) > 0) {
       best = [version.major, version.minor, version.patch];
     }
   }
-  if (best === null) fail('No Node.js 22.x LTS release found');
+  if (best === null) fail(`No Node.js ${SUPPORTED_NODE_MAJOR}.x LTS release found`);
   return best.join('.');
 }
 
@@ -626,12 +632,14 @@ export async function updateManifest({
   if (selected === null) {
     const text = await fetchText(DIST_INDEX_URL, { fetchImpl, policy });
     selected = pickLatestLts(JSON.parse(text));
-    logLine(log, `latest Node.js 22.x LTS is v${selected}`);
+    logLine(log, `latest Node.js ${SUPPORTED_NODE_MAJOR}.x LTS is v${selected}`);
   } else {
     selected = selected.replace(/^v/, '');
   }
   const parsed = parseNodeVersion(selected);
-  if (!parsed || parsed.major !== 22) fail(`Node.js 22.x required, got ${selected}`);
+  if (!parsed || parsed.major !== SUPPORTED_NODE_MAJOR) {
+    fail(`Node.js ${SUPPORTED_NODE_MAJOR}.x required, got ${selected}`);
+  }
 
   const workDir = await mkdtemp(join(tmpdir(), 'knowlify-shasums-'));
   try {

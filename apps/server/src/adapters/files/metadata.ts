@@ -1,7 +1,8 @@
 import AdmZip from "adm-zip";
 import { XMLParser } from "fast-xml-parser";
 import { readFile } from "node:fs/promises";
-import { posix } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, posix } from "node:path";
 
 import type { Extracted } from "../../ports/index.js";
 export type { Extracted } from "../../ports/index.js";
@@ -57,10 +58,23 @@ export async function extractPdf(file: string): Promise<Extracted> {
     import("pdfjs-dist/legacy/build/pdf.mjs"),
     import("@napi-rs/canvas"),
   ]);
-  const doc = await getDocument({ data: new Uint8Array(bytes), useSystemFonts: true, isEvalSupported: false, verbosity: 0 }).promise
-    .catch(() => null);
+  // pdf.js 5 moved the image codecs (JPEG 2000, JBIG2, ICC) to wasm files next
+  // to the package. Without the URL the wasm decoder never initializes and
+  // pages that rely on those codecs lose their cover, which pdf.js 4 rendered.
+  // The bundled standard fonts keep Base-14 covers independent of host fonts
+  // (the slim Docker image installs none).
+  const pdfjsDir = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"));
+  const loading = getDocument({
+    data: new Uint8Array(bytes),
+    useSystemFonts: true,
+    standardFontDataUrl: `${join(pdfjsDir, "standard_fonts")}/`,
+    wasmUrl: `${join(pdfjsDir, "wasm")}/`,
+    verbosity: 0,
+  });
+  const doc = await loading.promise.catch(() => null);
   if (!doc) {
     // Metadata is optional: an unreadable PDF is still a valid library entry.
+    await loading.destroy().catch(() => undefined);
     return {};
   }
   const out: Extracted = {};
@@ -81,13 +95,17 @@ export async function extractPdf(file: string): Promise<Extracted> {
       const context = canvas.getContext("2d");
       context.fillStyle = "#fff";
       context.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: context as unknown as CanvasRenderingContext2D, viewport }).promise;
+      await page.render({
+        canvas: canvas as unknown as HTMLCanvasElement,
+        canvasContext: context as unknown as CanvasRenderingContext2D,
+        viewport,
+      }).promise;
       out.cover = { data: canvas.toBuffer("image/jpeg", 80), ext: "jpg" };
     } catch {
       /* cover is optional */
     }
   } finally {
-    await doc.destroy();
+    await loading.destroy().catch(() => undefined);
   }
   return out;
 }

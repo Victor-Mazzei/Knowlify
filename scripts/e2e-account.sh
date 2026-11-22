@@ -6,7 +6,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${PORT:-8814}"; B="localhost:$PORT"; J='content-type: application/json'
 D="$(mktemp -d)"; LOG="$D/server.log"; FAILS=0
-[ -s "$HOME/.nvm/nvm.sh" ] && { . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1 || true; }
+[ -s "$HOME/.nvm/nvm.sh" ] && { . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1; nvm use 26 >/dev/null 2>&1 || true; }
 
 start() { (cd "$ROOT/apps/server" && env KNOWLIFY_DATA="$D/data" PORT="$PORT" KNOWLIFY_USER=admin KNOWLIFY_PASSWORD=initial-pass-1 KNOWLIFY_SCAN_INTERVAL=0 "$@" nohup npx tsx src/index.ts >>"$LOG" 2>&1 &)
   for _ in $(seq 1 30); do sleep 1; curl -s -m 1 "$B/health" >/dev/null && return 0; done; echo "server did not start (see $LOG)"; exit 2; }

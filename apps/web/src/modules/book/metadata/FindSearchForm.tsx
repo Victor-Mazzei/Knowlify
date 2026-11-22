@@ -24,8 +24,8 @@ export function FindSearchForm({
   isbn: string;
   title: string;
   author: string;
-  isbnRef: RefObject<HTMLInputElement>;
-  titleRef: RefObject<HTMLInputElement>;
+  isbnRef: RefObject<HTMLInputElement | null>;
+  titleRef: RefObject<HTMLInputElement | null>;
   queryError: string;
   searching: boolean;
   applying: boolean;

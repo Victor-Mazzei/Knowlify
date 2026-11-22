@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { RefObject } from "react";
 import { formatError } from "../../services/api";
 import type { Book, Progress } from "../../types";
+import { pdfjsWasmUrl } from "./pdfjsAssets";
 
 export function usePdfReader({
   book,
@@ -15,12 +16,11 @@ export function usePdfReader({
 }: {
   book: Book;
   data: ArrayBuffer;
-  container: RefObject<HTMLDivElement>;
+  container: RefObject<HTMLDivElement | null>;
   initialPosition: string;
   scheduleProgress: (progress: Progress) => void;
   onError: (message: string) => void;
 }) {
-  const loadedPdf = useRef<PDFDocumentProxy>();
   const startPage = useRef(Math.max(1, Number(initialPosition) || 1));
   const visibleTextRef = useRef("");
   const [pdf, setPdf] = useState<PDFDocumentProxy>();
@@ -45,26 +45,19 @@ export function usePdfReader({
       "pdfjs-dist/build/pdf.worker.min.mjs",
       import.meta.url,
     ).toString();
-    const loadingTask = pdfjs.getDocument({ data: data.slice(0) });
+    const loadingTask = pdfjs.getDocument({ data: data.slice(0), wasmUrl: pdfjsWasmUrl() });
     void loadingTask.promise
       .then((document) => {
-        if (cancelled) {
-          void document.destroy();
-          return;
-        }
-        loadedPdf.current = document;
-        setPdf(document);
+        if (!cancelled) setPdf(document);
       })
       .catch((errorValue) => {
         if (!cancelled) callbacks.current.onError(`Could not open this PDF: ${formatError(errorValue)}`);
       });
     return () => {
       cancelled = true;
+      // pdf.js 6 removed PDFDocumentProxy.destroy(); the loading task owns the
+      // document and its worker, so destroying it releases both.
       void loadingTask.destroy();
-      if (loadedPdf.current) {
-        void loadedPdf.current.destroy();
-        loadedPdf.current = undefined;
-      }
     };
   }, [book.format, data]);
 
@@ -98,7 +91,7 @@ export function usePdfReader({
           .catch(() => {
             if (!cancelled) visibleTextRef.current = "";
           });
-        return item.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
+        return item.render({ canvas, viewport }).promise;
       })
       .catch((errorValue) => {
         if (!cancelled && mounted.current)
