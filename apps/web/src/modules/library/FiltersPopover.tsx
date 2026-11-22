@@ -41,7 +41,13 @@ function Option({
     <label className={`filter-option${disabled ? " is-disabled" : ""}`}>
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />
       <span className="filter-option-label">{children}</span>
-      {typeof count === "number" && <span className="filter-count">{counts.format(count)}</span>}
+      {/* Keep a text separator so assistive tech announces "PDF 4", not "PDF4". */}
+      {typeof count === "number" && (
+        <>
+          {" "}
+          <span className="filter-count">{counts.format(count)}</span>
+        </>
+      )}
     </label>
   );
 }

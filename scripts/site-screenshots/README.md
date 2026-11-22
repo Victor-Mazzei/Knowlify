@@ -10,7 +10,7 @@ when you are done.
 
 ## Prerequisites
 
-- Node.js 24 (or 22.12+) and `npm ci` in the repository root.
+- Node.js 26 and `npm ci` in the repository root.
 - A Chromium binary. The capture script can reuse the browser installed by
   Playwright, or any local Chromium. Set `CHROMIUM_PATH` when the default search
   does not find one.
@@ -106,7 +106,7 @@ The script writes to `site/assets/img/`:
 - `book-details.webp` (1440 x 900)
 - `reader-tutor.webp` (tutor answer, 1440 x 900)
 - `notes.webp` (1440 x 900)
-- `settings-mcp.webp` (no tokens, 1440 x 900)
+- `settings-mcp.webp` (MCP access section, no tokens, 1440 x 900)
 - `library-mobile.webp` (390 x 844)
 - `library-light-720/1080.webp`, `library-dark-720/1080.webp`,
   `reader-tutor-720/1080.webp` and `*-720.webp` for the feature plates:
@@ -115,7 +115,7 @@ The script writes to `site/assets/img/`:
 
 Open every image and check it for local paths, internal hostnames, tokens,
 personal names and email addresses before committing. The Settings screenshot
-must show the MCP card with no tokens.
+must show the section menu with the MCP access section selected and no tokens.
 
 ## 5. Clean up
 

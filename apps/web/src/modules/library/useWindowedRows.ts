@@ -53,7 +53,7 @@ export type WindowedRowsOptions = {
 };
 
 export type WindowedRows = {
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   columns: number;
   startIndex: number;
   endIndex: number;

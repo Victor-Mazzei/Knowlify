@@ -228,14 +228,12 @@ async function openLibrary(context, path = "/") {
   await context.close();
 }
 
-// 7. Settings: MCP access, without tokens.
+// 7. Settings: the MCP access section, with its own route and menu, without tokens.
 {
   const context = await newContext();
-  const page = await openLibrary(context, "/settings");
-  const heading = page.getByRole("heading", { name: "MCP access" });
-  await heading.waitFor({ timeout: 30_000 });
-  await heading.evaluate((element) => element.scrollIntoView({ block: "start" }));
-  await page.evaluate(() => window.scrollBy(0, -84));
+  const page = await openLibrary(context, "/settings/mcp");
+  await page.getByRole("heading", { name: "MCP access", level: 1 }).waitFor({ timeout: 30_000 });
+  await page.getByRole("heading", { name: "MCP access", level: 2 }).waitFor({ timeout: 30_000 });
   await settle(page, 900);
   await capture(page, "settings-mcp");
   await context.close();

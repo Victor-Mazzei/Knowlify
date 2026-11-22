@@ -1,8 +1,11 @@
 {
   "name": "@knowlify/desktop",
-  "version": "1.8.1",
+  "version": "2.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=26"
+  },
   "type": "module",
   "scripts": {
     "dev": "node scripts/prepare-server.mjs && tauri dev",

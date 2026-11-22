@@ -18,6 +18,7 @@ import {
   parseShasums,
   pickLatestLts,
   sidecarName,
+  SUPPORTED_NODE_MAJOR,
   SUPPORTED_TARGETS,
   updateManifest,
   validateManifest,
@@ -83,14 +84,14 @@ function fixtureManifest(archiveUrl, sha256Value, target = 'x86_64-unknown-linux
   };
 }
 
-test('manifest pins a supported Node.js 22 LTS release for the four desktop targets', async () => {
+test('manifest pins a supported Node.js 26 LTS release for the four desktop targets', async () => {
   const loaded = await loadManifest(fileURLToPath(manifestUrl));
   assert.deepEqual(loaded, manifest);
   validateManifest(loaded);
 
   const [major, minor, patch] = loaded.version.split('.').map(Number);
-  assert.equal(major, 22);
-  assert.ok(minor > 23 || (minor === 23 && patch >= 5), `expected >= 22.23.5, got ${loaded.version}`);
+  assert.equal(major, SUPPORTED_NODE_MAJOR);
+  assert.ok(minor > 13 || (minor === 13 && patch >= 1), `expected >= 26.13.1, got ${loaded.version}`);
   assert.equal(loaded.baseUrl, `https://nodejs.org/dist/v${loaded.version}/`);
   assert.deepEqual(Object.keys(loaded.targets).sort(), [...SUPPORTED_TARGETS].sort());
   const expectedEntries = {
@@ -115,7 +116,7 @@ test('manifest validation rejects a wrong major, a bad hash and a missing target
   const wrongMajor = structuredClone(manifest);
   wrongMajor.version = '24.1.0';
   wrongMajor.baseUrl = 'https://nodejs.org/dist/v24.1.0/';
-  assert.throws(() => validateManifest(wrongMajor), /must pin Node\.js 22\.x/);
+  assert.throws(() => validateManifest(wrongMajor), /must pin Node\.js 26\.x/);
 
   const badHash = structuredClone(manifest);
   badHash.targets['x86_64-unknown-linux-gnu'].sha256 = 'xyz';
@@ -255,15 +256,15 @@ invalid line
   assert.equal(hashes.size, 2);
 });
 
-test('latest 22.x LTS selection ignores non-LTS, other majors and older releases', () => {
+test('latest 26.x LTS selection ignores non-LTS, other majors and older releases', () => {
   const entries = [
-    { version: 'v22.23.5', lts: 'Jod' },
-    { version: 'v24.1.0', lts: 'Krypton' },
-    { version: 'v22.24.0', lts: false },
-    { version: 'v22.20.0', lts: 'Jod' },
-    { version: 'v26.1.0', lts: false },
+    { version: 'v26.13.1', lts: 'Lithium' },
+    { version: 'v24.22.3', lts: 'Krypton' },
+    { version: 'v26.14.0', lts: false },
+    { version: 'v26.12.0', lts: 'Lithium' },
+    { version: 'v27.1.0', lts: false },
   ];
-  assert.equal(pickLatestLts(entries), '22.23.5');
+  assert.equal(pickLatestLts(entries), '26.13.1');
 });
 
 test('ZIP extraction uses the absolute Windows bsdtar, not GNU tar from Git Bash', () => {

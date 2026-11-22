@@ -19,6 +19,14 @@ function LocationProbe() {
   return <output data-testid="location">{location.search}</output>;
 }
 
+/**
+ * The effective sort comes from the facets probe, so the first result set is
+ * replaced by a second one right after mount. React 19 defers that pending work
+ * until `act`; settle it before capturing nodes or clicking, or the captured node
+ * belongs to the list that is about to be replaced.
+ */
+const settleInitialLoad = () => act(async () => {});
+
 function HistoryProbe() {
   const navigate = useNavigate();
   return (
@@ -886,6 +894,7 @@ describe("Library", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("button", { name: "Filters" });
+    await settleInitialLoad();
     const star = await screen.findByRole("button", { name: "Add to favorites: Patient Library 6" });
     fireEvent.click(star);
 
@@ -912,6 +921,7 @@ describe("Library", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("button", { name: "Filters" });
+    await settleInitialLoad();
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Patient Library 6" }));
     fireEvent.click(screen.getByRole("button", { name: "Favorite" }));
 
@@ -932,6 +942,7 @@ describe("Library", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("button", { name: "Filters" });
+    await settleInitialLoad();
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Patient Library 6" }));
     fireEvent.click(screen.getByRole("button", { name: "Favorite" }));
 
@@ -955,6 +966,7 @@ describe("Library", () => {
       </MemoryRouter>,
     );
     await screen.findByRole("button", { name: "Filters" });
+    await settleInitialLoad();
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select Patient Library 6" }));
     expect(await screen.findByText("1 selected", { selector: ".selection-count" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Select all 120 results" }));

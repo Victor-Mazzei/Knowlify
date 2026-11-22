@@ -1,8 +1,11 @@
 {
   "name": "@knowlify/server",
-  "version": "1.8.1",
+  "version": "2.0.0",
   "private": true,
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=26"
+  },
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -15,26 +18,26 @@
     "@fastify/compress": "^9.3.0",
     "@fastify/cors": "^11.4.3",
     "@fastify/multipart": "^10.1.9",
-    "@fastify/static": "^10.1.11",
+    "@fastify/static": "^10.1.12",
     "@modelcontextprotocol/node": "^2.1.2",
     "@modelcontextprotocol/server": "^2.4.0",
-    "@napi-rs/canvas": "^0.1.100",
+    "@napi-rs/canvas": "^1.2.0",
     "adm-zip": "^0.6.1",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.2.0",
     "fast-xml-parser": "^5.12.1",
     "fastify": "^5.12.8",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^4.10.38",
+    "pdfjs-dist": "^6.5.438",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.4.0",
     "@types/adm-zip": "^0.6.0",
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^22.20.5",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "vitest": "^4.1.12"
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
   },
   "optionalDependencies": {
     "@huggingface/transformers": "^4.3.2"

@@ -144,7 +144,7 @@ describe("nested dialogs", () => {
       </div>
     );
   }
-  function Child({ innerRef, onClose }: { innerRef: React.RefObject<HTMLDivElement>; onClose: () => void }) {
+  function Child({ innerRef, onClose }: { innerRef: React.RefObject<HTMLDivElement | null>; onClose: () => void }) {
     useDialogKeys(innerRef, onClose);
     return <div ref={innerRef} />;
   }

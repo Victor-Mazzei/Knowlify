@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type MouseEvent } from "react";
 import { Link, useLocation } from "react-router-dom";
 import type { ApiFn } from "../../components/dialogs";
 import { FavoriteButton } from "../../components/ui/FavoriteButton";
@@ -78,7 +78,7 @@ export const BookCard = memo(function BookCard({
         to={`/book/${book.id}`}
         state={{ from: search }}
         className="card-link"
-        onClick={(event) => {
+        onClick={(event: MouseEvent<HTMLAnchorElement>) => {
           if (selecting && onSelect && event.detail !== 0) {
             // Keyboard activation still opens the details; only a pointer click toggles.
             event.preventDefault();

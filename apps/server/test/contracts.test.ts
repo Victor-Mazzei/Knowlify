@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import AdmZip from "adm-zip";
-import { PDFDocument } from "pdf-lib";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { openDb } from "../src/adapters/storage/db.js";
 import { SqliteBookRepository } from "../src/adapters/storage/repositories.js";
 import { config } from "../src/config.js";
@@ -208,5 +209,30 @@ describe("file extraction", () => {
     const path = join(root, "fixture.pdf"); await writeFile(path, await pdf.save());
     const meta = await extractPdf(path); expect(meta).toMatchObject({ title: "PDF title", author: "PDF author" });
     expect(meta.cover?.ext).toBe("jpg"); expect(meta.cover?.data.length).toBeGreaterThan(0);
+  });
+  it("renders page-1 text into the PDF cover", async () => {
+    // pdf.js 6 requires the explicit canvas on render(). It still draws glyphs
+    // through a Path2D polyfilled from its own @napi-rs/canvas copy, so the root
+    // override keeps a single version in the tree instead of rejecting the path.
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    const page = pdf.addPage([200, 300]);
+    page.drawText("Cover text", { x: 20, y: 200, size: 18, font });
+    const path = join(root, "fixture-text.pdf"); await writeFile(path, await pdf.save());
+    const meta = await extractPdf(path);
+    expect(meta.cover?.ext).toBe("jpg");
+    expect(meta.cover?.data.length).toBeGreaterThan(1000);
+    // A blank JPEG also passes the size check; count dark pixels to prove the
+    // glyphs reached the canvas instead of being silently dropped.
+    const image = await loadImage(meta.cover!.data);
+    const canvas = createCanvas(image.width, image.height);
+    const context = canvas.getContext("2d");
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    let dark = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] < 128 && pixels[index + 1] < 128 && pixels[index + 2] < 128) dark += 1;
+    }
+    expect(dark).toBeGreaterThan(100);
   });
 });
