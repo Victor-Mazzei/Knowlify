@@ -21,6 +21,10 @@ test('production webview sets a restrictive content security policy', () => {
     assert.ok(csp.includes(directive), `CSP must include ${directive}`);
   }
   assert.ok(!csp.includes("'unsafe-eval'"), 'CSP must not allow eval');
+  assert.ok(
+    csp.includes("'wasm-unsafe-eval'"),
+    'PDF.js 6 compiles its image codecs with WebAssembly',
+  );
   assert.ok(!csp.includes('ws:'), 'production CSP must not allow websockets');
 });
 

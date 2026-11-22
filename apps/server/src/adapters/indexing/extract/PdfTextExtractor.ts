@@ -84,7 +84,6 @@ export class PdfTextExtractor implements TextExtractor {
     const loading = getDocument({
       data: bytes,
       useSystemFonts: true,
-      isEvalSupported: false,
       disableFontFace: true,
       verbosity: 0,
     });
@@ -92,6 +91,7 @@ export class PdfTextExtractor implements TextExtractor {
     try {
       document = await loading.promise;
     } catch {
+      await loading.destroy().catch(() => undefined);
       throw new IngestError("unreadable", "Invalid or unreadable PDF");
     }
     try {
@@ -111,7 +111,7 @@ export class PdfTextExtractor implements TextExtractor {
       if (error instanceof IngestError) throw error;
       throw new IngestError("unreadable", "Invalid or unreadable PDF");
     } finally {
-      await document.destroy();
+      await loading.destroy();
     }
   }
 }

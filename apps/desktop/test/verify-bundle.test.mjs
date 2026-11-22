@@ -93,7 +93,10 @@ async function createBundle(t, { sidecar = BINARY, sidecarName = SIDECAR, bundle
     }),
     'server/node_modules/fastify/package.json': '{}',
     'server/node_modules/better-sqlite3/package.json': '{}',
-    'server/node_modules/better-sqlite3/build/Release/better_sqlite3.node': 'native',
+    'server/node_modules/better-sqlite3/prebuilds/win32-x64.node': 'native',
+    'server/node_modules/better-sqlite3/prebuilds/linux-x64.node': 'native',
+    'server/node_modules/better-sqlite3/prebuilds/darwin-arm64.node': 'native',
+    'server/node_modules/better-sqlite3/prebuilds/darwin-x64.node': 'native',
     'server/node_modules/@napi-rs/canvas/package.json': '{}',
   });
   await chmod(join(bundle, sidecarName), 0o755);
@@ -116,7 +119,10 @@ async function createMacBundle(t, { sidecar = SIGNED_BINARY, bundleName = 'Knowl
     }),
     'Contents/Resources/server/node_modules/fastify/package.json': '{}',
     'Contents/Resources/server/node_modules/better-sqlite3/package.json': '{}',
-    'Contents/Resources/server/node_modules/better-sqlite3/build/Release/better_sqlite3.node': 'native',
+    'Contents/Resources/server/node_modules/better-sqlite3/prebuilds/win32-x64.node': 'native',
+    'Contents/Resources/server/node_modules/better-sqlite3/prebuilds/linux-x64.node': 'native',
+    'Contents/Resources/server/node_modules/better-sqlite3/prebuilds/darwin-arm64.node': 'native',
+    'Contents/Resources/server/node_modules/better-sqlite3/prebuilds/darwin-x64.node': 'native',
     'Contents/Resources/server/node_modules/@napi-rs/canvas/package.json': '{}',
   });
   await chmod(join(bundle, 'Contents/MacOS/knowlify-node'), 0o755);

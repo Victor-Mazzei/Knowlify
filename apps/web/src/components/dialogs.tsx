@@ -10,7 +10,7 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 const openDialogs: symbol[] = [];
 
 /** Keeps Tab inside the dialog and closes it on Escape. Nested dialogs: only the topmost reacts. */
-export function useDialogKeys(ref: React.RefObject<HTMLElement>, onClose: () => void) {
+export function useDialogKeys(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {

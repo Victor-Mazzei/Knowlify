@@ -15,6 +15,45 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.0.1] - 2026-11-22
+
+### Fixed
+
+- The desktop Node.js lockstep test detects the Gitea repository and the GitHub export layouts, so `npm test` passes in both without reading files that belong to the other layout.
+- Web assistant tests wait for the answer stream to finish before asserting citation links and for the Retry control after stream errors, removing a flaky `ChatPanel` failure under load.
+
+## [2.0.0] - 2026-11-22
+
+### Added
+
+- A desktop test keeps the pinned Node.js major in lockstep across `node-runtime.json`, `.nvmrc`, the Dockerfile and both CI workflows, and reports every mismatch.
+
+### Changed
+
+- BREAKING: minimum Node.js is now 26 (LTS). Source builds and the container image need Node.js 26 or later (`engines` is `>=26`); the desktop installers bundle their own Node.js and are not affected.
+- The container image, the Gitea and GitHub CI workflows, the desktop sidecar and the development setup now use Node.js 26 LTS (Lithium). The desktop bundles Node.js 26.13.1 with its SHA-256 hashes, and `node:fetch` verifies them.
+- The minimum Node.js version for source builds is now 26: `engines` is `>=26` in the root and workspace manifests, and `.nvmrc` selects 26. The desktop build fails closed when the host major is not 26.
+- The web reader renders PDFs with PDF.js 6.5.438 and loads its module worker from the Vite build. The reader releases the document through the loading task, because PDF.js 6 removed `PDFDocumentProxy.destroy()`, and passes the canvas explicitly to `page.render`.
+- The web client builds with Vite 8 and its tests run on Vitest 5.1, jsdom 31 and Testing Library jest-dom 8; the server test suite also moved to Vitest 5.1. Facet filter checkboxes now separate the label from the count for assistive technology ("PDF 4" instead of "PDF4").
+- The server uses N-API native modules: better-sqlite3 13 (SQLite 3.54.1) and @napi-rs/canvas 1.2, with one canvas version shared by pdf.js and the web test DOM. Server and root dependencies were refreshed within their compatible ranges.
+- The web client uses React 19 and react-dom 19 with their matching type packages, and react-router-dom 7.18.6. Dialog focus handling, the assistant chat and the reader were updated for React 19's nullable ref types; no HTTP contract or user-visible behavior changed.
+- The server extracts PDF text and renders covers with pdf.js 6.5.438, using its packaged WebAssembly image codecs and Base-14 font data; covers for PDFs that rely only on standard fonts are no longer blank.
+- The desktop server bundle also copies dependencies that npm nests under `apps/server/node_modules` when another workspace pins a different version, so `pdfjs-dist` is present in the packaged sidecar.
+- The server and web workspaces compile with TypeScript 7.0.2, the native compiler; the library card now annotates its anchor click event explicitly. Tauri CLI 2.12.6 was already the latest 2.x, so it stays pinned.
+- The desktop Rust dependencies were refreshed within their compatible ranges (`cargo update`); Tauri 2.12.7, tauri-build 2.7.6 and the app version are unchanged.
+- The root `overrides` entry for `@napi-rs/canvas` was removed: the server's direct dependency keeps pdf.js and jsdom on canvas 1.2.0.
+
+### Fixed
+
+- The web PDF reader loads PDF.js 6's WebAssembly image codecs from the Vite build, so JPEG 2000, JBIG2 and ICC images render instead of leaving blank areas; the desktop CSP allows WebAssembly for the same codecs.
+- The desktop release workflow verifies and removes the per-target `SHA256SUMS-<target>` files, so the draft release contains exactly the six installers and `SHA256SUMS`.
+
+### Security
+
+- The desktop CSP now allows `'wasm-unsafe-eval'` in `script-src` only, for the same-origin PDF.js 6 WebAssembly codecs; `'unsafe-eval'` stays forbidden.
+- The container image and the desktop server bundle install packages from the N-API prebuilds shipped with better-sqlite3 and canvas and skip npm lifecycle scripts, so the runtime image no longer needs a compiler.
+
+
 ## [1.8.1] - 2026-11-22
 
 ### Fixed
@@ -274,7 +313,9 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.1...v2.0.0
 [1.8.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.3...v1.8.0
 [1.7.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...v1.7.3

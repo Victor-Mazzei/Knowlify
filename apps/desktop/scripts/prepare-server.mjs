@@ -86,6 +86,15 @@ export function targetProfile(target, { libc } = {}) {
 }
 
 /**
+ * N-API prebuild shipped inside better-sqlite3 13+ for the target. The loader
+ * picks `prebuilds/<platform>-<arch>.node`; only the gnu Linux target is
+ * supported by the desktop app, so the libc-specific musl names never apply.
+ */
+export function betterSqlitePrebuildFile(profile) {
+  return `${profile.os}-${profile.arch}.node`;
+}
+
+/**
  * `@napi-rs/canvas-*`, `@img/sharp-*` and the onnxruntime OS/arch directories
  * encode a platform. Returns true (target), false (other platform) or null
  * (not a platform package).
@@ -168,19 +177,14 @@ async function pruneNativePayloads(nodeModules, profile) {
   }
 
   const betterSqlite = join(nodeModules, 'better-sqlite3');
-  for (const entry of ['deps', 'src']) {
+  for (const entry of ['deps', 'src', 'build']) {
     await rm(join(betterSqlite, entry), { recursive: true, force: true });
   }
-  const buildDir = join(betterSqlite, 'build');
-  for (const entry of await readDirOrEmpty(buildDir)) {
-    if (entry !== 'Release') {
-      await rm(join(buildDir, entry), { recursive: true, force: true });
-    }
-  }
-  const releaseDir = join(buildDir, 'Release');
-  for (const entry of await readDirOrEmpty(releaseDir)) {
-    if (entry !== 'better_sqlite3.node') {
-      await rm(join(releaseDir, entry), { recursive: true, force: true });
+  const prebuildsDir = join(betterSqlite, 'prebuilds');
+  const targetPrebuild = betterSqlitePrebuildFile(profile);
+  for (const entry of await readDirOrEmpty(prebuildsDir)) {
+    if (entry !== targetPrebuild) {
+      await rm(join(prebuildsDir, entry), { recursive: true, force: true });
     }
   }
 }
@@ -297,8 +301,8 @@ export async function assertSinglePlatform(nodeModules, target, { libc } = {}) {
   if (foreign.length > 0) {
     fail(`server bundle contains packages for another platform: ${foreign.join(', ')}`);
   }
-  const binding = join(nodeModules, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
-  if (!existsSync(binding)) fail(`better-sqlite3 was not rebuilt for this target: ${binding} is missing`);
+  const binding = join(nodeModules, 'better-sqlite3', 'prebuilds', betterSqlitePrebuildFile(profile));
+  if (!existsSync(binding)) fail(`better-sqlite3 has no prebuild for this target: ${binding} is missing`);
 }
 
 function run(command, args, { cwd, env = process.env, log = console.log, label } = {}) {
@@ -331,6 +335,28 @@ async function copyRuntimeModules(source, destination) {
       return true;
     },
   });
+}
+
+/**
+ * npm nests a dependency under `apps/server/node_modules` when another
+ * workspace pins a different version, so the hoisted tree alone can miss a
+ * runtime package. Replace the affected packages with the workspace copy.
+ */
+export async function overlayNodeModules(source, destination) {
+  if (!existsSync(source)) return;
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === '.bin' || entry.name === '@knowlify') continue;
+    const packages = entry.name.startsWith('@')
+      ? (await readdir(join(source, entry.name), { withFileTypes: true }))
+        .filter((child) => child.isDirectory())
+        .map((child) => join(entry.name, child.name))
+      : [entry.name];
+    for (const name of packages) {
+      const target = join(destination, name);
+      await rm(target, { recursive: true, force: true });
+      await cp(join(source, name), target, { recursive: true, dereference: false });
+    }
+  }
 }
 
 /** Creates the minimal workspace fixture `npm ci` needs to resolve the root lockfile. */
@@ -374,13 +400,14 @@ export async function prepareServer({
     run(npmBin(), [
       'ci', '--omit=dev', '--include=optional', '--workspace', '@knowlify/server', '--ignore-scripts',
     ], { cwd: installDir, env: npmEnv, log, label: 'install server dependencies from the root lockfile' });
-    // better-sqlite3 is the only package that needs its install script. The CI job
-    // uses the same Node.js major as the sidecar, so prebuild-install picks the
-    // right ABI; smoke-server.mjs proves it against the embedded runtime.
-    run(npmBin(), ['rebuild', 'better-sqlite3'], {
-      cwd: installDir, env: npmEnv, log, label: 'rebuild better-sqlite3',
-    });
+    // better-sqlite3 13+ ships N-API prebuilds inside the package, so the
+    // --ignore-scripts install already carries the native runtime and does not
+    // depend on the Node ABI. smoke-server.mjs proves it against the sidecar.
     await copyRuntimeModules(join(installDir, 'node_modules'), join(serverDir, 'node_modules'));
+    await overlayNodeModules(
+      join(installDir, 'apps', 'server', 'node_modules'),
+      join(serverDir, 'node_modules'),
+    );
   } finally {
     await rm(installDir, { recursive: true, force: true });
   }

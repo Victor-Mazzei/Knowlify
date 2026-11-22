@@ -394,6 +394,13 @@ jobs:
         run: |
           set -euo pipefail
           cd release
+          # Each build artifact carries the checksum file of its own target.
+          # Verify them and remove them, so the release keeps only the
+          # installers and the canonical SHA256SUMS below.
+          for target in linux-x64 windows-x64 macos-arm64 macos-x64; do
+            sha256sum -c "SHA256SUMS-$target"
+            rm -f -- "SHA256SUMS-$target"
+          done
           expected=(
             "Knowlify_${VERSION}_linux-x64.AppImage"
             "Knowlify_${VERSION}_linux-x64.deb"

@@ -95,7 +95,7 @@ updates:
           - minor
           - patch
     ignore:
-      # The image and the CI use Node.js 22; change it with a planned task.
+      # The image and the CI use Node.js 26; change it with a planned task.
       - dependency-name: "*"
         update-types:
           - version-update:semver-major

@@ -17,6 +17,11 @@ const book = (index: number): Book => ({
   source: true,
 });
 
+// jsdom's Blob has no stream(), which the platform Response requires for Blob
+// bodies, so fake cover payloads with bytes instead.
+const coverResponse = () =>
+  new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { "Content-Type": "image/png" } });
+
 beforeEach(() => {
   resetCoverQueue();
   URL.createObjectURL = vi.fn(() => `blob:cover-${Math.random()}`);
@@ -32,7 +37,7 @@ describe("useCoverQueue", () => {
   it("keeps at most six cover requests in flight for a hundred cards", async () => {
     let inFlight = 0;
     let peak = 0;
-    const waiting: { path: string; resolve: (body: Blob) => void }[] = [];
+    const waiting: { path: string; resolve: (respond: boolean) => void }[] = [];
     const signals: AbortSignal[] = [];
     const api = vi.fn((path: string, init?: RequestInit) => {
       if (init?.signal) signals.push(init.signal);
@@ -40,14 +45,14 @@ describe("useCoverQueue", () => {
       peak = Math.max(peak, inFlight);
       return new Promise<Response>((resolve, reject) => {
         let settled = false;
-        const finish = (body: Blob | null) => {
+        const finish = (respond: boolean) => {
           if (settled) return;
           settled = true;
           inFlight -= 1;
-          if (body) resolve(new Response(body));
+          if (respond) resolve(coverResponse());
           else reject(new DOMException("Aborted", "AbortError"));
         };
-        init?.signal?.addEventListener("abort", () => finish(null));
+        init?.signal?.addEventListener("abort", () => finish(false));
         waiting.push({ path, resolve: finish });
       });
     });
@@ -64,7 +69,7 @@ describe("useCoverQueue", () => {
     expect(api).toHaveBeenCalledWith(expect.stringContaining("?size=thumb"), expect.anything());
 
     await act(async () => {
-      waiting.splice(0, COVER_CONCURRENCY).forEach((request) => request.resolve(new Blob(["cover"], { type: "image/png" })));
+      waiting.splice(0, COVER_CONCURRENCY).forEach((request) => request.resolve(true));
     });
     await waitFor(() => expect(api.mock.calls.length).toBeGreaterThan(COVER_CONCURRENCY));
     expect(peak).toBeLessThanOrEqual(COVER_CONCURRENCY);
@@ -79,7 +84,7 @@ describe("useCoverQueue", () => {
     const api = vi.fn(async (path: string) =>
       path.includes("?size=thumb")
         ? new Response(JSON.stringify({ message: "No thumbnail" }), { status: 404 })
-        : new Response(new Blob(["cover"], { type: "image/png" }), { status: 200 }),
+        : coverResponse(),
     );
     render(
       <MemoryRouter>

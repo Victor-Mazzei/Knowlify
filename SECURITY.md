@@ -2,9 +2,9 @@
 
 ## Report a vulnerability
 
-Do not open a public issue for a vulnerability.
+Open a public issue or use the private reporting channel. The maintainers accept both.
 
-Use the private reporting channel of the repository:
+Private channel:
 
 1. Open the **Security** tab of [github.com/Victor-Mazzei/Knowlify](https://github.com/Victor-Mazzei/Knowlify).
 2. Select **Report a vulnerability**.
@@ -12,7 +12,7 @@ Use the private reporting channel of the repository:
 
 GitHub sends the report to the maintainers. The maintainers can discuss the report and prepare a fix in the same private channel.
 
-As an alternative private channel, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com). The address reaches the maintainers directly. Do not open a public issue and do not include exploit details in a public message.
+As an alternative, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com). The address reaches the maintainers directly.
 
 Include these items in the report:
 
@@ -48,8 +48,8 @@ Get the latest release from the [CHANGELOG](CHANGELOG.md) or the GitHub releases
 
 - The maintainers acknowledge the report within 7 days.
 - The maintainers assess the report and send a first answer within 14 days.
-- The maintainers keep the details private until a fix is available.
-- The maintainers credit the reporter in the advisory, unless the reporter asks for no credit.
+- For a private report, the maintainers keep the details private until a fix is available.
+- In a private advisory, the maintainers credit the reporter unless the reporter asks for no credit.
 - The project has no bug bounty program.
 
-Thank you for reporting the issue in private.
+Thank you for reporting the issue.

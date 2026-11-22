@@ -53,6 +53,10 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
+    // The answer streams in chunks and the first one matches the regex above before
+    // the "[1]" marker (and its inline link) arrives. Wait for the stream to settle
+    // so the assertions below see the final DOM instead of a mid-stream frame.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument());
     expect(screen.getByRole("link", { name: /Source 1: The Art of Memory, page 42/ })).toHaveAttribute(
       "href",
       "/read/mock-book?at=42",
@@ -81,7 +85,7 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The model took too long to answer. Try again.");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("shows an HTTP error from the server inline", async () => {
@@ -91,7 +95,7 @@ describe("ChatPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Too many messages. Try again in a minute.");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("keeps the fixed answer when retrieval found no passages", async () => {

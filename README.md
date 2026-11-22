@@ -304,11 +304,9 @@ Use a dedicated host name or port for Knowlify. A sub-path such as `/knowlify/` 
 
 ## Contact
 
-For a vulnerability, follow the private reporting steps in [SECURITY.md](SECURITY.md). Do not open a public issue.
+For a vulnerability, open a public issue or use the private channel in [SECURITY.md](SECURITY.md).
 
 For other private questions about the project, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com).
-
-The source code, releases and issue tracker are at [github.com/Victor-Mazzei/Knowlify](https://github.com/Victor-Mazzei/Knowlify).
 
 ## Versioning
 

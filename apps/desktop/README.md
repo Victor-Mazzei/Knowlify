@@ -8,32 +8,32 @@ The app remembers the last working connection and reconnects on its own at the n
 To build the app:
 
 - Install Rust and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
-- Use Node.js 22 (the manifest pins 22.23.5) and npm for the desktop commands. If you use nvm, run `nvm use 22`; the repository does not install or manage nvm. The packaged app runs its own Node.js. `prepare-server` is fail-closed: it stops when the host Node.js major differs from the bundled runtime (22).
+- Use Node.js 26 (the manifest pins 26.13.1) and npm for the desktop commands. If you use nvm, run `nvm use 26`; the repository does not install or manage nvm. The packaged app runs its own Node.js. `prepare-server` is fail-closed: it stops when the host Node.js major differs from the bundled runtime (26).
 - Build on each target OS and architecture. The native SQLite modules prevent portable cross-platform resource copies.
-- Windows: Windows 10 version 1809 or later (the Node.js 22 minimum). The NSIS installer includes the WebView2 bootstrapper.
-- macOS: macOS 13.5 or later (the Node.js 22 minimum) and the Xcode command line tools.
-- Linux: glibc 2.35 or later and the WebKitGTK 4.1 development packages. The release builds on Ubuntu 22.04 (glibc 2.35), so older distributions are not supported. Do not use the Node.js 22 minimum (glibc 2.28) here: the Tauri binary and the native modules are built on the runner.
+- Windows: Windows 10 version 1809 or later. The NSIS installer includes the WebView2 bootstrapper.
+- macOS: macOS 13.5 or later (the Node.js 26 minimum) and the Xcode command line tools.
+- Linux: glibc 2.35 or later and the WebKitGTK 4.1 development packages. The release builds on Ubuntu 22.04 (glibc 2.35), so older distributions are not supported. Do not use the Node.js 26 minimum (glibc 2.28) here: the Tauri binary and the native modules are built on the runner.
 
-Use the manifest Node version (22.23.5) for the build; the CI installs exactly that version. `prepare-server.mjs` rebuilds `better-sqlite3` for the Node that runs it, and that binary must load under the bundled runtime. The `smoke-server` check proves this. If you change the Node version, run `npm install` again. Node 24 is fine for the server and web development loop, but it cannot build or package the desktop app.
+Use the manifest Node version (26.13.1) for the build; the CI installs exactly that version. `prepare-server.mjs` rebuilds `better-sqlite3` for the Node that runs it, and that binary must load under the bundled runtime. The `smoke-server` check proves this. If you change the Node version, run `npm install` again. The server and web development loop also requires Node.js 26: `engines` is `>=26` in the root and workspace manifests.
 
 ## Bundled Node.js
 
-The installer includes a Node.js 22 runtime as the Tauri sidecar `knowlify-node` (`knowlify-node.exe` on Windows). In local mode, the app starts this binary from its own folder. The runtime is not on `PATH`, the webview cannot start it, and end users do not install Node.js.
+The installer includes a Node.js 26 runtime as the Tauri sidecar `knowlify-node` (`knowlify-node.exe` on Windows). In local mode, the app starts this binary from its own folder. The runtime is not on `PATH`, the webview cannot start it, and end users do not install Node.js.
 
 `node-runtime.json` pins the version, the official download URL and the SHA-256 of each archive:
 
 | Target | Archive |
 | --- | --- |
-| `x86_64-pc-windows-msvc` | `node-v22.23.5-win-x64.zip` |
-| `aarch64-apple-darwin` | `node-v22.23.5-darwin-arm64.tar.gz` |
-| `x86_64-apple-darwin` | `node-v22.23.5-darwin-x64.tar.gz` |
-| `x86_64-unknown-linux-gnu` | `node-v22.23.5-linux-x64.tar.xz` |
+| `x86_64-pc-windows-msvc` | `node-v26.13.1-win-x64.zip` |
+| `aarch64-apple-darwin` | `node-v26.13.1-darwin-arm64.tar.gz` |
+| `x86_64-apple-darwin` | `node-v26.13.1-darwin-x64.tar.gz` |
+| `x86_64-unknown-linux-gnu` | `node-v26.13.1-linux-x64.tar.xz` |
 
 `npm run node:fetch -w @knowlify/desktop` downloads the archive for the host target, checks the SHA-256, extracts only the binary and the `LICENSE`, writes `src-tauri/binaries/knowlify-node-<triple>[.exe]` (mode 0755) and `src-tauri/resources/licenses/node/LICENSE`, and runs `<sidecar> --version` for the host target. The cache is `apps/desktop/.cache/node/<sha256>/`; every reuse is hashed again.
 
 `KNOWLIFY_NODE` is only an explicit override: an absolute path to an existing Node executable. It wins over the sidecar. In a release build, there is no `PATH` lookup; without the sidecar or the override, the app shows an error and asks you to reinstall. In a development build (`tauri dev`), the app falls back to `node` on `PATH` when the sidecar is absent.
 
-To update Node.js, run `npm run node:update -w @knowlify/desktop`. Without arguments, the script selects the newest 22.x LTS release from `nodejs.org`, reads `SHASUMS256.txt` and rewrites the manifest. If `gpg` has the Node.js release key, the script also verifies the signature; otherwise it prints a warning. Review the manifest diff in the pull request: the pinned hash in the repository is the trust anchor for the release build.
+To update Node.js, run `npm run node:update -w @knowlify/desktop`. Without arguments, the script selects the newest 26.x LTS release from `nodejs.org`, reads `SHASUMS256.txt` and rewrites the manifest. If `gpg` has the Node.js release key, the script also verifies the signature; otherwise it prints a warning. Review the manifest diff in the pull request: the pinned hash in the repository is the trust anchor for the release build.
 
 ## Development
 
@@ -45,14 +45,14 @@ npm run dev -w @knowlify/desktop
 ```
 
 The preparation script builds `apps/server/dist` and installs production dependencies in `src-tauri/resources/server`.
-Select Node 22 before this command (with nvm, `nvm use 22`): the desktop `dev` command also runs `prepare-server`, which fails closed on a different host major.
+Select Node 26 before this command (with nvm, `nvm use 26`): the desktop `dev` command also runs `prepare-server`, which fails closed on a different host major.
 The Tauri CLI starts Vite at `http://localhost:5174` with a fixed port. Close the desktop app to stop development.
 The existing server must pass its TypeScript build before preparation can complete.
 `npm run dev` does not download the sidecar; in development, the app uses `node` from `PATH`.
 
 ## Build
 
-Build with Node 22. With nvm, run `nvm use 22`; the repository does not install or manage nvm. The build fails if the host major is not 22, and Node 24 cannot produce the installers; the CI uses exactly 22.23.5.
+Build with Node 26. With nvm, run `nvm use 26`; the repository does not install or manage nvm. The build fails if the host major is not 26; the CI uses exactly 26.13.1.
 
 From the repository root, run:
 

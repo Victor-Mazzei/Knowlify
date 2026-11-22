@@ -2,18 +2,21 @@ ARG VERSION=dev
 ARG GIT_SHA=dev
 ARG BUILD_DATE=
 
-# The floating Node 22 tag pulls the latest 22.x LTS patch on every rebuild,
-# including security fixes. Keep the major at 22.
-FROM node:22-bookworm-slim AS build
+# The floating Node 26 tag pulls the latest 26.x LTS patch on every rebuild,
+# including security fixes. Keep the major at 26.
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
-RUN npm ci
+# Native modules ship N-API prebuilds (better-sqlite3 13, @napi-rs/canvas);
+# the slim image has no Python/compiler for implicit node-gyp rebuilds, and
+# install scripts are not needed to build the app.
+RUN npm ci --ignore-scripts
 COPY apps apps
 RUN npm run build -w @knowlify/server && npm run build -w @knowlify/web
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 # Build metadata is injected by the CI image build (and optionally by docker compose).
 # The server reads its version from apps/server/package.json; these two values are
@@ -41,7 +44,7 @@ ENV NODE_ENV=production \
 COPY package.json package-lock.json ./
 # The server resolves ../package.json at runtime; keep the workspace manifest next to dist.
 COPY apps/server/package.json apps/server/
-RUN npm ci --omit=dev --include=optional -w @knowlify/server && npm cache clean --force
+RUN npm ci --omit=dev --include=optional --ignore-scripts -w @knowlify/server && npm cache clean --force
 RUN mkdir -p /data/models
 COPY --from=build /app/apps/server/dist apps/server/dist
 COPY --from=build /app/apps/web/dist web

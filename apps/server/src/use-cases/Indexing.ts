@@ -1,4 +1,4 @@
-import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 
 import { ConflictError, NotFoundError } from "../domain/errors.js";
 import {
@@ -114,7 +114,7 @@ export class Indexing implements IndexScheduler {
   private ratePassages = 0;
   private rateStartedAt: number | null = null;
   private completedSinceCheckpoint = 0;
-  private loopMonitor: IntervalHistogram | null = null;
+  private loopMonitor: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private loopSampler: NodeJS.Timeout | null = null;
   private loopP99 = 0;
 

@@ -11,7 +11,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${PORT:-8815}"; B="localhost:$PORT"; FAILS=0
 USER_NAME=admin; PASS=index-e2e-pass-1; AUTH="$USER_NAME:$PASS"
 D="$(mktemp -d)"; LOG="$D/server.log"
-[ -s "$HOME/.nvm/nvm.sh" ] && { . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1; nvm use 24 >/dev/null 2>&1 || true; }
+[ -s "$HOME/.nvm/nvm.sh" ] && { . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1; nvm use 26 >/dev/null 2>&1 || true; }
 
 start() { (cd "$ROOT/apps/server" && env KNOWLIFY_DATA="$D/data" PORT="$PORT" KNOWLIFY_USER="$USER_NAME" \
     KNOWLIFY_PASSWORD="$PASS" KNOWLIFY_SCAN_INTERVAL=0 KNOWLIFY_INDEXING=on KNOWLIFY_INDEX_BACKFILL=auto \
