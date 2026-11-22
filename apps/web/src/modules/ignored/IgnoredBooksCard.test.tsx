@@ -70,7 +70,8 @@ describe("IgnoredBooksCard", () => {
         <IgnoredBooksCard api={api} />
       </MemoryRouter>,
     );
-    await waitFor(() => expect(api).toHaveBeenCalled());
-    expect(container.querySelector("#ignored-books")).toBeNull();
+    // The card renders its loading state until the 404 marks the route unavailable.
+    await waitFor(() => expect(container.querySelector("#ignored-books")).toBeNull());
+    expect(api).toHaveBeenCalled();
   });
 });

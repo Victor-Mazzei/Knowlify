@@ -6,7 +6,7 @@ import {
   chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, win32 } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
@@ -346,6 +346,22 @@ function tarReadsZip(command) {
 }
 
 /**
+ * Git Bash puts GNU tar first on PATH on Windows, and GNU tar reads `D:\...`
+ * as the remote host `D`. The Windows bsdtar in System32 handles ZIP files and
+ * local drive paths, so it is invoked by absolute path instead.
+ */
+export function windowsTarPath({
+  systemRoot = process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows',
+  fileExists = existsSync,
+} = {}) {
+  const tarPath = win32.join(systemRoot, 'System32', 'tar.exe');
+  if (!fileExists(tarPath)) {
+    fail(`Windows bsdtar not found at ${tarPath}; Windows 10 1809 or later is required to extract the Node.js ZIP`);
+  }
+  return tarPath;
+}
+
+/**
  * Picks an extractor for the Windows ZIP. Windows and macOS ship bsdtar as
  * `tar`; GNU tar (Linux) cannot read ZIP, so fall back to bsdtar or unzip.
  */
@@ -353,8 +369,12 @@ export function zipExtractor({
   platform = process.platform,
   hasCommand = commandExists,
   tarHandlesZip = tarReadsZip,
+  systemRoot = undefined,
+  fileExists = undefined,
 } = {}) {
-  if (platform === 'win32') return { command: 'tar', style: 'tar' };
+  if (platform === 'win32') {
+    return { command: windowsTarPath({ systemRoot, fileExists }), style: 'tar' };
+  }
   if (tarHandlesZip('tar')) return { command: 'tar', style: 'tar' };
   if (hasCommand('bsdtar')) return { command: 'bsdtar', style: 'tar' };
   if (hasCommand('unzip')) return { command: 'unzip', style: 'unzip' };

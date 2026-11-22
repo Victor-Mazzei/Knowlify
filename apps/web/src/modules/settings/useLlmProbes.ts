@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { describeError, probeMessage, type LlmApi } from "./llmApi";
-import { llmProbeDraft, type LlmFieldValues } from "./llmForm";
+import { llmProbeDraft, type LlmFieldValues } from "./llmFormModel";
 import type { LlmApiStyle, LlmHeaderRequest, LlmSettingsView } from "./llmTypes";
 
 export type LlmTestFeedback = { tone: "ok" | "warn" | "error"; text: string };

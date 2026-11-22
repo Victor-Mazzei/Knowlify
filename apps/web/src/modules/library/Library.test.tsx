@@ -975,11 +975,39 @@ describe("Library", () => {
         <Library credentials={{ user: "reader", pass: "secret" }} onLogout={vi.fn()} apiOverride={api} />
       </MemoryRouter>,
     );
+    expect(await screen.findByRole("button", { name: "Filters, 1 active" })).toBeInTheDocument();
+    // The chip label needs the tag list, while the count above needs only the URL.
+    expect(await screen.findByRole("button", { name: "Remove filter: Favorites" })).toBeInTheDocument();
     expect(await screen.findByText("4 titles", { selector: ".title-count" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Filters, 1 active" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove filter: Favorites" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Patient Library 6/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Quiet River 9/ })).toBeInTheDocument();
+  });
+
+  it("keeps a known tag from the URL while the tag list is still loading", async () => {
+    const base = mockBooksApi(createMockBooks({ count: 12 }));
+    const api = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/tags") await new Promise((resolve) => setTimeout(resolve, 100));
+      return base(path, init);
+    });
+    render(
+      <MemoryRouter initialEntries={["/?tag=tag-favorites"]}>
+        <Library credentials={{ user: "reader", pass: "secret" }} onLogout={vi.fn()} apiOverride={api} />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("4 titles", { selector: ".title-count" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filters, 1 active" })).toBeInTheDocument();
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/tags", expect.anything()));
+    // The guard used to drop the id on the render that enabled tags, before this response.
+    expect(screen.getByTestId("location").textContent).toBe("?tag=tag-favorites");
+    expect(screen.queryByRole("button", { name: "Remove filter: Favorites" })).not.toBeInTheDocument();
+
+    // Once the list arrives the filter is still there, so the chip can render.
+    expect(await screen.findByRole("button", { name: "Remove filter: Favorites" })).toBeInTheDocument();
+    expect(screen.getByTestId("location").textContent).toBe("?tag=tag-favorites");
+    expect(screen.getByText("4 titles", { selector: ".title-count" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Patient Library 6/ })).toBeInTheDocument();
   });
 
   it("offers the tag checkboxes with facet counts in the filters panel", async () => {
@@ -1011,7 +1039,8 @@ describe("Library", () => {
 
     const panel = screen.getByRole("group", { name: "Tag selected books" });
     expect(panel).toBeInTheDocument();
-    fireEvent.click(within(panel).getByRole("checkbox", { name: /Research/ }));
+    // The panel opens before GET /api/tags fills the checkboxes.
+    fireEvent.click(await within(panel).findByRole("checkbox", { name: /Research/ }));
 
     expect(await screen.findByText("Tags updated on 1 book.")).toBeInTheDocument();
     expect(api).toHaveBeenCalledWith(

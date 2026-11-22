@@ -15,6 +15,15 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [1.8.1] - 2026-11-22
+
+### Fixed
+
+- The web settings module no longer ships files whose names differ only by case, which made `tsc -b` resolve the LLM form component to its form logic on macOS and Windows.
+- Opening a library URL with a tag filter (`?tag=<id>`) no longer drops the filter while the tag list is still loading; unknown tag ids are still removed once the list arrives.
+- The desktop release workflow extracts the Node.js Windows ZIP with the system `tar.exe`, so Git Bash's GNU tar no longer treats the drive letter as a remote host.
+- `verify-bundle` extracts AppImages with their own `--appimage-extract` runtime because `unsquashfs` cannot read the squashfs after the ELF header. It also recognizes the bundled license path on Windows.
+
 ## [1.8.0] - 2026-11-21
 
 ### Added
@@ -265,7 +274,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.3...v1.8.0
 [1.7.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.2...v1.7.3
 [1.7.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.7.1...v1.7.2

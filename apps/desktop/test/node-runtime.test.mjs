@@ -266,8 +266,18 @@ test('latest 22.x LTS selection ignores non-LTS, other majors and older releases
   assert.equal(pickLatestLts(entries), '22.23.5');
 });
 
-test('ZIP extraction uses bsdtar on Windows and refuses GNU tar without a fallback', () => {
-  assert.deepEqual(zipExtractor({ platform: 'win32' }), { command: 'tar', style: 'tar' });
+test('ZIP extraction uses the absolute Windows bsdtar, not GNU tar from Git Bash', () => {
+  assert.deepEqual(
+    zipExtractor({ platform: 'win32', systemRoot: 'D:\\Windows', fileExists: () => true }),
+    { command: 'D:\\Windows\\System32\\tar.exe', style: 'tar' },
+  );
+  assert.throws(
+    () => zipExtractor({ platform: 'win32', systemRoot: 'D:\\Windows', fileExists: () => false }),
+    /Windows bsdtar not found at D:\\Windows\\System32\\tar\.exe/,
+  );
+});
+
+test('ZIP extraction refuses GNU tar without a fallback', () => {
   assert.deepEqual(
     zipExtractor({ platform: 'linux', tarHandlesZip: () => true, hasCommand: () => false }),
     { command: 'tar', style: 'tar' },

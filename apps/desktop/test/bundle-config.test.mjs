@@ -111,7 +111,7 @@ test('base config carries the package metadata used by the installers', () => {
   // com.apple.security.cs.allow-jit, allow-unsigned-executable-memory and
   // disable-library-validation for the Node sidecar (V8 JIT).
   assert.equal(base.bundle?.publisher, 'Victor Mota Mazzei');
-  assert.equal(base.bundle?.copyright, 'Copyright (C) 2026 Victor Mota Mazzei');
+  assert.equal(base.bundle?.copyright, 'Copyright (C) 2026 Knowlify.');
   assert.equal(
     base.bundle?.shortDescription,
     'Personal knowledge hub and ebook reader',

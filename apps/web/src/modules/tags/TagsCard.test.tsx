@@ -87,7 +87,8 @@ describe("TagsCard", () => {
   it("hides the card on a server without the tags contract", async () => {
     const api = vi.fn(async () => json({ message: "Not found" }, 404));
     const { container } = renderCard(api);
-    await waitFor(() => expect(api).toHaveBeenCalledWith("/api/tags", expect.anything()));
-    expect(container.querySelector("#tags")).toBeNull();
+    // The card renders its loading state until the 404 marks tags unavailable.
+    await waitFor(() => expect(container.querySelector("#tags")).toBeNull());
+    expect(api).toHaveBeenCalledWith("/api/tags", expect.anything());
   });
 });
