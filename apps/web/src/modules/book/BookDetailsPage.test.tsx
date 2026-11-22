@@ -104,6 +104,27 @@ describe("BookDetailsPage", () => {
     expect(screen.getByRole("heading", { level: 1, name: "The Quiet Archive" })).toBeInTheDocument();
   });
 
+  it("keeps the favorite when the star is clicked as soon as it mounts", async () => {
+    // The star renders after the detail request, so its passive effects can still be
+    // pending when it first appears (the CI runner clicked in that window). Clicking
+    // on the first mutation keeps the lost-toggle regression covered.
+    const starMounted = new Promise<HTMLElement>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const star = screen.queryByRole("button", { name: "Add to favorites: The Quiet Archive" });
+        if (!star) return;
+        observer.disconnect();
+        resolve(star);
+      });
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+    });
+    renderPage(apiWith());
+    const star = await starMounted;
+    fireEvent.click(star);
+
+    await waitFor(() => expect(star).toHaveAttribute("aria-pressed", "true"));
+    expect(star).toHaveAccessibleName("Remove from favorites: The Quiet Archive");
+  });
+
   it("keeps the favorite state when the tags change", async () => {
     renderPage(apiWith());
     const star = await screen.findByRole("button", { name: "Add to favorites: The Quiet Archive" });

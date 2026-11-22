@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import type { ApiFn } from "../../components/dialogs";
 import type { Book } from "../../types";
 
-export const COVER_CONCURRENCY = 6;
+/** Stay below WebKit's six-connection HTTP/1.1 pool so chat streams and preflights get a slot. */
+export const COVER_CONCURRENCY = 3;
 export const COVER_CACHE_LIMIT = 300;
 
 export type CoverSize = "thumb" | "full";

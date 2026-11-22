@@ -15,6 +15,20 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.0.3] - 2026-11-22
+
+### Fixed
+
+- Assistant chats with reasoning models (for example DeepSeek reasoner) no longer time out while the provider streams only `reasoning_content`. The reasoning text is never forwarded, logged or persisted, and an answer that ends without content reports a clear `llm_empty` error instead of a blank turn.
+- Cancelling an assistant answer releases the turn while library retrieval is still running, so a queued turn is not held by a slow embedding query.
+- Chat SSE responses send a one-second heartbeat and an explicit identity encoding, and CORS preflights are cached for ten minutes. This keeps reverse proxies from compressing or buffering the stream and works around WebKit 26.x withholding streamed chunks in the remote desktop app.
+- The tutor keeps the conversation context: a short reply to its own question searches with that question and is always answered by the model, even when no library passage matches. Prompt `feynman-3` also sends a contiguous, token-budgeted history without stale citation markers or legacy canned turns.
+- The tutor keeps a completed answer when the next question is sent, keeps a partial answer with "Answer incomplete." and Retry when a stream fails or closes early, replaces only that partial on Retry, and cancels the previous stream when the user stops it. Deltas now update the screen about every 100 ms.
+- WebKit 26.x streams tutor answers over XHR instead of `fetch`, whose `ReadableStream` withholds chunks in that engine version; other browsers keep `fetch`. The tutor also shows a small accessible spinner instead of the fixed "Thinking…/Writing…" labels, and cover loading uses fewer connections so chat always has a free HTTP/1.1 slot.
+- PDF pages render on older macOS/Windows/Linux web views that lack `Map.prototype.getOrInsertComputed`.
+- The desktop connection screen shows only the fields for the selected mode: Local hides and disables the server URL, user name and password, Remote shows them, and switching modes neither clears the typed password nor stores remote credentials in local mode.
+- Favoriting a book right after its details page loads keeps the toggle, and the delete dialog restores focus to Cancel after a partial deletion.
+
 ## [2.0.2] - 2026-11-22
 
 ### Fixed
@@ -319,7 +333,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...HEAD
+[2.0.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v1.8.1...v2.0.0

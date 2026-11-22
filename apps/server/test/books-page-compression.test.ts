@@ -20,7 +20,8 @@ describe("HTTP compression", () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/event-stream");
-      expect(response.headers["content-encoding"]).toBeUndefined();
+      // Explicit identity: not compressed here, and proxies skip their own compression.
+      expect(response.headers["content-encoding"]).toBe("identity");
       const events = parseSseEvents(response.body);
       expect(events.length).toBeGreaterThan(0);
       expect(events.at(-1)?.type).toBe("done");

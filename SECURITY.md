@@ -2,7 +2,7 @@
 
 ## Report a vulnerability
 
-Open a public issue or use the private reporting channel. The maintainers accept both.
+Open a public issue or use the private reporting channel.
 
 Private channel:
 
@@ -10,9 +10,7 @@ Private channel:
 2. Select **Report a vulnerability**.
 3. Enter the details in the private security advisory form.
 
-GitHub sends the report to the maintainers. The maintainers can discuss the report and prepare a fix in the same private channel.
-
-As an alternative, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com). The address reaches the maintainers directly.
+As an alternative, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com).
 
 Include these items in the report:
 
@@ -51,5 +49,3 @@ Get the latest release from the [CHANGELOG](CHANGELOG.md) or the GitHub releases
 - For a private report, the maintainers keep the details private until a fix is available.
 - In a private advisory, the maintainers credit the reporter unless the reporter asks for no credit.
 - The project has no bug bounty program.
-
-Thank you for reporting the issue.

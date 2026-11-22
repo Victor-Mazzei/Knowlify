@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import * as pdfjs from "pdfjs-dist";
+// pdf.js 6 relies on `Map`/`WeakMap.prototype.getOrInsert*` (the ES Upsert
+// proposal). The legacy build ships the polyfills for engines that lack them,
+// and the packaged desktop app runs the OS web view instead of the user's
+// browser, so the regular build breaks PDFs on older WebKit/WebView2.
+// The worker lives in its own realm: the main-thread polyfills do not reach it,
+// so both the API and the worker below must be the legacy build.
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import type { RefObject } from "react";
 import { formatError } from "../../services/api";
@@ -42,7 +48,7 @@ export function usePdfReader({
     if (book.format !== "pdf") return;
     let cancelled = false;
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "pdfjs-dist/build/pdf.worker.min.mjs",
+      "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
       import.meta.url,
     ).toString();
     const loadingTask = pdfjs.getDocument({ data: data.slice(0), wasmUrl: pdfjsWasmUrl() });

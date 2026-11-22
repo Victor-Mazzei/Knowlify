@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RefObject } from "react";
+import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
 import type { Book, Progress } from "../../types";
 import { pdfjsWasmUrl } from "./pdfjsAssets";
 import { usePdfReader } from "./usePdfReader";
@@ -11,7 +12,7 @@ const pdfMocks = vi.hoisted(() => {
   return { document, loadingTask, getDocument: vi.fn(() => loadingTask) };
 });
 
-vi.mock("pdfjs-dist", () => ({
+vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: {},
   getDocument: pdfMocks.getDocument,
 }));
@@ -36,6 +37,7 @@ describe("usePdfReader", () => {
     );
     await waitFor(() => expect(result.current.numPages).toBe(5));
     expect(pdfMocks.getDocument).toHaveBeenCalledWith({ data: expect.any(ArrayBuffer), wasmUrl: pdfjsWasmUrl() });
+    expect(pdfjs.GlobalWorkerOptions.workerSrc).toMatch(/\/legacy\/build\/pdf\.worker\.min\.mjs$/);
     expect(result.current.page).toBe(2);
     act(() => result.current.setPage(3));
     expect(result.current.page).toBe(3);
