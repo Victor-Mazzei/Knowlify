@@ -2,9 +2,15 @@ import type { AuthInfo } from "@modelcontextprotocol/server";
 import type { McpAccess, McpPrincipal } from "../../use-cases/McpAccess.js";
 import { RateWindow } from "./RateWindow.js";
 
+export type McpAuthFailureReason =
+  | "credentials_missing"
+  | "credentials_invalid"
+  | "token_revoked"
+  | "rate_limited";
+
 export type McpAuthResult =
   | { ok: true; principal: McpPrincipal; token: string }
-  | { ok: false; status: 401 | 429; retryAfterSec?: number };
+  | { ok: false; status: 401 | 429; reason: McpAuthFailureReason; retryAfterSec?: number };
 
 export interface McpAuthOptions {
   /** Failed attempts per IP per minute; valid tokens are never throttled by this window. */
@@ -29,16 +35,22 @@ export class McpAuth {
 
   authenticate(header: string | undefined, ip: string): McpAuthResult {
     const match = header === undefined ? null : BEARER.exec(header.trim());
-    if (!match) return this.fail(ip);
+    if (!match) return this.fail(ip, "credentials_missing");
     const token = match[1]!;
     const principal = this.access.authenticate(token);
-    if (!principal) return this.fail(ip);
+    // Malformed and unknown tokens share the generic 401; a revoked token is named in
+    // the debug category because it is a different operator action.
+    if (!principal) {
+      return this.fail(ip, this.access.failureReason(token) === "revoked" ? "token_revoked" : "credentials_invalid");
+    }
     return { ok: true, principal, token };
   }
 
-  private fail(ip: string): Extract<McpAuthResult, { ok: false }> {
+  private fail(ip: string, reason: McpAuthFailureReason): Extract<McpAuthResult, { ok: false }> {
     const rate = this.failures.hit(ip);
-    return rate.allowed ? { ok: false, status: 401 } : { ok: false, status: 429, retryAfterSec: rate.retryAfterSec };
+    return rate.allowed
+      ? { ok: false, status: 401, reason }
+      : { ok: false, status: 429, reason: "rate_limited", retryAfterSec: rate.retryAfterSec };
   }
 }
 

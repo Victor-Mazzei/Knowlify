@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { getMetadataStatus, resetBookMetadata, searchBookMetadata, setBookCoverFromUrl, updateBookMetadata, uploadBookCover } from "../metadataApi";
 import { sampleBookDetail } from "./mockMetadataBook";
 import { createMockMetadataApi } from "./mockMetadataApi";
+import {
+  MOCK_METADATA_SCENARIOS,
+  mockMetadataScenario,
+  type MockMetadataScenario,
+} from "./mockMetadataScenarios";
 
 const book = sampleBookDetail();
 
@@ -109,6 +114,46 @@ describe("mockMetadataApi", () => {
       candidates: [],
       errors: [{ source: "openlibrary", code: "timeout" }],
     });
+  });
+
+  it("serves ready-made search scenarios, including another provider's candidates", async () => {
+    const scenarios: Array<[MockMetadataScenario, string | null, boolean]> = [
+      ["service-disabled", "service_disabled", false],
+      ["key-rejected", "key_rejected", false],
+      ["network", "network", false],
+      ["timeout", "timeout", false],
+      ["upstream-error", "upstream_error", false],
+      ["not-found", "not_found", false],
+      ["empty", null, false],
+      ["rate-limited", "rate_limited", true],
+    ];
+    for (const [name, reason, hasCandidates] of scenarios) {
+      const result = await searchBookMetadata(createMockMetadataApi({ scenario: name }), {
+        title: "Quiet Library",
+      });
+      expect(result.errors.map((error) => error.reason ?? null)).toEqual(reason ? [reason] : []);
+      expect(result.candidates.length > 0).toBe(hasCandidates);
+      if (hasCandidates) expect(result.candidates.every((candidate) => candidate.source === "openlibrary")).toBe(true);
+    }
+  });
+
+  it("accepts the scenario from ?mock=metadata-search&scenario=… in dev", async () => {
+    const original = window.location.href;
+    window.history.replaceState({}, "", "/?mock=metadata-search&scenario=network");
+    try {
+      const result = await searchBookMetadata(createMockMetadataApi(), { title: "Quiet Library" });
+      expect(result.errors).toEqual([{ source: "googlebooks", code: "unavailable", reason: "network" }]);
+    } finally {
+      window.history.replaceState({}, "", original);
+    }
+  });
+
+  it("maps only known scenario names", () => {
+    for (const scenario of MOCK_METADATA_SCENARIOS) {
+      expect(mockMetadataScenario(scenario)).toBe(scenario);
+    }
+    expect(mockMetadataScenario("future-scenario")).toBeNull();
+    expect(mockMetadataScenario(null)).toBeNull();
   });
 
   it("simulates disabled and unsupported lookup servers", async () => {

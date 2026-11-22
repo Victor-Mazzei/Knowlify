@@ -47,6 +47,13 @@ export class SqliteMcpTokenRepository implements McpTokenRepository {
     return rows.map(toToken);
   }
 
+  revokedByPrefix(prefix: string): McpToken[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM mcp_tokens WHERE token_prefix = ? AND revoked_at IS NOT NULL",
+    ).all(prefix) as McpTokenRow[];
+    return rows.map(toToken);
+  }
+
   save(token: McpToken): void {
     this.db.prepare(`INSERT INTO mcp_tokens
       (id, name, token_prefix, token_hash, scope, created_at, last_used_at, revoked_at)

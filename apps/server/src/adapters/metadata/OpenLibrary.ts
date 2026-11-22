@@ -1,7 +1,15 @@
 import { isValidIsbn10, isValidIsbn13, stripIsbn } from "../../domain/library/BookMetadata.js";
 import type { MetadataCandidate, MetadataLookupQuery, MetadataProvider } from "../../ports/library-metadata.js";
 import { htmlText } from "./htmlText.js";
-import { isRecord, providerFailure, readJsonCapped, statusFailure, stringValue } from "./httpJson.js";
+import {
+  MAX_ERROR_BODY_BYTES,
+  isRecord,
+  providerFailure,
+  readJsonCapped,
+  readTextCapped,
+  statusFailure,
+  stringValue,
+} from "./httpJson.js";
 
 const BASE_URL = "https://openlibrary.org/search.json";
 const MAX_CANDIDATES = 8;
@@ -47,10 +55,12 @@ export class OpenLibrary implements MetadataProvider {
       throw providerFailure(error, signal);
     }
     if (!response.ok) {
-      await response.body?.cancel();
+      // Drain within the same ceiling so an aborted/failed read is a timeout/network,
+      // not a status classification; the body itself is not parsed here.
+      await readTextCapped(response, MAX_ERROR_BODY_BYTES, signal);
       throw statusFailure(response.status);
     }
-    const body = await readJsonCapped(response, MAX_RESPONSE_BYTES);
+    const body = await readJsonCapped(response, MAX_RESPONSE_BYTES, signal);
     if (!isRecord(body) || !Array.isArray(body.docs)) return [];
     const candidates: MetadataCandidate[] = [];
     for (const doc of body.docs) {

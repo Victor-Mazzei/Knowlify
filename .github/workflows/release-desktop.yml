@@ -1,0 +1,477 @@
+name: Release desktop installers
+
+# Builds the desktop installers on a tagged release and attaches them to a draft
+# GitHub release. A manual run (workflow_dispatch) builds the same artifacts and
+# stops before the release, so the macOS and Windows jobs can be tested without
+# publishing anything.
+#
+# Code signing is not enabled in this release, and this workflow does not need
+# any secret. When certificates and keys become available, add a conditional
+# step plus a signing overlay that exports only the secrets that exist, so a
+# build without secrets keeps working:
+#   - Windows Authenticode: WINDOWS_CERTIFICATE and
+#     WINDOWS_CERTIFICATE_PASSWORD into a tauri.sign-windows.conf.json overlay
+#     with bundle.windows.signCommand;
+#   - macOS Developer ID and notarization: APPLE_CERTIFICATE,
+#     APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID,
+#     APPLE_PASSWORD and APPLE_TEAM_ID, plus hardenedRuntime and an
+#     entitlements.plist that allows JIT and unsigned executable memory for the
+#     bundled Node.js;
+#   - updater signing: TAURI_SIGNING_PRIVATE_KEY and
+#     TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+# The release job is the only job that needs contents: write.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BUNDLE_DIR: apps/desktop/src-tauri/target/release/bundle
+
+jobs:
+  check:
+    name: Check the release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The tag check needs the full history to reach the main branch.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Read the version
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p 'require("./package.json").version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Validate the version files
+        run: npm run version:check
+
+      - name: Validate the release tag
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        env:
+          REF: ${{ github.ref }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAURI_VERSION=$(node -p 'require("./apps/desktop/src-tauri/tauri.conf.json").version')
+          DESKTOP_VERSION=$(node -p 'require("./apps/desktop/package.json").version')
+          if [ "$REF" != "refs/tags/v$VERSION" ]; then
+            echo "ERROR: ref $REF does not match package.json version v$VERSION." >&2
+            exit 1
+          fi
+          if [ "$TAURI_VERSION" != "$VERSION" ]; then
+            echo "ERROR: tauri.conf.json has $TAURI_VERSION, package.json has $VERSION." >&2
+            exit 1
+          fi
+          if [ "$DESKTOP_VERSION" != "$VERSION" ]; then
+            echo "ERROR: apps/desktop/package.json has $DESKTOP_VERSION, package.json has $VERSION." >&2
+            exit 1
+          fi
+          if ! grep -qF "## [$VERSION]" CHANGELOG.md; then
+            echo "ERROR: CHANGELOG.md has no section for $VERSION." >&2
+            exit 1
+          fi
+          COMMIT=$(git rev-parse --verify 'HEAD^{commit}')
+          if ! git merge-base --is-ancestor "$COMMIT" refs/remotes/origin/main; then
+            echo "ERROR: release commit $COMMIT is not reachable from main." >&2
+            exit 1
+          fi
+          echo "Releasing v$VERSION from $REF at $COMMIT."
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-22.04
+            bundles: appimage,deb,rpm
+          - target: windows-x64
+            runner: windows-latest
+            bundles: nsis
+          - target: macos-arm64
+            runner: macos-latest
+            bundles: dmg,app
+          - target: macos-x64
+            runner: macos-15-intel
+            bundles: dmg,app
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      BUNDLES: ${{ matrix.bundles }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read the bundled Node.js version
+        id: node-runtime
+        run: |
+          set -euo pipefail
+          NODE_VERSION=$(node -p 'require("./apps/desktop/node-runtime.json").version')
+          echo "version=$NODE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bundled Node.js: $NODE_VERSION"
+
+      # The bundled runtime is the ABI anchor: npm ci, prebuild-install and
+      # better-sqlite3 must run with exactly the Node.js that ships in the app.
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ steps.node-runtime.outputs.version }}
+          cache: npm
+
+      - name: Check the Node.js version
+        run: |
+          set -euo pipefail
+          EXPECTED=$(node -p 'require("./apps/desktop/node-runtime.json").version')
+          ACTUAL=$(node -p 'process.versions.node')
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "ERROR: expected Node.js $EXPECTED, found $ACTUAL." >&2
+            exit 1
+          fi
+          npm --version
+
+      - name: Install the Tauri system libraries
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            file \
+            libarchive-tools \
+            libayatana-appindicator3-dev \
+            libfuse2 \
+            libgtk-3-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            librsvg2-dev \
+            patchelf \
+            pkg-config \
+            squashfs-tools
+
+      - name: Verify the Rust toolchain
+        run: |
+          set -euo pipefail
+          rustc --version
+          cargo --version
+
+      - name: Restore the Cargo registry cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-
+
+      - name: Restore the verified Node.js archives
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.cache/node
+          key: node-archives-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/node-runtime.json') }}
+          restore-keys: |
+            node-archives-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch the bundled Node.js
+        run: npm run node:fetch -w @knowlify/desktop
+
+      # The desktop build script runs the fetch again (cache hit), prepares the
+      # server for this platform and passes the bundle overlay to the Tauri CLI.
+      - name: Build the installers
+        run: npm run build -w @knowlify/desktop -- --bundles "$BUNDLES" -- --locked
+
+      - name: Smoke-test the packaged server
+        run: npm run smoke-server -w @knowlify/desktop
+
+      - name: Verify the macOS signature
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          APP="apps/desktop/src-tauri/target/release/bundle/macos/Knowlify.app"
+          test -d "$APP"
+          codesign --verify --strict "$APP"
+          codesign --verify --strict "$APP/Contents/MacOS/knowlify-node"
+          codesign -dv "$APP" 2>&1 | sed -n '1,10p'
+
+      - name: Rename the installers
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # macOS ships bash 3.2, so this keeps the array filling portable.
+          move_one() {
+            local pattern=$1 destination=$2
+            local -a matches=()
+            local match
+            while IFS= read -r match; do
+              if [ -n "$match" ]; then
+                matches+=("$match")
+              fi
+            done < <(compgen -G "$pattern" || true)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "ERROR: expected exactly one file for $pattern, found ${#matches[@]}." >&2
+              exit 1
+            fi
+            mv -- "${matches[0]}" "dist/$destination"
+            echo "dist/$destination"
+          }
+          case "$TARGET" in
+            linux-x64)
+              move_one "$BUNDLE_DIR/appimage/*.AppImage" "Knowlify_${VERSION}_linux-x64.AppImage"
+              move_one "$BUNDLE_DIR/deb/*.deb" "Knowlify_${VERSION}_linux-x64.deb"
+              move_one "$BUNDLE_DIR/rpm/*.rpm" "Knowlify_${VERSION}_linux-x64.rpm"
+              ;;
+            windows-x64)
+              move_one "$BUNDLE_DIR/nsis/*-setup.exe" "Knowlify_${VERSION}_windows-x64-setup.exe"
+              ;;
+            macos-arm64)
+              move_one "$BUNDLE_DIR/dmg/*.dmg" "Knowlify_${VERSION}_macos-arm64.dmg"
+              ;;
+            macos-x64)
+              move_one "$BUNDLE_DIR/dmg/*.dmg" "Knowlify_${VERSION}_macos-x64.dmg"
+              ;;
+            *)
+              echo "ERROR: unknown target $TARGET." >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Verify each installer
+        run: |
+          set -euo pipefail
+          for file in dist/*; do
+            echo "Verifying $file"
+            node apps/desktop/scripts/verify-bundle.mjs "$file"
+          done
+
+      - name: Write the per-target checksums (Linux and macOS)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          cd dist
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sha256sum -- Knowlify_* > "SHA256SUMS-$TARGET"
+          else
+            shasum -a 256 Knowlify_* > "SHA256SUMS-$TARGET"
+          fi
+          cat "SHA256SUMS-$TARGET"
+
+      - name: Write the per-target checksums (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem -Path dist -Filter 'Knowlify_*' -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLower()
+            '{0}  {1}' -f $hash, $_.Name
+          }
+          if ($lines.Count -ne 1) {
+            throw "expected exactly one installer, found $($lines.Count)"
+          }
+          $checksumPath = "dist/SHA256SUMS-$env:TARGET"
+          [IO.File]::WriteAllText($checksumPath, ($lines -join "`n") + "`n")
+          Get-Content -LiteralPath $checksumPath
+
+      - name: Upload the installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: knowlify-${{ matrix.target }}
+          path: dist/*
+          retention-days: 7
+          if-no-files-found: error
+
+  checksums:
+    name: Assemble the checksums
+    needs:
+      - check
+      - build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Download the installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: knowlify-*
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble SHA256SUMS
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd dist
+          expected=(
+            "Knowlify_${VERSION}_linux-x64.AppImage"
+            "Knowlify_${VERSION}_linux-x64.deb"
+            "Knowlify_${VERSION}_linux-x64.rpm"
+            "Knowlify_${VERSION}_macos-arm64.dmg"
+            "Knowlify_${VERSION}_macos-x64.dmg"
+            "Knowlify_${VERSION}_windows-x64-setup.exe"
+          )
+          expected_list=$(printf '%s\n' "${expected[@]}" | sort)
+          actual_list=$(find . -maxdepth 1 -type f -name 'Knowlify_*' -printf '%f\n' | sort)
+          if [ "$actual_list" != "$expected_list" ]; then
+            echo "ERROR: the installer set is not the expected one." >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_list" "$actual_list" >&2
+            exit 1
+          fi
+          for target in linux-x64 windows-x64 macos-arm64 macos-x64; do
+            sha256sum -c "SHA256SUMS-$target"
+          done
+          rm -f SHA256SUMS-*
+          sha256sum -- "${expected[@]}" | sort -k2 > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload the checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: knowlify-checksums
+          path: dist/SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
+
+  release:
+    name: Create the draft release
+    # workflow_dispatch must never create a release, even when it runs on a tag.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - check
+      - checksums
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: knowlify-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify the release files
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release
+          expected=(
+            "Knowlify_${VERSION}_linux-x64.AppImage"
+            "Knowlify_${VERSION}_linux-x64.deb"
+            "Knowlify_${VERSION}_linux-x64.rpm"
+            "Knowlify_${VERSION}_macos-arm64.dmg"
+            "Knowlify_${VERSION}_macos-x64.dmg"
+            "Knowlify_${VERSION}_windows-x64-setup.exe"
+            "SHA256SUMS"
+          )
+          expected_list=$(printf '%s\n' "${expected[@]}" | sort)
+          actual_list=$(find . -maxdepth 1 -type f -printf '%f\n' | sort)
+          if [ "$actual_list" != "$expected_list" ]; then
+            echo "ERROR: the release file set is not the expected one." >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_list" "$actual_list" >&2
+            exit 1
+          fi
+          sha256sum -c SHA256SUMS
+
+      - name: Generate the release notes
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 { printing = 1; next }
+            printing && index($0, "## [") == 1 { exit }
+            printing { print }
+          ' CHANGELOG.md > "$NOTES"
+          if ! grep -q '[^[:space:]]' "$NOTES"; then
+            echo "ERROR: the CHANGELOG.md section for $VERSION is empty." >&2
+            exit 1
+          fi
+          {
+            printf 'Verify each download with the SHA256SUMS file before you run it.\n\n'
+            printf 'The installers are not signed yet. Windows SmartScreen and macOS Gatekeeper show a warning the first time you open the app; this is expected. Install only files downloaded from this release page.\n\n'
+            printf 'Full changelog: %s/%s/blob/%s/CHANGELOG.md\n' \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME"
+          } >> "$NOTES"
+          cat "$NOTES"
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          ERROR_FILE="$RUNNER_TEMP/release-state.err"
+          # A 404 means "no release yet"; every other failure means the state is
+          # unknown and the step must stop instead of guessing.
+          set +e
+          DRAFT=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.draft' 2> "$ERROR_FILE")
+          STATUS=$?
+          set -e
+          mapfile -t files < <(find release -maxdepth 1 -type f | sort)
+          if [ "$STATUS" -ne 0 ]; then
+            if grep -Eq '\(HTTP 404\)' "$ERROR_FILE"; then
+              gh release create "$TAG" \
+                --draft \
+                --verify-tag \
+                --title "Knowlify $VERSION" \
+                --notes-file "$RUNNER_TEMP/release-notes.md" \
+                "${files[@]}"
+            else
+              echo "ERROR: could not read the release state for $TAG (gh exit $STATUS); refusing to guess." >&2
+              exit 1
+            fi
+          elif [ "$DRAFT" = "true" ]; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" \
+              --draft \
+              --title "Knowlify $VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          elif [ "$DRAFT" = "false" ]; then
+            echo "ERROR: release $TAG is already published; version tags are immutable." >&2
+            exit 1
+          else
+            echo "ERROR: unexpected release state for $TAG; refusing to guess." >&2
+            exit 1
+          fi

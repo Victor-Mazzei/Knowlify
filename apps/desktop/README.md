@@ -5,14 +5,35 @@ The app remembers the last working connection and reconnects on its own at the n
 
 ## Requirements
 
-- Install Rust and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
-- Install Node.js and npm. The local server needs Node 22 LTS, current release (tested on 22.23.5; the documented minimum is 22.23.5). Node 24 also works. Keep Node on `PATH`, or set `KNOWLIFY_NODE` to its absolute executable path.
-- Use the same Node major version to prepare and run the local server. Its `better-sqlite3` module has a native ABI.
-- Prepare packages on each target OS and architecture. Native SQLite dependencies prevent portable cross-platform resource copies.
+To build the app:
 
-The app uses a system Node process instead of a bundled Node executable. This keeps the server unchanged and simplifies updates.
-The installer includes the compiled server and its production dependencies. End users need Node for local mode; remote mode needs no Node.
-On macOS, GUI apps can have a different `PATH` from your shell. Set `KNOWLIFY_NODE` in the GUI environment if necessary.
+- Install Rust and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+- Use Node.js 22 (the manifest pins 22.23.5) and npm for the desktop commands. If you use nvm, run `nvm use 22`; the repository does not install or manage nvm. The packaged app runs its own Node.js. `prepare-server` is fail-closed: it stops when the host Node.js major differs from the bundled runtime (22).
+- Build on each target OS and architecture. The native SQLite modules prevent portable cross-platform resource copies.
+- Windows: Windows 10 version 1809 or later (the Node.js 22 minimum). The NSIS installer includes the WebView2 bootstrapper.
+- macOS: macOS 13.5 or later (the Node.js 22 minimum) and the Xcode command line tools.
+- Linux: glibc 2.35 or later and the WebKitGTK 4.1 development packages. The release builds on Ubuntu 22.04 (glibc 2.35), so older distributions are not supported. Do not use the Node.js 22 minimum (glibc 2.28) here: the Tauri binary and the native modules are built on the runner.
+
+Use the manifest Node version (22.23.5) for the build; the CI installs exactly that version. `prepare-server.mjs` rebuilds `better-sqlite3` for the Node that runs it, and that binary must load under the bundled runtime. The `smoke-server` check proves this. If you change the Node version, run `npm install` again. Node 24 is fine for the server and web development loop, but it cannot build or package the desktop app.
+
+## Bundled Node.js
+
+The installer includes a Node.js 22 runtime as the Tauri sidecar `knowlify-node` (`knowlify-node.exe` on Windows). In local mode, the app starts this binary from its own folder. The runtime is not on `PATH`, the webview cannot start it, and end users do not install Node.js.
+
+`node-runtime.json` pins the version, the official download URL and the SHA-256 of each archive:
+
+| Target | Archive |
+| --- | --- |
+| `x86_64-pc-windows-msvc` | `node-v22.23.5-win-x64.zip` |
+| `aarch64-apple-darwin` | `node-v22.23.5-darwin-arm64.tar.gz` |
+| `x86_64-apple-darwin` | `node-v22.23.5-darwin-x64.tar.gz` |
+| `x86_64-unknown-linux-gnu` | `node-v22.23.5-linux-x64.tar.xz` |
+
+`npm run node:fetch -w @knowlify/desktop` downloads the archive for the host target, checks the SHA-256, extracts only the binary and the `LICENSE`, writes `src-tauri/binaries/knowlify-node-<triple>[.exe]` (mode 0755) and `src-tauri/resources/licenses/node/LICENSE`, and runs `<sidecar> --version` for the host target. The cache is `apps/desktop/.cache/node/<sha256>/`; every reuse is hashed again.
+
+`KNOWLIFY_NODE` is only an explicit override: an absolute path to an existing Node executable. It wins over the sidecar. In a release build, there is no `PATH` lookup; without the sidecar or the override, the app shows an error and asks you to reinstall. In a development build (`tauri dev`), the app falls back to `node` on `PATH` when the sidecar is absent.
+
+To update Node.js, run `npm run node:update -w @knowlify/desktop`. Without arguments, the script selects the newest 22.x LTS release from `nodejs.org`, reads `SHASUMS256.txt` and rewrites the manifest. If `gpg` has the Node.js release key, the script also verifies the signature; otherwise it prints a warning. Review the manifest diff in the pull request: the pinned hash in the repository is the trust anchor for the release build.
 
 ## Development
 
@@ -24,25 +45,40 @@ npm run dev -w @knowlify/desktop
 ```
 
 The preparation script builds `apps/server/dist` and installs production dependencies in `src-tauri/resources/server`.
+Select Node 22 before this command (with nvm, `nvm use 22`): the desktop `dev` command also runs `prepare-server`, which fails closed on a different host major.
 The Tauri CLI starts Vite at `http://localhost:5174` with a fixed port. Close the desktop app to stop development.
 The existing server must pass its TypeScript build before preparation can complete.
+`npm run dev` does not download the sidecar; in development, the app uses `node` from `PATH`.
 
 ## Build
+
+Build with Node 22. With nvm, run `nvm use 22`; the repository does not install or manage nvm. The build fails if the host major is not 22, and Node 24 cannot produce the installers; the CI uses exactly 22.23.5.
 
 From the repository root, run:
 
 ```sh
-npm run build -w @knowlify/desktop
+npm run build -w @knowlify/desktop -- --bundles deb,rpm,appimage
 ```
 
-The build script prepares the server first. Tauri then builds the web UI and packages the desktop app.
-The CLI runs through `npx` with Tauri major version 2. The first run needs npm registry access.
+Use `--bundles nsis` on Windows and `--bundles dmg` on macOS. Add `-- --locked` after the bundles list to pass `--locked` to Cargo, as the release workflow does.
+
+The `build` script runs three steps:
+
+1. `node-runtime.mjs fetch` downloads and verifies the Node.js runtime.
+2. `prepare-server.mjs` builds `apps/server/dist`, installs the production dependencies from the root `package-lock.json`, rebuilds `better-sqlite3`, prunes files for the target and asserts that no binary for another platform remains.
+3. `tauri build --config src-tauri/tauri.bundle.conf.json` builds the web UI and the packages.
+
 Artifacts appear under `src-tauri/target/release/bundle`.
+The Tauri names (`Knowlify_X.Y.Z_amd64.deb`, `Knowlify-X.Y.Z-1.x86_64.rpm`, `Knowlify_X.Y.Z_amd64.AppImage`, and the `.dmg` and NSIS files) become `Knowlify_X.Y.Z_linux-x64.deb`, `Knowlify_X.Y.Z_linux-x64.rpm`, `Knowlify_X.Y.Z_linux-x64.AppImage`, `Knowlify_X.Y.Z_windows-x64-setup.exe`, `Knowlify_X.Y.Z_macos-arm64.dmg` and `Knowlify_X.Y.Z_macos-x64.dmg` in the release workflow.
 The Tauri `frontendDist` path is `../../web/dist`, relative to `src-tauri`; it points to `apps/web/dist`.
+
+The base `tauri.conf.json` does not declare `externalBin`. The Rust checks (`cargo check`, `cargo test`, `cargo clippy`) therefore run without the sidecar, and the "Desktop Rust checks" job in the CI uses this path.
+`tauri.bundle.conf.json` is a JSON Merge Patch for release builds. It adds the sidecar, the server and license resources, macOS ad-hoc signing (`signingIdentity: "-"`, `hardenedRuntime: false`, minimum macOS 13.5) and the per-user NSIS install mode.
+Always pass this overlay; a plain `tauri build` produces a package without `knowlify-node`. A Node test (`test/bundle-config.test.mjs`) checks both configurations.
 
 ## Connections and storage
 
-Local mode reserves a free IPv4 loopback port, releases it, and starts Node bound to `127.0.0.1`.
+Local mode reserves a free IPv4 loopback port, releases it, and starts the bundled Node.js bound to `127.0.0.1`.
 The app checks the authenticated books endpoint before it opens the library. It retries startup three times if necessary.
 The app owns the child process and kills and reaps it on normal exit, startup failure, or a mode change.
 An OS force-kill or machine crash cannot run this cleanup.
@@ -82,18 +118,28 @@ The webview sets a restrictive CSP (`tauri.conf.json`, `csp`; `devCsp` adds the 
 
 ```sh
 npm test -w @knowlify/desktop
+npm run smoke-server -w @knowlify/desktop
+npm run verify-bundle -w @knowlify/desktop -- <installer-or-directory>
 npm run build -w @knowlify/web
 cd apps/desktop/src-tauri
 cargo check
 cargo test
 ```
 
+`smoke-server` starts the compiled server with the bundled Node.js on an ephemeral loopback port and a temporary data directory.
+It checks `/health`, the authenticated `/api/about`, `better-sqlite3` and `@napi-rs/canvas`, then stops the child.
+Pass `--node` and `--server` to test an extracted package.
+
+`verify-bundle` accepts an extracted directory, `.deb`, `.rpm`, `.dmg`, NSIS `.exe` or AppImage.
+It checks the sidecar hash and `--version`, the server tree and its native modules, the Node.js license, leftover binaries for other platforms and the 250 MiB size limit.
+
 Unit tests in `apps/desktop/src-tauri/src/main.rs` cover:
 1. `is_allowed_navigation`: Verifies that app origins, `about:` iframes, and own `blob:` URLs are allowed while external web links, external blob URLs, and file/script URLs are blocked.
 2. `validate_external_url`: Verifies that valid HTTP/HTTPS URLs open, while schemes like `file:`, `javascript:`, `data:`, empty hosts, and embedded credentials are rejected.
 3. `validate_remote_url`: Verifies that remote server connection URLs reject embedded credentials, query strings, fragments, and non-HTTP schemes.
+4. `node_executable`: Resolves the sidecar next to the app, rejects a relative, missing or directory `KNOWLIFY_NODE`, and uses the `PATH` fallback only in a debug build.
 
-Unit tests in `apps/desktop/test/bootstrap.test.mjs` cover the injected bootstrap log bridge: error forwarding and safe handling of synchronous and rejected `js_log` calls.
+Node tests in `apps/desktop/test/` cover the bootstrap log bridge, the security configuration, the bundle configuration, the Node runtime manifest and the server preparation.
 
 Linux needs development packages that expose `webkit2gtk-4.1`, `javascriptcoregtk-4.1`, `gtk+-3.0`, and `libsoup-3.0` through pkg-config.
 These checks do not open a desktop window. Test the packaged app on each target OS before distribution.

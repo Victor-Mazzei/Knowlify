@@ -6,7 +6,15 @@ import type {
   MetadataProvider,
 } from "../../ports/library-metadata.js";
 import { htmlText, providerLink } from "./htmlText.js";
-import { isRecord, MetadataProviderError, providerFailure, readJsonCapped, statusFailure, stringValue } from "./httpJson.js";
+import {
+  googleErrorDetails,
+  isRecord,
+  MetadataProviderError,
+  providerFailure,
+  readJsonCapped,
+  statusFailure,
+  stringValue,
+} from "./httpJson.js";
 
 const BASE_URL = "https://www.googleapis.com/books/v1/volumes";
 const MAX_CANDIDATES = 8;
@@ -49,7 +57,9 @@ export class GoogleBooks implements MetadataProvider {
     const key = this.options.resolveKey();
     // A stored envelope that cannot be decrypted fails closed: never retry unauthenticated
     // with a query the user expected to be authenticated, and never send the sealed value.
-    if (key.state === "unreadable") throw new MetadataProviderError("unavailable");
+    if (key.state === "unreadable") {
+      throw new MetadataProviderError("unavailable", { reason: "key_unreadable" });
+    }
     const headers: Record<string, string> = { "user-agent": this.options.userAgent, accept: "application/json" };
     if (key.state === "ok") headers["x-goog-api-key"] = key.key;
     let response: Response;
@@ -63,10 +73,12 @@ export class GoogleBooks implements MetadataProvider {
       throw providerFailure(error, signal);
     }
     if (!response.ok) {
-      await response.body?.cancel();
-      throw statusFailure(response.status);
+      // The bounded body is reduced to Google's stable error identifiers before it is
+      // logged or returned; `error.message` may echo the key or the query and is ignored.
+      const details = await googleErrorDetails(response, signal);
+      throw statusFailure(response.status, details);
     }
-    const body = await readJsonCapped(response, MAX_RESPONSE_BYTES);
+    const body = await readJsonCapped(response, MAX_RESPONSE_BYTES, signal);
     if (!isRecord(body) || !Array.isArray(body.items)) return [];
     const candidates: MetadataCandidate[] = [];
     for (const item of body.items) {

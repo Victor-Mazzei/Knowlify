@@ -211,7 +211,7 @@ export class BookMetadata {
     try {
       await this.covers.remove(bookId);
     } catch (error) {
-      this.options.log?.warn?.(`cannot remove custom cover ${bookId}: ${(error as Error).message}`);
+      this.options.log?.error(error, `cannot remove custom cover ${bookId}`);
     }
   }
 
@@ -219,7 +219,7 @@ export class BookMetadata {
     try {
       await this.coverThumbs.invalidate(bookId);
     } catch (error) {
-      this.options.log?.warn?.(`cannot invalidate thumbnail ${bookId}: ${(error as Error).message}`);
+      this.options.log?.error(error, `cannot invalidate thumbnail ${bookId}`);
     }
   }
 }

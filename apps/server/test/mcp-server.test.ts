@@ -645,11 +645,12 @@ describe("MCP transport security", () => {
       expect(JSON.parse(line!)).toMatchObject({
         event: "mcp_call",
         tokenId: expect.any(String),
-        prefix: expect.stringMatching(/^knw_mcp_/u),
+        scope: "write_notes",
         tool: "create_note",
         ok: true,
         resultCount: 1,
       });
+      expect(line).not.toContain("knw_mcp_");
     } finally {
       spy.mockRestore();
     }

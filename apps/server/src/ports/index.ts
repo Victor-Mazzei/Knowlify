@@ -149,4 +149,6 @@ export interface Logger {
   error(error: unknown, message: string): void;
   /** Optional so lightweight test loggers stay valid; adapters use it for non-fatal failures. */
   warn?(message: string): void;
+  /** Optional diagnostic level; only emitted when the operator sets KNOWLIFY_LOG_LEVEL=debug/trace. */
+  debug?(message: string): void;
 }

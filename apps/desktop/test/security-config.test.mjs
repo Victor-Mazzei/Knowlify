@@ -54,3 +54,35 @@ test('local server inherits the private-LLM policy', async () => {
     'the local Node server must receive KNOWLIFY_LLM_ALLOW_PRIVATE=on',
   );
 });
+
+// Release builds run the bundled `knowlify-node` sidecar: the runtime is resolved
+// from the app location, never from PATH, and the app must not hand the spawn to a
+// shell or let the user's environment inject code into the bundled runtime.
+test('local server starts the bundled runtime without a shell or env injection', async () => {
+  const source = await readFile(
+    new URL('../src-tauri/src/main.rs', import.meta.url),
+    'utf8',
+  );
+  assert.ok(
+    /current_exe\(\)/.test(source),
+    'the Node runtime must be resolved from the app executable',
+  );
+  assert.ok(
+    source.includes('"knowlify-node"') && source.includes('"knowlify-node.exe"'),
+    'the sidecar name must be knowlify-node[.exe] on every platform',
+  );
+  assert.ok(
+    !/Command::new\(\s*"(?:sh|bash|zsh|cmd|powershell)"/.test(source),
+    'the local server must be spawned directly, without a shell',
+  );
+  assert.ok(
+    !source.includes('Command::new("node")'),
+    'release builds must not spawn `node` from PATH directly',
+  );
+  for (const variable of ['NODE_OPTIONS', 'NODE_PATH', 'KNOWLIFY_NODE']) {
+    assert.ok(
+      source.includes(`.env_remove("${variable}")`),
+      `the local server must not inherit ${variable}`,
+    );
+  }
+});

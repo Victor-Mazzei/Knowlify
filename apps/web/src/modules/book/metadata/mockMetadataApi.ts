@@ -5,6 +5,10 @@ import { sampleBookDetail } from "./mockMetadataBook";
 import { MOCK_METADATA_CANDIDATES } from "./mockMetadataCandidates";
 import { applyMetadataPatch, metadataOf, type MockMetadataState } from "./mockMetadataPatch";
 import { isValidIsbn10, isValidIsbn13, normalizeIsbn } from "./isbn";
+import {
+  searchScenarioFor,
+  type MockMetadataScenario,
+} from "./mockMetadataScenarios";
 
 export type MockMetadataOptions = {
   /** Books the mock knows; the detail/list fields come from here. */
@@ -16,6 +20,8 @@ export type MockMetadataOptions = {
   /** Provider failures returned next to the candidates. */
   searchErrors?: MetadataLookupError[];
   candidates?: MetadataCandidate[];
+  /** A ready-made search outcome, also selectable by `?mock=metadata-search&scenario=…`. */
+  scenario?: MockMetadataScenario;
 };
 
 const ONE_PIXEL_PNG = Uint8Array.from(
@@ -102,7 +108,8 @@ function matchingCandidates(candidates: MetadataCandidate[], search: URLSearchPa
  */
 export function createMockMetadataApi(options: MockMetadataOptions = {}): ApiFn {
   const lookup = options.lookup ?? "on";
-  const candidates = options.candidates ?? MOCK_METADATA_CANDIDATES;
+  const scenario = searchScenarioFor(options.scenario);
+  const candidates = options.candidates ?? scenario?.candidates ?? MOCK_METADATA_CANDIDATES;
   const seed = options.books ?? [
     sampleBookDetail(),
     sampleBookDetail({ id: "meta-2", title: "The Silent Shelf", author: "Mira Costa", hasCover: false }),
@@ -166,7 +173,7 @@ export function createMockMetadataApi(options: MockMetadataOptions = {}): ApiFn 
       searches += 1;
       return json({
         candidates: matchingCandidates(candidates, url.searchParams),
-        errors: options.searchErrors ?? [],
+        errors: options.searchErrors ?? scenario?.errors ?? [],
       });
     }
 

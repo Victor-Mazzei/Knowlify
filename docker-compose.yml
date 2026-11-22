@@ -19,6 +19,8 @@ services:
       KNOWLIFY_BROWSE_ROOTS: ${KNOWLIFY_BROWSE_ROOTS:-}
       KNOWLIFY_SCAN_INTERVAL: ${KNOWLIFY_SCAN_INTERVAL:-600}
       KNOWLIFY_SCAN_CONCURRENCY: ${KNOWLIFY_SCAN_CONCURRENCY:-8}
+      # Empty keeps the default info level: error | warn | info | debug | trace | silent.
+      KNOWLIFY_LOG_LEVEL: ${KNOWLIFY_LOG_LEVEL:-}
       # Empty lets the server compute min(3, CPUs-1).
       KNOWLIFY_METADATA_WORKERS: ${KNOWLIFY_METADATA_WORKERS:-}
       KNOWLIFY_PASSWORD: ${KNOWLIFY_PASSWORD:?set KNOWLIFY_PASSWORD in .env}

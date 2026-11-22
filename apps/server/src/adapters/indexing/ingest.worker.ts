@@ -7,6 +7,7 @@ import { describeFailure } from "./errors.js";
 import { EpubTextExtractor } from "./extract/EpubTextExtractor.js";
 import { PdfTextExtractor } from "./extract/PdfTextExtractor.js";
 import { INGEST_BATCH_SIZE, LEXICAL_BATCH_SIZE, ingestFile, paragraphChunks } from "./pipeline.js";
+import { safeErrorType } from "../logging/safeError.js";
 import type { WorkerRequest, WorkerResponse } from "./workerProtocol.js";
 
 const port = requirePort(parentPort);
@@ -59,7 +60,7 @@ function scheduleRetry(target: Embedder): void {
     void target.prepare().then(
       () => postStatus(target),
       (error: unknown) => {
-        console.warn("[indexing worker] embeddings recovery probe failed", error);
+        console.warn(`[indexing worker] embeddings recovery probe failed (${safeErrorType(error)})`);
         postStatus(target);
       },
     );
@@ -181,7 +182,7 @@ port.on("message", (message: WorkerRequest) => {
       return;
     case "run":
       runs = runs.then(() => handleRun(message)).catch((error: unknown) => {
-        console.error("[indexing worker] run queue failed", error);
+        console.error(`[indexing worker] run queue failed (${safeErrorType(error)})`);
       });
       return;
     case "query":

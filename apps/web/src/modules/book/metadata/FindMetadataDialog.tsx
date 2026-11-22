@@ -21,17 +21,12 @@ import {
 import { CandidateApplyPanel } from "./CandidateApplyPanel";
 import { CandidateList, SOURCE_LABEL } from "./CandidateList";
 import { FindSearchForm, type SearchMode } from "./FindSearchForm";
+import { ProviderProblems } from "./ProviderProblems";
 import { useMetadataApi } from "./useMetadataApi";
 import { useMetadataLookupStatus } from "./useMetadataLookupStatus";
 import "./metadata.css";
 
 export type FindMetadataDialogProps = MetadataDialogProps & { api?: ApiFn };
-
-const PROBLEM: Record<string, string> = {
-  rate_limited: "hit its rate limit. Try again later.",
-  timeout: "took too long to answer.",
-  unavailable: "could not be reached.",
-};
 
 export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }: FindMetadataDialogProps) {
   const api = useMetadataApi(apiOverride);
@@ -58,9 +53,7 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
   const [applyError, setApplyError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const close = () => {
-    if (!applying) onClose();
-  };
+  const close = () => { if (!applying) onClose(); };
   useDialogKeys(ref, close);
 
   useEffect(() => {
@@ -101,10 +94,8 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
     setResult(null);
     setSelected(null);
     try {
-      const next = await searchBookMetadata(
-        api,
-        mode === "isbn" ? { isbn: normalizeIsbn(isbn) } : { title: title.trim(), author: author.trim() || undefined },
-      );
+      const query = mode === "isbn" ? { isbn: normalizeIsbn(isbn) } : { title: title.trim(), author: author.trim() || undefined };
+      const next = await searchBookMetadata(api, query);
       setResult(next);
     } catch (reason) {
       if (reason instanceof ApiError && reason.status === 429) {
@@ -173,9 +164,7 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
     }
   };
 
-  const providers = result?.candidates.length
-    ? [...new Set(result.candidates.map((item) => SOURCE_LABEL[item.source]))].join(" and ")
-    : "";
+  const providers = result?.candidates.length ? [...new Set(result.candidates.map((item) => SOURCE_LABEL[item.source]))].join(" and ") : "";
 
   return (
     <div className="dialog-backdrop centered" onMouseDown={(event) => event.target === event.currentTarget && close()}>
@@ -190,9 +179,7 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
           </button>
         </header>
 
-        {lookup.availability === "loading" && (
-          <p className="metadata-inline-status" role="status">Checking online lookup…</p>
-        )}
+        {lookup.availability === "loading" && <p className="metadata-inline-status" role="status">Checking online lookup…</p>}
         {lookup.availability === "error" && (
           <div className="error metadata-feedback" role="alert">
             <span>{lookup.error}</span>
@@ -200,14 +187,10 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
           </div>
         )}
         {(lookup.availability === "disabled" || blocked) && (
-          <p className="notice metadata-feedback">
-            {blocked || "Online lookup is turned off on this server. You can still edit metadata by hand."}
-          </p>
+          <p className="notice metadata-feedback">{blocked || "Online lookup is turned off on this server. You can still edit metadata by hand."}</p>
         )}
         {lookup.availability === "unsupported" && (
-          <p className="notice metadata-feedback">
-            This server does not support online metadata lookup. You can still edit metadata by hand.
-          </p>
+          <p className="notice metadata-feedback">This server does not support online metadata lookup. You can still edit metadata by hand.</p>
         )}
 
         {lookup.availability === "enabled" && !blocked && (
@@ -234,35 +217,17 @@ export function FindMetadataDialog({ book, onClose, onSaved, api: apiOverride }:
         {result && (
           <div className="metadata-results">
             <p className="metadata-results-count" role="status" aria-live="polite">
-              {result.candidates.length === 0
-                ? "No matches from the providers."
-                : `${result.candidates.length} ${result.candidates.length === 1 ? "match" : "matches"} from ${providers}.`}
+              {result.candidates.length === 0 ? "No matches from the providers." : `${result.candidates.length} ${result.candidates.length === 1 ? "match" : "matches"} from ${providers}.`}
             </p>
-            {result.errors.length > 0 && (
-              <ul className="metadata-provider-notes" aria-label="Provider problems">
-                {result.errors.map((problem) => (
-                  <li key={`${problem.source}:${problem.code}`}>
-                    {SOURCE_LABEL[problem.source]} {PROBLEM[problem.code] ?? "is unavailable."}
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ProviderProblems errors={result.errors} status={lookup.status} showAll={result.candidates.length > 0} />
             {result.candidates.length === 0 ? (
               <p className="metadata-empty">Check the ISBN or try a shorter title.</p>
             ) : (
               <CandidateList candidates={result.candidates} selected={selected} disabled={applying} onSelect={choose} />
             )}
             {candidate && (
-              <CandidateApplyPanel
-                candidate={candidate}
-                current={current.metadata}
-                fields={fields}
-                cover={cover}
-                applying={applying}
-                onToggle={toggleField}
-                onCover={setCover}
-                onApply={() => void apply()}
-              />
+              <CandidateApplyPanel candidate={candidate} current={current.metadata} fields={fields} cover={cover} applying={applying}
+                onToggle={toggleField} onCover={setCover} onApply={() => void apply()} />
             )}
           </div>
         )}

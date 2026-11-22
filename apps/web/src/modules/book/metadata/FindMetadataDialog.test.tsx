@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../../components/dialogs";
 import type { BookDetail } from "../types";
@@ -20,12 +21,20 @@ const spyApi = (inner: ApiFn) => {
 const withIsbn = (isbn13: string | null = "9780306406157"): BookDetail =>
   sampleBookDetail({}, { isbn13, isbn10: isbn13 ? "0306406152" : null });
 
-const renderFind = (book: BookDetail, options: MockMetadataOptions = {}) => {
-  const mock = spyApi(createMockMetadataApi(options));
+const renderDialog = (book: BookDetail, api: ApiFn) => {
   const onSaved = vi.fn();
   const onClose = vi.fn();
-  const view = render(<FindMetadataDialog book={book} api={mock.api} onClose={onClose} onSaved={onSaved} />);
-  return { ...mock, onSaved, onClose, ...view };
+  const view = render(
+    <MemoryRouter>
+      <FindMetadataDialog book={book} api={api} onClose={onClose} onSaved={onSaved} />
+    </MemoryRouter>,
+  );
+  return { onSaved, onClose, ...view };
+};
+
+const renderFind = (book: BookDetail, options: MockMetadataOptions = {}) => {
+  const mock = spyApi(createMockMetadataApi(options));
+  return { ...mock, ...renderDialog(book, mock.api) };
 };
 
 const bodyOf = (call: Call) => JSON.parse(String(call.init?.body)) as Record<string, unknown>;
@@ -110,6 +119,77 @@ describe("FindMetadataDialog", () => {
     expect(await screen.findByText("No matches from the providers.")).toBeInTheDocument();
     expect(screen.getByText(/Open Library took too long to answer/)).toBeInTheDocument();
     expect(screen.getByText(/Check the ISBN or try a shorter title/)).toBeInTheDocument();
+  });
+
+  it("shows another provider's candidates beside a provider problem", async () => {
+    renderFind(withIsbn(), { scenario: "rate-limited" });
+    await screen.findByLabelText("ISBN");
+    fireEvent.click(screen.getByRole("button", { name: "Title and author" }));
+    fireEvent.change(screen.getByLabelText("Title"), { target: { value: "Quiet Library" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search online" }));
+
+    const list = await screen.findByRole("list", { name: "Metadata matches" });
+    expect(within(list).getByText("The Quiet Library: A Reader's History")).toBeInTheDocument();
+    expect(await screen.findByText(/Google Books is limiting requests/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings/metadata");
+  });
+
+  it("explains the most actionable failure first when nothing matched", async () => {
+    renderFind(withIsbn(), {
+      candidates: [],
+      searchErrors: [
+        { source: "openlibrary", code: "timeout", reason: "timeout" },
+        { source: "googlebooks", code: "unavailable", reason: "service_disabled" },
+      ],
+    });
+    await screen.findByLabelText("ISBN");
+    fireEvent.click(screen.getByRole("button", { name: "Search online" }));
+
+    expect(await screen.findByText(/Google Books refused the request/)).toBeInTheDocument();
+    expect(screen.queryByText(/Open Library took too long/)).not.toBeInTheDocument();
+    expect(screen.getByText(/KNOWLIFY_LOG_LEVEL=debug/)).toBeInTheDocument();
+  });
+
+  it("falls back to the generic code text for an unknown reason", async () => {
+    const inner = createMockMetadataApi();
+    const api: ApiFn = (path, init) =>
+      path.startsWith("/api/metadata/search")
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                candidates: [],
+                errors: [{ source: "googlebooks", code: "unavailable", reason: "future_reason" }],
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          )
+        : inner(path, init);
+    renderDialog(withIsbn(), api);
+    await screen.findByLabelText("ISBN");
+    fireEvent.click(screen.getByRole("button", { name: "Search online" }));
+
+    expect(await screen.findByText("Google Books could not be reached.")).toBeInTheDocument();
+  });
+
+  it("links key problems to the metadata settings route", async () => {
+    renderFind(withIsbn(), { scenario: "key-rejected" });
+    await screen.findByLabelText("ISBN");
+    fireEvent.click(screen.getByRole("button", { name: "Search online" }));
+
+    expect(await screen.findByText(/Google Books rejected the API key/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings > Metadata lookup" })).toHaveAttribute(
+      "href",
+      "/settings/metadata",
+    );
+  });
+
+  it("keeps the debug hint out of a plain empty result", async () => {
+    renderFind(withIsbn(), { scenario: "empty" });
+    await screen.findByLabelText("ISBN");
+    fireEvent.click(screen.getByRole("button", { name: "Search online" }));
+
+    expect(await screen.findByText("No matches from the providers.")).toBeInTheDocument();
+    expect(screen.queryByText(/KNOWLIFY_LOG_LEVEL=debug/)).not.toBeInTheDocument();
   });
 
   it("explains a rate-limited search", async () => {

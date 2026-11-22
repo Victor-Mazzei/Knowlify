@@ -33,6 +33,17 @@ const readFlag = (value: string | undefined): boolean => value === "1" || value 
 const readCsv = (value: string | undefined): string[] =>
   (value ?? "").split(",").map((part) => part.trim()).filter(Boolean);
 
+export const LOG_LEVELS = ["error", "warn", "info", "debug", "trace", "silent"] as const;
+export type LogLevel = (typeof LOG_LEVELS)[number];
+
+/** Case-insensitive; an unknown value is a boot-time mistake, never a silent fallback. */
+export const readLogLevel = (value: string | undefined): LogLevel => {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return "info";
+  if ((LOG_LEVELS as readonly string[]).includes(raw)) return raw as LogLevel;
+  throw new Error(`KNOWLIFY_LOG_LEVEL must be one of: ${LOG_LEVELS.join(", ")}`);
+};
+
 const isProxyAddress = (entry: string): boolean => {
   const parts = entry.split("/");
   if (parts.length > 2 || parts[0] === "") return false;
@@ -160,6 +171,8 @@ const defaultWorkers = Math.max(1, Math.min(3, availableParallelism() - 1));
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   host: serverHost,
+  /** Fastify/Pino level; debug and trace add the diagnostic outbound/auth/index events. */
+  logLevel: readLogLevel(process.env.KNOWLIFY_LOG_LEVEL),
   // Opt-in: only a deployment behind a trusted proxy should believe X-Forwarded-For.
   trustProxy: parseTrustProxy(process.env.KNOWLIFY_TRUST_PROXY),
   dataDir,

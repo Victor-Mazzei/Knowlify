@@ -303,7 +303,7 @@ export class DuplicateFinder {
       try {
         await this.hashVerified(book);
       } catch (e) {
-        this.log.warn?.(`cannot hash ${book.path} while looking for duplicates: ${(e as Error).message}`);
+        this.log.error(e, "cannot hash a book while looking for duplicates");
       }
       done += 1;
       this.progress = done / targets.length;
@@ -616,12 +616,12 @@ export class DuplicateFinder {
           const current = await this.files.statIfExists(removal.path).catch(() => null);
           if (!current) continue;
           if (current.size !== removal.size || (removal.mtime !== null && current.mtime !== removal.mtime)) {
-            this.log.warn?.(`leaving ${removal.path} in place: the file changed during the merge`);
+            this.log.warn?.("file changed during the merge; leaving it in place");
             continue;
           }
         }
         await this.files.removeManaged(removal.path);
-      } catch (e) { this.log.error(e, `cannot remove merged file ${removal.path}`); }
+      } catch (e) { this.log.error(e, "cannot remove a merged file"); }
     }
     this.refreshSummary();
     this.log.info(`duplicate merge: ${merged} group(s), ${plan.booksRemoved} book(s) removed`);

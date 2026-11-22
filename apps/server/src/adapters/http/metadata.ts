@@ -60,7 +60,7 @@ export async function metadataRoutes(app: FastifyInstance, opts: MetadataRouteOp
     "/metadata/search",
     async (req, reply) => {
       try {
-        return await lookup.search(req.query);
+        return await lookup.search(req.query, req.log);
       } catch (error) {
         if (sendKnown(error, reply)) return reply;
         throw error;

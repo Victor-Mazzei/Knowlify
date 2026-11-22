@@ -9,7 +9,10 @@ import {
   type DestinationVerdict,
 } from "../../domain/assistant/LlmConfig.js";
 import type { HostLookup, ResolvedAddress } from "../../ports/llm-settings.js";
-import type { AllowPrivatePolicy } from "../../domain/net/IpClassification.js";
+import type { AllowPrivatePolicy, IpKind } from "../../domain/net/IpClassification.js";
+import { classify } from "../../domain/net/IpClassification.js";
+import type { Logger } from "../../ports/index.js";
+import { logOutbound, outboundTarget } from "../outboundDebug.js";
 
 export type GuardedFetchCode =
   | "blocked"
@@ -20,7 +23,7 @@ export type GuardedFetchCode =
   | "rejected";
 
 export class GuardedFetchError extends Error {
-  constructor(readonly code: GuardedFetchCode) {
+  constructor(readonly code: GuardedFetchCode, /** Raw Node code (ENOTFOUND, CERT_*, ...) when known. */ readonly causeCode?: string) {
     super(`Guarded request failed (${code})`);
     this.name = "GuardedFetchError";
   }
@@ -30,6 +33,8 @@ export interface GuardedFetchOptions {
   policy: AllowPrivatePolicy;
   /** Test seam; production resolves DNS with `dns.lookup(..., { all: true })`. */
   lookup?: HostLookup;
+  /** Opt-in debug line per exchange; the composition root supplies the provider label. */
+  debug?: { provider: string; log?: Logger };
 }
 
 const defaultLookup: HostLookup = async (hostname) => {
@@ -58,8 +63,47 @@ function tlsFailure(error: unknown): boolean {
 function mapFailure(error: unknown, signal: AbortSignal | null | undefined): GuardedFetchError {
   if (error instanceof GuardedFetchError) return error;
   if (signal?.aborted) return new GuardedFetchError(abortCode(signal));
-  if (tlsFailure(error)) return new GuardedFetchError("tls");
-  return new GuardedFetchError("unreachable");
+  const causeCode = nodeErrorCode(error);
+  if (tlsFailure(error)) return new GuardedFetchError("tls", causeCode);
+  return new GuardedFetchError("unreachable", causeCode);
+}
+
+function nodeErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.length > 0 && code.length <= 64 ? code : undefined;
+}
+
+function debugReason(error: unknown, signal?: AbortSignal | null): { reason: string; networkCode?: string } {
+  if (error instanceof GuardedFetchError) {
+    if (error.code === "timeout") return { reason: "timeout", networkCode: error.causeCode };
+    if (error.code === "blocked" || error.code === "https_required") {
+      return { reason: "blocked_destination", networkCode: error.causeCode ?? error.code };
+    }
+    return { reason: "network", networkCode: error.causeCode ?? error.code };
+  }
+  if (signal?.aborted) return { reason: "timeout" };
+  return { reason: "network", networkCode: nodeErrorCode(error) };
+}
+
+function destinationOf(address: string): IpKind | "unknown" {
+  return classify(address) ?? "unknown";
+}
+
+function firstNonPublic(addresses: readonly string[]): IpKind | "unknown" {
+  for (const address of addresses) {
+    const kind = destinationOf(address);
+    if (kind !== "public") return kind;
+  }
+  return addresses.length > 0 ? "public" : "unknown";
+}
+
+function contentLengthOf(headers: IncomingHttpHeaders): number | undefined {
+  const value = headers["content-length"];
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === undefined || !/^\d+$/.test(raw)) return undefined;
+  const bytes = Number(raw);
+  return Number.isSafeInteger(bytes) ? bytes : undefined;
 }
 
 function requestHeaders(init: RequestInit | undefined, body: string | Buffer | undefined): Record<string, string> {
@@ -131,23 +175,56 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
 
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const target = outboundTarget(raw, init?.method);
+    const started = Date.now();
+    let destination: IpKind | "unknown" | undefined;
+    let pinned: ResolvedAddress | undefined;
+    const emit = (details: {
+      status?: number;
+      bytes?: number;
+      reason?: string;
+      networkCode?: string;
+    }): void => {
+      if (!options.debug) return;
+      logOutbound(options.debug.log, {
+        provider: options.debug.provider,
+        ...target,
+        ...(details.status === undefined ? {} : { status: details.status }),
+        durationMs: Date.now() - started,
+        ...(details.bytes === undefined ? {} : { bytes: details.bytes }),
+        ...(destination === undefined ? {} : { destination }),
+        ...(pinned && destination === "public" ? { ip: pinned.address } : {}),
+        ...(details.reason === undefined ? {} : { reason: details.reason }),
+        ...(details.networkCode === undefined ? {} : { networkCode: details.networkCode }),
+      });
+    };
     let url: URL;
     try {
       url = new URL(raw);
     } catch {
+      emit({ status: 0, reason: "blocked_destination" });
       throw new GuardedFetchError("blocked");
     }
-    if (url.protocol !== "http:" && url.protocol !== "https:") throw new GuardedFetchError("blocked");
-    if (!url.hostname || url.username || url.password) throw new GuardedFetchError("blocked");
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      emit({ status: 0, reason: "blocked_destination" });
+      throw new GuardedFetchError("blocked");
+    }
+    if (!url.hostname || url.username || url.password) {
+      emit({ status: 0, reason: "blocked_destination" });
+      throw new GuardedFetchError("blocked");
+    }
 
     const hostname = url.hostname.replace(/^\[|\]$/g, "");
     const literalFamily = isIP(hostname);
-    let pinned: ResolvedAddress | undefined;
     let lookupFailure: GuardedFetchError | undefined;
 
     if (literalFamily !== 0) {
+      destination = destinationOf(hostname);
       const verdict: DestinationVerdict = evaluateDestination(url, hostname, options.policy);
-      if (verdict !== "ok") throw new GuardedFetchError(verdict);
+      if (verdict !== "ok") {
+        emit({ status: 0, reason: "blocked_destination" });
+        throw new GuardedFetchError(verdict);
+      }
       pinned = { address: hostname, family: literalFamily };
     }
 
@@ -165,6 +242,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         try {
           const addresses = await lookup(lookupHost);
           if (addresses.length === 0) throw new GuardedFetchError("unreachable");
+          destination = firstNonPublic(addresses.map((entry) => entry.address));
           const verdict = evaluateResolvedDestination(url, addresses.map((entry) => entry.address), options.policy);
           if (verdict !== "ok") throw new GuardedFetchError(verdict);
           const chosen = addresses.find((entry) => isIP(entry.address) === entry.family);
@@ -208,6 +286,7 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         }
         settled = true;
         const status = response.statusCode ?? 0;
+        emit({ status, bytes: contentLengthOf(response.headers) });
         const hasBody = status !== 204 && status !== 304;
         if (!hasBody) {
           cleanup();
@@ -247,7 +326,9 @@ export function createGuardedFetch(options: GuardedFetchOptions): typeof globalT
         if (settled) return;
         settled = true;
         cleanup();
-        reject(lookupFailure ?? mapFailure(error, init?.signal));
+        const failure = lookupFailure ?? mapFailure(error, init?.signal);
+        emit({ status: 0, ...debugReason(failure, init?.signal) });
+        reject(failure);
       };
 
       request.on("error", fail);

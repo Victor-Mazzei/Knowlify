@@ -86,8 +86,29 @@ export type MetadataCandidate = {
 
 export type MetadataLookupErrorCode = "rate_limited" | "timeout" | "unavailable";
 
+/** Precise diagnosis added beside the legacy code; older servers omit it. */
+export type MetadataLookupReason =
+  | "key_unreadable"
+  | "key_rejected"
+  | "service_disabled"
+  | "referrer_or_ip_blocked"
+  | "forbidden"
+  | "not_found"
+  | "rate_limited"
+  | "upstream_error"
+  | "http_error"
+  | "network"
+  | "blocked_destination"
+  | "bad_response"
+  | "timeout";
+
 /** A provider that failed; the other provider may still have returned candidates. */
-export type MetadataLookupError = { source: ExternalMetadataSource; code: MetadataLookupErrorCode };
+export type MetadataLookupError = {
+  source: ExternalMetadataSource;
+  code: MetadataLookupErrorCode;
+  /** Additive diagnosis; the response guard drops unknown/future values. */
+  reason?: MetadataLookupReason;
+};
 
 export type MetadataSearchResult = {
   candidates: MetadataCandidate[];
