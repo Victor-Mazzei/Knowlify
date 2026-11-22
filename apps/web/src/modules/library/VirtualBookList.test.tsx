@@ -1,8 +1,10 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import type { Book } from "../../types";
 import { FALLBACK_BOOK_CARD_GAP, FALLBACK_BOOK_CARD_HEIGHT } from "./bookGrid";
 import { createMockBooks } from "./mockBooksApi";
+import { useSelection } from "./selection/useSelection";
 import { VirtualBookList } from "./VirtualBookList";
 
 const books = createMockBooks().map((book) => ({ ...book, hasCover: false }));
@@ -24,6 +26,33 @@ function renderList(view: "grid" | "table") {
         loadingMore={false}
       />
     </MemoryRouter>,
+  );
+}
+
+function SelectionHarness({ items }: { items: Book[] }) {
+  const selection = useSelection();
+  const ids = items.map((item) => item.id);
+  return (
+    <>
+      <output data-testid="selection-count">{selection.count}</output>
+      <VirtualBookList
+        books={items}
+        total={items.length}
+        view="table"
+        api={api}
+        onDelete={onDelete}
+        onLoadMore={onLoadMore}
+        hasMore={false}
+        loadingMore={false}
+        selectable
+        allSelected={selection.all !== null}
+        selectedIds={selection.ids}
+        onSelect={(book, event) =>
+          selection.toggle(book.id, { shift: event.shiftKey, meta: event.metaKey }, ids)
+        }
+        onToggleAll={() => selection.toggleLoaded(ids, "", items.length)}
+      />
+    </>
   );
 }
 
@@ -70,5 +99,42 @@ describe("VirtualBookList", () => {
     expect(rows).toHaveLength(61);
     expect(rows[1]).toHaveAttribute("aria-rowindex", "2");
     expect(document.body.querySelectorAll("*").length).toBeLessThan(1500);
+  });
+
+  it("unsticks the header checkbox after a capped select-all of 150 loaded rows", () => {
+    render(
+      <MemoryRouter>
+        <SelectionHarness items={createMockBooks({ count: 150 })} />
+      </MemoryRouter>,
+    );
+    const header = () => screen.getByRole("checkbox", { name: "Select loaded books" });
+    expect(header()).not.toBeChecked();
+    expect(header()).not.toBePartiallyChecked();
+
+    fireEvent.click(header());
+    expect(screen.getByTestId("selection-count")).toHaveTextContent("100");
+    expect(header()).toBePartiallyChecked();
+
+    fireEvent.click(header());
+    expect(screen.getByTestId("selection-count")).toHaveTextContent("0");
+    expect(header()).not.toBeChecked();
+    expect(header()).not.toBePartiallyChecked();
+  });
+
+  it("checks the header checkbox only when every loaded row is selected", () => {
+    render(
+      <MemoryRouter>
+        <SelectionHarness items={createMockBooks({ count: 80 })} />
+      </MemoryRouter>,
+    );
+    const header = () => screen.getByRole("checkbox", { name: "Select loaded books" });
+
+    fireEvent.click(header());
+    expect(header()).toBeChecked();
+    expect(header()).not.toBePartiallyChecked();
+
+    fireEvent.click(header());
+    expect(header()).not.toBeChecked();
+    expect(header()).not.toBePartiallyChecked();
   });
 });

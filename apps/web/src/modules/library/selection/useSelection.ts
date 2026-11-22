@@ -29,12 +29,43 @@ export type Selection = {
 
 const EMPTY = new Set<string>();
 
+/**
+ * Explicit id selections stop here: bulk delete, favorites and `GET /api/books?ids`
+ * accept at most 100 ids (the tag batch is looser at 200). Larger sets travel as a
+ * filter selection, which the server re-counts.
+ */
+export const SELECTION_LIMIT = 100;
+
 export function rangeBetween(ordered: readonly string[], from: string, to: string): string[] {
   const start = ordered.indexOf(from);
   const end = ordered.indexOf(to);
   if (start === -1 || end === -1) return [to];
   const [low, high] = start < end ? [start, end] : [end, start];
   return ordered.slice(low, high + 1);
+}
+
+/**
+ * Adds a shift range without exceeding the explicit-selection ceiling.
+ *
+ * The clicked row is reserved first: a range cut at the ceiling must never drop
+ * the row the person just targeted. The rest fills from the anchor towards the
+ * clicked row, so both directions keep the anchor and its closest rows and lose
+ * only the far end of the range. Previously selected ids stay selected in every
+ * case, and the anchor does not move.
+ */
+function addRangeWithinLimit(
+  ids: Set<string>,
+  orderedIds: readonly string[],
+  anchorId: string,
+  clickedId: string,
+): void {
+  if (ids.size < SELECTION_LIMIT) ids.add(clickedId);
+  const range = rangeBetween(orderedIds, anchorId, clickedId);
+  if (range.length < 2) return;
+  const fromAnchor = range[0] === anchorId;
+  for (let offset = 0; offset < range.length - 1 && ids.size < SELECTION_LIMIT; offset += 1) {
+    ids.add(range[fromAnchor ? offset : range.length - 1 - offset]!);
+  }
 }
 
 /**
@@ -50,23 +81,45 @@ export function useSelection(): Selection {
       if (current.all) return { ids: new Set([id]), anchorId: id, all: null };
       const ids = new Set(current.ids);
       if (modifiers.shift && current.anchorId !== null) {
-        for (const rangeId of rangeBetween(orderedIds, current.anchorId, id)) ids.add(rangeId);
-        return { ids, anchorId: current.anchorId, all: null };
+        addRangeWithinLimit(ids, orderedIds, current.anchorId, id);
+        return ids.size === current.ids.size ? current : { ids, anchorId: current.anchorId, all: null };
       }
-      if (ids.has(id)) ids.delete(id);
-      else ids.add(id);
+      if (ids.has(id)) {
+        ids.delete(id);
+        return { ids, anchorId: id, all: null };
+      }
+      if (ids.size >= SELECTION_LIMIT) return current;
+      ids.add(id);
       return { ids, anchorId: id, all: null };
     });
   }, []);
 
+  /**
+   * Header checkbox and Ctrl+A over the loaded rows.
+   *
+   * - Every loaded row selected: deselect all of them.
+   * - Otherwise: add loaded rows in display order until the ceiling.
+   * - If the ceiling leaves room for none of them, the click deselects the
+   *   loaded rows instead of doing nothing, so the indeterminate checkbox is
+   *   never a dead end. Ids from other pages are preserved in every branch.
+   */
   const toggleLoaded = useCallback((loadedIds: readonly string[], filterKey: string, total: number) => {
     setState((current) => {
       if (current.all) return { ids: new Set(), anchorId: null, all: null };
-      const everyLoaded = loadedIds.length > 0 && loadedIds.every((id) => current.ids.has(id));
+      if (loadedIds.length === 0) return current;
       const ids = new Set(current.ids);
+      if (loadedIds.every((id) => ids.has(id))) {
+        for (const id of loadedIds) ids.delete(id);
+        return { ids, anchorId: null, all: null };
+      }
+      const before = ids.size;
       for (const id of loadedIds) {
-        if (everyLoaded) ids.delete(id);
-        else ids.add(id);
+        if (ids.size >= SELECTION_LIMIT) break;
+        ids.add(id);
+      }
+      if (ids.size === before) {
+        for (const id of loadedIds) ids.delete(id);
+        if (ids.size === before) return current;
       }
       return { ids, anchorId: null, all: null };
     });
