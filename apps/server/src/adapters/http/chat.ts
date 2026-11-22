@@ -17,7 +17,19 @@ import {
 import type { Chat, ChatEvent, ChatTurnInput } from "../../use-cases/Chat.js";
 
 const BODY_LIMIT = 32 * 1024;
-const HEARTBEAT_MS = 15_000;
+/**
+ * SSE comment cadence. Besides keeping proxies from idling the stream, a byte every
+ * second works around the WebKit releases affected by bugs.webkit.org 322545, which
+ * can strand an already-received chunk until the server writes again. Two concurrent
+ * streams cost only a few bytes per second.
+ */
+export const HEARTBEAT_MS = 1_000;
+
+export interface ChatRoutesOptions {
+  chat: Chat;
+  /** Test seam; production uses HEARTBEAT_MS. */
+  heartbeatMs?: number;
+}
 
 /*
  * Fastify's default Ajv removes unknown properties instead of rejecting them, and with
@@ -78,8 +90,8 @@ interface ListQuery {
  * event is produced before hijacking so validation/rate-limit failures can still be
  * regular JSON errors. CORS headers are copied because hijacked replies skip hooks.
  */
-export async function chatRoutes(app: FastifyInstance, opts: { chat: Chat }) {
-  const { chat } = opts;
+export async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) {
+  const { chat, heartbeatMs = HEARTBEAT_MS } = opts;
 
   app.setErrorHandler((error: FastifyError, _req, reply) => {
     if (error.validation) return reply.code(400).send({ message: error.message });
@@ -183,12 +195,16 @@ export async function chatRoutes(app: FastifyInstance, opts: { chat: Chat }) {
           "content-type": "text/event-stream; charset=utf-8",
           "cache-control": "no-cache, no-transform",
           "x-accel-buffering": "no",
+          // A reverse proxy that compresses this stream (Traefik's compress middleware
+          // does unless told otherwise) buffers it and can trigger WebKit's compressed
+          // chunked-response hang. An explicit identity coding makes the proxy skip it.
+          "content-encoding": "identity",
         });
         response.flushHeaders?.();
 
         const heartbeat = setInterval(() => {
           if (!closed && !response.writableEnded) response.write(": ping\n\n");
-        }, HEARTBEAT_MS);
+        }, heartbeatMs);
         heartbeat.unref();
 
         try {

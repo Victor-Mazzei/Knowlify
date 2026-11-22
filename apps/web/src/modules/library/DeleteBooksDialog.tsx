@@ -57,6 +57,10 @@ export function DeleteBooksDialog({
   const [typed, setTyped] = useState("");
   const initialTotal = useRef(selectionSize(selection));
   const removedBefore = useRef(0);
+  // A browser blurs the focused Cancel button when `busy` disables it. Restore the
+  // focus only after the button is enabled again; a synchronous focus() would be a
+  // no-op in that window, and tests only saw it pass because jsdom keeps focus.
+  const refocusCancel = useRef(false);
   // A deletion in flight cannot be stopped; closing would hide its outcome and
   // allow a second dialog to start a concurrent deletion.
   const close = useCallback(() => {
@@ -99,6 +103,12 @@ export function DeleteBooksDialog({
     return () => opener?.focus?.();
   }, [review, selection]);
 
+  useEffect(() => {
+    if (busy || !refocusCancel.current) return;
+    refocusCancel.current = false;
+    cancelRef.current?.focus();
+  }, [busy]);
+
   const books = dry?.books ?? 0;
   const notes = dry?.notes ?? 0;
   const needsTyping = books >= 10 || "filter" in current;
@@ -124,7 +134,7 @@ export function DeleteBooksDialog({
         setNotesConfirmed(false);
         setTyped("");
         onPartial?.({ removedIds: removedIdsOf(current, partial), remaining });
-        cancelRef.current?.focus();
+        refocusCancel.current = true;
         if (remaining === null) {
           onDeleted(
             { removed: done, missing: 0, notesRemoved: 0, ignored: 0, filesRemoved: 0, fileErrors: 0, remaining: 0 },

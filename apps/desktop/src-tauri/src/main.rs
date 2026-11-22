@@ -131,7 +131,19 @@ fn read_saved(app: &tauri::AppHandle) -> Option<Saved> {
     let _ = ensure_private_file(&path);
     let raw = fs::read_to_string(path).ok()?;
     let saved: Saved = serde_json::from_str(&raw).ok()?;
-    matches!(saved.mode.as_str(), "local" | "remote").then_some(saved)
+    if !matches!(saved.mode.as_str(), "local" | "remote") {
+        return None;
+    }
+    if saved.mode == "local"
+        && (saved.url.is_some() || saved.user.is_some() || saved.pass.is_some())
+    {
+        // Older builds persisted the remote form fields in local mode; scrub them
+        // instead of leaving a server password on disk for a connection that never uses it.
+        let scrubbed = saved_connection("local", None, None, None);
+        let _ = write_saved(app, &scrubbed);
+        return Some(scrubbed);
+    }
+    Some(saved)
 }
 
 fn write_saved(app: &tauri::AppHandle, saved: &Saved) -> Result<(), String> {
@@ -283,6 +295,31 @@ fn spawn_error(error: &std::io::Error) -> String {
     }
 }
 
+/// Builds the persisted view of a connection. Local mode has no server URL or
+/// credentials, so remote values left in the form are never written to disk.
+fn saved_connection(
+    mode: &str,
+    url: Option<String>,
+    user: Option<String>,
+    pass: Option<String>,
+) -> Saved {
+    if mode == "remote" {
+        Saved {
+            mode: mode.to_string(),
+            url: url.map(|value| value.trim().to_string()),
+            user,
+            pass,
+        }
+    } else {
+        Saved {
+            mode: mode.to_string(),
+            url: None,
+            user: None,
+            pass: None,
+        }
+    }
+}
+
 /// Remembers the last working connection so the next launch connects on its own.
 #[tauri::command]
 async fn connect(
@@ -292,12 +329,7 @@ async fn connect(
     user: Option<String>,
     pass: Option<String>,
 ) -> Result<Connection, String> {
-    let saved = Saved {
-        mode: mode.clone(),
-        url: url.clone().map(|u| u.trim().to_string()),
-        user: user.clone(),
-        pass: pass.clone(),
-    };
+    let saved = saved_connection(&mode, url.clone(), user.clone(), pass.clone());
     let connection = establish(app.clone(), mode, url, user, pass).await?;
     write_saved(&app, &saved)?;
     Ok(connection)
@@ -651,7 +683,8 @@ mod tests {
     use super::ensure_private_file;
     use super::{
         is_allowed_navigation, is_local_http_url, node_executable, open_server_log, regular_file,
-        validate_external_url, validate_remote_url, NavigationGuard, NodeExecutableError,
+        saved_connection, validate_external_url, validate_remote_url, NavigationGuard,
+        NodeExecutableError,
     };
     use std::{ffi::OsStr, fs, path::PathBuf};
     use url::Url;
@@ -989,6 +1022,34 @@ mod tests {
         // Invalid or empty URLs rejected
         assert!(validate_remote_url("").is_err());
         assert!(validate_remote_url("not-a-url").is_err());
+    }
+
+    #[test]
+    fn test_saved_connection_drops_remote_fields_in_local_mode() {
+        let saved = saved_connection(
+            "local",
+            Some("https://books.example.com".into()),
+            Some("reader".into()),
+            Some("s3cret".into()),
+        );
+        assert_eq!(saved.mode, "local");
+        assert_eq!(saved.url, None);
+        assert_eq!(saved.user, None);
+        assert_eq!(saved.pass, None);
+    }
+
+    #[test]
+    fn test_saved_connection_keeps_and_trims_remote_fields() {
+        let saved = saved_connection(
+            "remote",
+            Some("  https://books.example.com  ".into()),
+            Some("reader".into()),
+            Some("s3cret".into()),
+        );
+        assert_eq!(saved.mode, "remote");
+        assert_eq!(saved.url.as_deref(), Some("https://books.example.com"));
+        assert_eq!(saved.user.as_deref(), Some("reader"));
+        assert_eq!(saved.pass.as_deref(), Some("s3cret"));
     }
 
     #[test]

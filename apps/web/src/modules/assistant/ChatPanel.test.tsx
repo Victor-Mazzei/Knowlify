@@ -78,7 +78,7 @@ describe("ChatPanel", () => {
     expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument();
   });
 
-  it("shows an inline stream error with Retry", async () => {
+  it("shows an inline stream error with Retry and keeps the partial answer", async () => {
     renderPanel(createMockChatApi({ seed: false, chunkDelayMs: 0, scenario: "timeout" }));
 
     fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), { target: { value: "Explain." } });
@@ -86,6 +86,8 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The model took too long to answer. Try again.");
     expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByText("Let me think about that")).toBeInTheDocument();
+    expect(screen.getByText("Answer incomplete.")).toBeInTheDocument();
   });
 
   it("shows an HTTP error from the server inline", async () => {

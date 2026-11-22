@@ -39,7 +39,7 @@ describe("GET /api/chat/status", () => {
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-2",
+      promptVersion: "feynman-3",
       scopes: { library: false, book: false },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);

@@ -1,11 +1,8 @@
 # Contributing to Knowlify
 
-Thank you for your interest. This guide explains how to set up the project, run the checks and send a change.
-
 ## Before you start
 
 - Read [SECURITY.md](SECURITY.md) before you report a security issue.
-- Open an issue to discuss a large change before you write code.
 - Use English for code, comments, commit messages and issues.
 
 ## Requirements
@@ -55,7 +52,6 @@ If you change authentication, run `scripts/e2e-account.sh`. If you change indexi
 
 - Add a test for each bug that you fix.
 - Add a test for each new behavior.
-- Test behavior, not implementation details.
 - Use Vitest for the server and the web app. Use the Node test runner for the scripts and the desktop scripts.
 - Use SQLite in memory and temporary files in adapter tests.
 - Use `app.inject` for HTTP route tests.
@@ -63,9 +59,6 @@ If you change authentication, run `scripts/e2e-account.sh`. If you change indexi
 ## Code style
 
 - Use TypeScript with strict types. Do not use `any` or `@ts-ignore`.
-- Use clear names. Keep functions small and focused.
-- Comment the reason for the code, not the code itself.
-- Use `const` and immutable data when possible.
 - Use English identifiers and comments.
 - Preserve the style of the file near your change.
 
@@ -93,8 +86,6 @@ Use the domain language in names: `Book`, `Source`, `Note`, `ReadingProgress`, `
 
 ## Security rules
 
-These rules are not optional:
-
 - Do not commit secrets or `.env` files.
 - Validate all external input: size, type and format.
 - Set limits for JSON bodies and uploads.
@@ -119,8 +110,6 @@ type(scope): short summary
 Examples: `fix(server): reject private IPs on metadata lookup`, `feat(web): add a tag filter to the library`.
 
 Use one of these types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`.
-
-Keep one logical change per commit.
 
 ## Versioning and changelog
 

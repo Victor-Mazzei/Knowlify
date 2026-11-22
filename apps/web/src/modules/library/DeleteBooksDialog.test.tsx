@@ -111,7 +111,12 @@ describe("DeleteBooksDialog", () => {
 
   it("reports a partial deletion and re-confirms only the remainder", async () => {
     const onDeleted = vi.fn();
-    const onPartial = vi.fn();
+    const onPartial = vi.fn(() => {
+      // A browser blurs the focused Cancel button when `busy` disables it. The
+      // dialog must restore the focus once the deletion settles; jsdom keeps the
+      // focus, so this makes the assertion independent of that behavior.
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
     const requests: Array<{ selection: BookSelection; dryRun?: boolean; confirmNotes?: boolean }> = [];
     let executions = 0;
     const api = vi.fn(async (_path: string, init?: RequestInit) => {
@@ -154,7 +159,7 @@ describe("DeleteBooksDialog", () => {
       await screen.findByText("Deleted 1 of 3. 2 books changed (new notes) and were not deleted — review again."),
     ).toBeInTheDocument();
     expect(onPartial).toHaveBeenCalledWith({ removedIds: ["a"], remaining: { ids: ["b", "c"] } });
-    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus());
 
     // The automatic review exposes the new note and asks for a fresh confirmation.
     expect(await screen.findByRole("heading", { name: "Delete 2 books?" })).toBeInTheDocument();

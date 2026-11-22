@@ -381,11 +381,11 @@
 
           <details class="source-build">
             <summary>Compile a partir do código-fonte</summary>
-            <p>Você precisa de Node.js 26 ou mais recente e Docker. O app web e o servidor são compilados dentro da imagem.</p>
+            <p>Você precisa do Docker. O app web e o servidor são compilados dentro da imagem.</p>
             <pre tabindex="0"><code>git clone https://github.com/Victor-Mazzei/Knowlify.git
 cd knowlify
 cp .env.example .env
-# Set KNOWLIFY_PASSWORD and KNOWLIFY_LIBRARY_DIR in .env.
+# Defina KNOWLIFY_PASSWORD e KNOWLIFY_LIBRARY_DIR no arquivo .env.
 docker compose up -d --build</code></pre>
           </details>
         </div>
@@ -419,7 +419,6 @@ docker compose up -d --build</code></pre>
 export KNOWLIFY_LIBRARY_DIR=/path/to/your/ebooks
 docker compose up -d</code></pre>
           </div>
-          <p class="code-note">O nome da imagem usa a conta ou organização que publica o pacote. Ajuste-o se publicar em outro registro.</p>
         </div>
       </div>
     </div>

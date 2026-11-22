@@ -26,6 +26,7 @@ export function useFavorite(api: ApiFn, bookId: string, initialFavorite: boolean
   const pendingRef = useRef(false);
   const requestId = useRef(0);
   const mounted = useRef(true);
+  const mountedBookId = useRef(bookId);
 
   useEffect(() => {
     mounted.current = true;
@@ -35,14 +36,18 @@ export function useFavorite(api: ApiFn, bookId: string, initialFavorite: boolean
   }, []);
 
   useEffect(() => {
+    // Mounting already starts from `initialFavorite`; resetting here would discard a
+    // toggle whose click landed before this passive effect (React may defer it). Only a
+    // different book invalidates the controller and in-flight request.
+    if (mountedBookId.current === bookId) return;
+    mountedBookId.current = bookId;
     requestId.current += 1;
     current.current = initialFavorite;
     pendingRef.current = false;
     setFavorite(initialFavorite);
     setPending(false);
     setError("");
-    // Only a different book resets the controller; `initialFavorite` is that book's value.
-  }, [bookId]);
+  }, [bookId, initialFavorite]);
 
   useEffect(() => {
     if (pendingRef.current || current.current === initialFavorite) return;

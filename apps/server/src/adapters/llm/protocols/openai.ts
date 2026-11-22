@@ -65,7 +65,7 @@ function parseChunk(payload: string): SseChunkResult {
   if (delta !== undefined && delta !== null) {
     if (typeof delta !== "object") throw new LlmError("protocol", "The language model provider sent an unexpected delta");
     const content = (delta as { content?: unknown }).content;
-    // `reasoning_content` is deliberately ignored: it is internal and must not reach the UI.
+    const reasoning = (delta as { reasoning_content?: unknown }).reasoning_content;
     if (content !== undefined && content !== null && typeof content !== "string") {
       throw new LlmError("protocol", "The language model provider sent an unexpected delta");
     }
@@ -75,6 +75,14 @@ function parseChunk(payload: string): SseChunkResult {
         : undefined;
       return { kind: "delta", text: content, ...(finish ? { finish } : {}) };
     }
+    if (typeof finishReason === "string") {
+      return { kind: "finish", reason: finishReason === "length" ? "length" : "stop" };
+    }
+    // Reasoning models stream `reasoning_content` long before `content`. It is internal
+    // and never forwarded, but it proves the provider is alive: without this the
+    // first-token timer would abort a model that is still thinking.
+    if (typeof reasoning === "string" && reasoning.length > 0) return { kind: "activity" };
+    return { kind: "ignore" };
   }
   if (typeof finishReason === "string") {
     return { kind: "finish", reason: finishReason === "length" ? "length" : "stop" };

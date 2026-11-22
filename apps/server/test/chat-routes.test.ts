@@ -7,6 +7,7 @@ import { chatRoutes } from "../src/adapters/http/chat.js";
 import { NoLlmClient } from "../src/adapters/llm/NoLlmClient.js";
 import { OpenAiCompatibleLlmClient } from "../src/adapters/llm/OpenAiCompatibleLlmClient.js";
 import { MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
+import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { LlmError } from "../src/ports/assistant.js";
 import type { Chat } from "../src/use-cases/Chat.js";
 import {
@@ -30,11 +31,15 @@ function fixture(options: Parameters<typeof createChatFixture>[0] = {}) {
   return created;
 }
 
-async function appFor(chat: Chat, configure?: (app: FastifyInstance) => void): Promise<FastifyInstance> {
+async function appFor(
+  chat: Chat,
+  configure?: (app: FastifyInstance) => void,
+  heartbeatMs?: number,
+): Promise<FastifyInstance> {
   const app = Fastify();
   await app.register(cors, { origin: true });
   configure?.(app);
-  await app.register(chatRoutes, { prefix: "/api", chat });
+  await app.register(chatRoutes, { prefix: "/api", chat, ...(heartbeatMs === undefined ? {} : { heartbeatMs }) });
   await app.ready();
   apps.push(app);
   return app;
@@ -97,7 +102,7 @@ describe("chat HTTP routes", () => {
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-2",
+      promptVersion: "feynman-3",
       scopes: { library: false, book: false },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);
@@ -220,12 +225,53 @@ describe("chat HTTP routes", () => {
     expect(response.headers["content-type"]).toContain("text/event-stream");
     expect(response.headers["cache-control"]).toBe("no-cache, no-transform");
     expect(response.headers["x-accel-buffering"]).toBe("no");
+    expect(response.headers["content-encoding"]).toBe("identity");
     expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:5174");
 
     const events = parseSseEvents(response.body);
     expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
     expect(events[0]).toMatchObject({ type: "sources", retrieval: "hybrid" });
     expect(events.at(-1)).toMatchObject({ type: "done", finishReason: "stop" });
+  });
+
+  it("keeps a hijacked stream alive with SSE comments while the provider is quiet", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const llm = new WaitingLlmClient();
+    const { chat } = fixture({ llm, retriever });
+    const app = await appFor(chat, undefined, 25);
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("Expected a TCP address");
+
+    const streamFinished = trackStreamCompletion(chat);
+    const controller = new AbortController();
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/chat/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: "grounded question", scope: { kind: "library" } }),
+      signal: controller.signal,
+    });
+    expect(response.status).toBe(200);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Expected a stream");
+    let received = "";
+    const decoder = new TextDecoder();
+    while (!received.includes(": ping")) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 2_000)),
+      ]);
+      if (chunk === "timeout") throw new Error("no heartbeat within 2 s");
+      if (chunk.done) break;
+      received += decoder.decode(chunk.value, { stream: true });
+    }
+    expect(received).toContain(": ping");
+
+    controller.abort();
+    await llm.aborted;
+    await streamFinished;
+    await reader.cancel().catch(() => undefined);
   });
 
   it("emits a terminal error event when the provider fails mid-stream", async () => {
@@ -338,6 +384,53 @@ describe("chat HTTP routes", () => {
     }
   });
 
+  it("keeps reasoning tokens out of the SSE stream and every log", async () => {
+    const reasoningSentinel = "REASONING SENTINEL: hidden chain of thought";
+    const provider = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const timer = setInterval(() => {
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoningSentinel } }] })}\n\n`);
+      }, 20);
+      setTimeout(() => {
+        clearInterval(timer);
+        res.end(
+          'data: {"choices":[{"delta":{"content":"The answer"},"finish_reason":"stop"}]}\n\n'
+          + "data: [DONE]\n\n",
+        );
+      }, 2_000);
+    });
+    providers.push(provider);
+    await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
+    const { port } = provider.address() as AddressInfo;
+    const warnings: string[] = [];
+    const logs: unknown[] = [];
+    const llm = new OpenAiCompatibleLlmClient({
+      url: `http://127.0.0.1:${port}/v1`,
+      apiKey: "chat-key",
+      model: "reasoning-model",
+      firstTokenTimeoutMs: 1_000,
+      idleTimeoutMs: 1_000,
+      timeoutMs: 6_000,
+      warn: (message) => warnings.push(message),
+    });
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat } = fixture({
+      llm,
+      retriever,
+      log: { info: () => {}, error: (error, message) => logs.push(error, message) },
+    });
+    const app = await appFor(chat);
+
+    const response = await post(app, { message: "grounded question", scope: { kind: "library" } });
+    expect(response.statusCode).toBe(200);
+    expect(parseSseEvents(response.body).map((event) => event.type)).toEqual(["sources", "delta", "done"]);
+    expect(response.body).toContain("The answer");
+    for (const output of [response.body, warnings.join("\n"), JSON.stringify(logs)]) {
+      expect(output).not.toContain(reasoningSentinel);
+    }
+  });
+
   it("sends the configured custom header with the conversation id to the chat provider", async () => {
     const received: IncomingHttpHeaders[] = [];
     const headerSentinel = "chat-header-sentinel-value";
@@ -374,7 +467,7 @@ describe("chat HTTP routes", () => {
     expect(response.body).not.toContain(headerSentinel);
   });
 
-  it("answers without the provider when retrieval finds nothing", async () => {
+  it("calls the provider when retrieval finds nothing", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
     const { chat } = fixture({ llm, retriever });
@@ -382,9 +475,11 @@ describe("chat HTTP routes", () => {
 
     const response = await post(app, { message: "An unanswerable question", scope: { kind: "library" } });
     const events = parseSseEvents(response.body);
-    expect(events.map((event) => event.type)).toEqual(["sources", "delta", "done"]);
-    expect(events[1]).toEqual({ type: "delta", text: "I couldn't find passages about this in your library yet." });
-    expect(llm.requests).toEqual([]);
+    expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
+    expect(events[1]).toEqual({ type: "delta", text: "Hello" });
+    expect(llm.requests).toHaveLength(1);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain("Question: An unanswerable question");
   });
 
   it("lists, returns and deletes conversations", async () => {

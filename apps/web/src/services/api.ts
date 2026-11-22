@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useMemo } from "react";
 import type { Credentials } from "../types";
 
 const BASE = (window.__KNOWLIFY__?.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -135,14 +135,153 @@ export async function verifyCredentials(credentials: Credentials) {
   if (response.status === 200 || response.status === 204 || response.status === 404) return;
   throw new Error(`Could not open library (${response.status}).`);
 }
+type ApiFunction = (path: string, init?: RequestInit) => Promise<Response>;
+
+/** Text chunks of one streaming response; `cancel` stops the request. */
+export type StreamReader = {
+  read(): Promise<{ done: boolean; value?: string }>;
+  cancel(): Promise<void>;
+};
+
+export type StreamTransport = (path: string, init: RequestInit) => StreamReader;
+
+const streamTransports = new WeakMap<ApiFunction, StreamTransport>();
+
+/** The transport registered for this exact api function, when this browser needs one. */
+export function streamFor(api: ApiFunction): StreamTransport | undefined {
+  return streamTransports.get(api);
+}
+
+/**
+ * WebKit 26.x can hold `fetch` ReadableStream chunks until the next network write
+ * (webkit.org/b/322545), which leaves a silent chat stream stuck. XHR does not use
+ * that path, so only that engine version gets the XHR transport; 27+ keeps fetch.
+ */
+export function needsXhrStream(userAgent: string): boolean {
+  if (!userAgent.includes("AppleWebKit/")) return false;
+  if (/Chrome\/|Chromium\/|Edg\/|OPR\/|Firefox\//.test(userAgent)) return false;
+  const version = /Version\/(\d+)/.exec(userAgent);
+  if (!version) return false;
+  const major = Number(version[1]);
+  return major >= 26 && major < 27;
+}
+
+/** Mirrors `parseApiError` for an XHR, whose body is already text. */
+function xhrError(request: XMLHttpRequest): ApiError {
+  const status = request.status;
+  const text = request.responseText;
+  let message = status ? `Request failed (${status})` : "Could not reach the server.";
+  let code: string | undefined;
+  let details: Record<string, unknown> | undefined;
+  if (text) {
+    try {
+      const body: unknown = JSON.parse(text);
+      if (typeof body === "object" && body !== null) {
+        details = body as Record<string, unknown>;
+        if ("message" in body && typeof body.message === "string") message = body.message;
+        if ("code" in body && typeof body.code === "string") code = body.code;
+      }
+    } catch {
+      message = text;
+    }
+  }
+  return new ApiError(status, message, code, details);
+}
+
+function createXhrTransport(credentials: Credentials, onUnauthorized: () => void): StreamTransport {
+  return (path, init) => {
+    let request: XMLHttpRequest | undefined;
+    let settled = false;
+    const stream = new ReadableStream<string>({
+      start(controller) {
+        const xhr = new XMLHttpRequest();
+        request = xhr;
+        const fail = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          controller.error(error);
+        };
+        let offset = 0;
+        const drain = () => {
+          if (settled) return;
+          const text = xhr.responseText.slice(offset);
+          offset = xhr.responseText.length;
+          if (text) controller.enqueue(text);
+        };
+        xhr.open(init.method ?? "GET", `${BASE}${path}`);
+        const headers = new Headers(init.headers);
+        headers.set("Authorization", basicAuth(credentials));
+        headers.forEach((value, key) => xhr.setRequestHeader(key, value));
+        // SSE is UTF-8; do not let XHR guess the charset from the MIME type.
+        xhr.overrideMimeType("text/plain; charset=utf-8");
+        xhr.onreadystatechange = () => {
+          if (xhr.readyState !== 2 || xhr.status !== 401) return;
+          onUnauthorized();
+          fail(new Error("Your session expired. Please sign in again."));
+          xhr.abort();
+        };
+        xhr.onprogress = () => {
+          if (xhr.status >= 200 && xhr.status < 300) drain();
+        };
+        xhr.onload = () => {
+          if (xhr.status < 200 || xhr.status >= 300) {
+            fail(xhrError(xhr));
+            return;
+          }
+          drain();
+          if (settled) return;
+          settled = true;
+          controller.close();
+        };
+        xhr.onerror = () => fail(new Error("Could not reach the server."));
+        xhr.ontimeout = () => fail(new Error("The connection timed out."));
+        xhr.onabort = () => fail(new DOMException("The operation was aborted.", "AbortError"));
+        const signal = init.signal;
+        if (signal?.aborted) {
+          fail(new DOMException("The operation was aborted.", "AbortError"));
+          return;
+        }
+        signal?.addEventListener("abort", () => xhr.abort(), { once: true });
+        const body = init.body;
+        try {
+          if (body === undefined || body === null) xhr.send();
+          else if (typeof body === "string") xhr.send(body);
+          else if (body instanceof Blob || body instanceof FormData || body instanceof URLSearchParams || body instanceof ArrayBuffer)
+            xhr.send(body);
+          else if (ArrayBuffer.isView(body)) xhr.send(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+          else fail(new Error("This request body cannot be streamed."));
+        } catch (error) {
+          fail(error);
+        }
+      },
+      cancel() {
+        settled = true;
+        request?.abort();
+      },
+    });
+    return stream.getReader();
+  };
+}
+
 export function useApi(credentials: Credentials, onUnauthorized: () => void) {
-  return useCallback(async (path: string, init: RequestInit = {}) => {
-    const response = await authorizedFetch(credentials, path, init);
-    if (response.status === 401) { onUnauthorized(); throw new Error("Your session expired. Please sign in again."); }
-    // Error responses must keep `code` and the detail fields the UI depends on
-    // (`selection_changed` totals, `notes_confirmation_required` counts).
-    if (!response.ok) throw await parseApiError(response);
-    return response;
-  }, [credentials, onUnauthorized]);
+  const transport = useMemo(
+    () =>
+      typeof navigator !== "undefined" && needsXhrStream(navigator.userAgent)
+        ? createXhrTransport(credentials, onUnauthorized)
+        : undefined,
+    [credentials, onUnauthorized],
+  );
+  return useMemo(() => {
+    const api: ApiFunction = async (path, init = {}) => {
+      const response = await authorizedFetch(credentials, path, init);
+      if (response.status === 401) { onUnauthorized(); throw new Error("Your session expired. Please sign in again."); }
+      // Error responses must keep `code` and the detail fields the UI depends on
+      // (`selection_changed` totals, `notes_confirmation_required` counts).
+      if (!response.ok) throw await parseApiError(response);
+      return response;
+    };
+    if (transport) streamTransports.set(api, transport);
+    return api;
+  }, [credentials, onUnauthorized, transport]);
 }
 export { STORAGE_KEY };

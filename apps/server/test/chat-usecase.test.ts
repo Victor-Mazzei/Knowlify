@@ -3,11 +3,15 @@ import { NoLlmClient } from "../src/adapters/llm/NoLlmClient.js";
 import { MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
 import { ChatDisabledError, ChatRateLimitedError, ConversationFullError, ConversationScopeMismatchError, LibraryChatUnavailableError } from "../src/domain/assistant/errors.js";
 import { composeSystemPrompt, promptVersionFor } from "../src/domain/assistant/tutorPrompt.js";
+import { NO_PASSAGES_ANSWER } from "../src/domain/assistant/sessionContext.js";
+import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { NotFoundError } from "../src/domain/errors.js";
 import { LlmError } from "../src/ports/assistant.js";
+import type { LlmClient, LlmEvent, LlmRequest } from "../src/ports/assistant.js";
 import type { ChatEvent } from "../src/use-cases/Chat.js";
 import {
   BOOK,
+  BlockingRetriever,
   FakeLlmClient,
   FakeRetriever,
   WaitingLlmClient,
@@ -36,7 +40,7 @@ describe("Chat status", () => {
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-2",
+      promptVersion: "feynman-3",
       scopes: { library: false, book: false },
     });
   });
@@ -47,7 +51,7 @@ describe("Chat status", () => {
       enabled: true,
       model: "fake-model",
       host: "llm.example",
-      promptVersion: "feynman-2",
+      promptVersion: "feynman-3",
       scopes: { library: true, book: true },
     });
 
@@ -82,7 +86,7 @@ describe("Chat turn", () => {
       id: done.messageId,
       content: "Hello there",
       citations: sources.citations,
-      promptVersion: "feynman-2",
+      promptVersion: "feynman-3",
     });
     expect(conversations.countAll()).toBe(1);
     expect(llm.requests).toHaveLength(1);
@@ -119,7 +123,7 @@ describe("Chat turn", () => {
     const first = await collect(chat.stream({ message: "First question", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
     expect(llm.requests[0].messages[0]).toEqual({ role: "system", content: composeSystemPrompt(null) });
-    expect(chat.status().promptVersion).toBe("feynman-2");
+    expect(chat.status().promptVersion).toBe("feynman-3");
 
     persona = "Answer as a pirate.";
     await collect(chat.stream({ conversationId, message: "Second question", scope: { kind: "library" } }, new AbortController().signal));
@@ -131,7 +135,7 @@ describe("Chat turn", () => {
     const messages = chat.get(conversationId)?.messages ?? [];
     expect(messages.map((message) => message.promptVersion)).toEqual([
       null,
-      "feynman-2",
+      "feynman-3",
       null,
       customVersion,
     ]);
@@ -191,20 +195,96 @@ describe("Chat turn", () => {
     expect(llm.requests[0].messages.at(-1)?.content).toContain("Focus is the new IQ.");
   });
 
-  it("skips the provider when no passage grounds a library question", async () => {
-    const llm = new FakeLlmClient();
+  it("answers a short reply to the tutor from the conversation even without passages", async () => {
+    class TutorQuestionLlm implements LlmClient {
+      readonly configured = true;
+      readonly model = "fake-model";
+      readonly host = "llm.example";
+      readonly requests: LlmRequest[] = [];
+      async *stream(request: LlmRequest): AsyncIterable<LlmEvent> {
+        this.requests.push(request);
+        const answer = this.requests.length === 1
+          ? "Which part of deep work would you like to practice first?"
+          : "Start with one focused block.";
+        yield { type: "delta", text: answer };
+        yield { type: "done", finishReason: "stop" };
+      }
+    }
+    const llm = new TutorQuestionLlm();
     const retriever = new FakeRetriever();
     const { chat } = fixture({ llm, retriever });
 
-    const events = await collect(chat.stream({ message: "A question with no passages", scope: { kind: "library" } }, new AbortController().signal));
-    expect(events).toEqual([
-      { type: "sources", conversationId: expect.any(String), retrieval: "none", citations: [] },
-      { type: "delta", text: "I couldn't find passages about this in your library yet." },
-      { type: "done", conversationId: expect.any(String), messageId: expect.any(String), title: "A question with no passages", finishReason: "stop" },
+    const first = await collect(chat.stream({ message: "Explain deep work", scope: { kind: "library" } }, new AbortController().signal));
+    const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
+    expect(llm.requests).toHaveLength(1);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
+
+    const second = await collect(chat.stream({
+      conversationId,
+      message: "The focus part.",
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+    expect(second.map((event) => event.type)).toEqual(["sources", "delta", "done"]);
+    expect(llm.requests).toHaveLength(2);
+
+    const prompt = llm.requests[1].messages;
+    expect(prompt.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(prompt[2]?.content).toBe("Which part of deep work would you like to practice first?");
+    expect(prompt.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
+    expect(prompt.at(-1)?.content).toContain("Question: The focus part.");
+    const followUpQueries = retriever.queries.slice(-2).map((query) => query.q);
+    expect(followUpQueries[0]).toContain("Which part of deep work would you like to practice first?");
+    expect(followUpQueries[0]).toContain("The focus part.");
+    expect(followUpQueries[1]).toBe("The focus part.");
+
+    const assistant = chat.get(conversationId)?.messages.at(-1);
+    expect(assistant?.content).toBe("Start with one focused block.");
+    expect(assistant?.content).not.toBe(NO_PASSAGES_ANSWER);
+    expect(assistant?.promptVersion).toBe("feynman-3");
+  });
+
+  it("still calls the provider when retrieval returns irrelevant passages", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage({ text: "A recipe for bread." })];
+    const { chat } = fixture({ llm, retriever });
+
+    const events = await collect(chat.stream({ message: "What is deep work?", scope: { kind: "library" } }, new AbortController().signal));
+    expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
+    expect(llm.requests).toHaveLength(1);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain("A recipe for bread.");
+    expect(llm.requests[0].messages.at(-1)?.content).not.toContain(NO_PASSAGES_BLOCK);
+    expect(chat.get((events[0] as Extract<ChatEvent, { type: "sources" }>).conversationId)?.messages.at(-1)?.content)
+      .toBe("Hello there");
+  });
+
+  it("sends cleaned history: no [n] markers and no legacy canned pairs", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    const { chat, conversations } = fixture({ llm, retriever });
+    conversations.create({ id: "clean", scope: { kind: "library" }, title: "Clean", createdAt: 1, updatedAt: 1 });
+    const saveTurn = (question: string, answer: string) => conversations.saveTurn({
+      conversationId: "clean",
+      newConversation: null,
+      user: { id: `u-${question}`, role: "user", content: question, citations: null, promptVersion: null, createdAt: 1 },
+      assistant: { id: `a-${question}`, role: "assistant", content: answer, citations: null, promptVersion: "feynman-2", createdAt: 1 },
+    }, CAPS, 1);
+    saveTurn("What is deep work?", "Deep work is focus [1].");
+    saveTurn("Tell me what the tutor said.", NO_PASSAGES_ANSWER);
+    saveTurn("Explain deliberate practice", "Which aspect of deliberate practice [2] interests you?");
+
+    await collect(chat.stream({ conversationId: "clean", message: "How do I start?", scope: { kind: "library" } }, new AbortController().signal));
+
+    const history = llm.requests[0].messages.slice(1, -1);
+    expect(history).toEqual([
+      { role: "user", content: "What is deep work?" },
+      { role: "assistant", content: "Deep work is focus." },
+      { role: "user", content: "Explain deliberate practice" },
+      { role: "assistant", content: "Which aspect of deliberate practice interests you?" },
     ]);
-    expect(llm.requests).toEqual([]);
-    const conversationId = (events[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
-    expect(chat.get(conversationId)?.messages[1].promptVersion).toBeNull();
+    expect(JSON.stringify(history)).not.toContain(NO_PASSAGES_ANSWER);
+    expect(JSON.stringify(history)).not.toContain("[1]");
+    expect(JSON.stringify(history)).not.toContain("[2]");
   });
 
   it("reports search failures after sources and persists nothing", async () => {
@@ -426,6 +506,57 @@ describe("Chat turn", () => {
     await second.return?.(undefined);
 
     expect(conversations.messages("busy")).toHaveLength(0);
+  });
+
+  it("releases a cancelled turn while retrieval is still running", async () => {
+    const retriever = new BlockingRetriever();
+    const llm = new FakeLlmClient();
+    const { chat, conversations } = fixture({ llm, retriever });
+    const controller = new AbortController();
+    const iterator = chat.stream({ message: "grounded question", scope: { kind: "library" } }, controller.signal)[Symbol.asyncIterator]();
+    const next = iterator.next();
+    await retriever.started;
+
+    controller.abort();
+    const result = await Promise.race([
+      next,
+      new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 500)),
+    ]);
+    if (result === "timeout") {
+      retriever.release();
+      await next;
+      throw new Error("the aborted turn waited for retrieval to settle");
+    }
+    expect(result).toMatchObject({ value: { type: "error", code: "aborted" } });
+    retriever.release();
+    await iterator.return?.(undefined);
+
+    expect(llm.requests).toEqual([]);
+    expect(conversations.countAll()).toBe(0);
+  });
+
+  it("reports an empty answer from a reasoning model instead of persisting a blank turn", async () => {
+    class ReasoningOnlyLlm implements LlmClient {
+      readonly configured = true;
+      readonly model = "reasoning-model";
+      readonly host = "llm.example";
+      async *stream(): AsyncIterable<LlmEvent> {
+        yield { type: "done", finishReason: "length" };
+      }
+    }
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat, conversations } = fixture({ llm: new ReasoningOnlyLlm(), retriever });
+
+    const events = await collect(chat.stream({ message: "grounded question", scope: { kind: "library" } }, new AbortController().signal));
+    expect(events.map((event) => event.type)).toEqual(["sources", "error"]);
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      code: "llm_empty",
+      message: "The language model returned no answer",
+      detail: "length",
+    });
+    expect(conversations.countAll()).toBe(0);
   });
 
   it("rate limits messages per minute and concurrent streams", async () => {

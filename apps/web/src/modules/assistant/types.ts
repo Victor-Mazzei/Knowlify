@@ -49,6 +49,8 @@ export type ChatMessage = {
   content: string;
   citations: Citation[] | null;
   createdAt: number;
+  /** Client-only: a partial answer kept after a failure or Stop; never sent by the server. */
+  incomplete?: boolean;
 };
 
 /** `GET /api/chat/conversations` item, ordered by `updatedAt` desc. */
@@ -80,6 +82,7 @@ export type ChatErrorCode =
   | "llm_timeout"
   | "llm_rejected"
   | "llm_protocol"
+  | "llm_empty"
   | "search_failed"
   | "aborted";
 

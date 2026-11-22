@@ -7,6 +7,7 @@ const ERROR_CODES: readonly ChatErrorCode[] = [
   "llm_timeout",
   "llm_rejected",
   "llm_protocol",
+  "llm_empty",
   "search_failed",
   "aborted",
 ];

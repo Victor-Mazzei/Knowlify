@@ -124,14 +124,16 @@
     const showForm = async (message = '') => {
       const summary = await invoke('saved_summary').catch(() => null);
       header('Connect to your library', 'Run it on this computer, or connect to a server.');
-      let mode = summary?.mode || 'local';
+      let mode = summary?.mode === 'remote' ? 'remote' : 'local';
 
       const form = el('form');
       const localBtn = el('button', { type: 'button', textContent: 'Local' });
       const remoteBtn = el('button', { type: 'button', textContent: 'Remote' });
       const seg = el('div', { className: 'seg' }, localBtn, remoteBtn);
-      seg.setAttribute('role', 'group');
+      seg.setAttribute('role', 'radiogroup');
       seg.setAttribute('aria-label', 'Library mode');
+      localBtn.setAttribute('role', 'radio');
+      remoteBtn.setAttribute('role', 'radio');
       seg.style.width = 'fit-content';
       const field = (label, name, props = {}) => {
         const input = el('input', { name, ...props });
@@ -141,9 +143,15 @@
       const user = field('Username', 'user', { autocomplete: 'username', value: summary?.user || '' });
       const pass = field('Password', 'pass', { type: 'password', autocomplete: 'current-password' });
       const remote = el('div', {}, url.node, user.node, pass.node);
-      remote.style.cssText = 'display:grid;gap:16px';
+      // `display` must stay out of cssText: an inline `display:grid` overrides the
+      // browser's `[hidden] { display: none }`, which left the remote fields visible.
+      remote.style.gap = '16px';
+      remote.setAttribute('role', 'group');
+      remote.setAttribute('aria-label', 'Remote server');
       const error = el('p', { className: 'error', hidden: !message, textContent: message });
       error.setAttribute('role', 'alert');
+      error.setAttribute('aria-live', 'assertive');
+      error.setAttribute('aria-atomic', 'true');
       error.style.margin = '0';
       const submit = el('button', { className: 'primary', textContent: 'Connect' });
       const actions = [submit];
@@ -155,21 +163,67 @@
       form.append(seg, remote, error, ...actions);
       card.append(form);
 
+      const modes = ['local', 'remote'];
+      const buttons = { local: localBtn, remote: remoteBtn };
+      const inputs = [url.input, user.input, pass.input];
       const sync = () => {
-        localBtn.setAttribute('aria-pressed', String(mode === 'local'));
-        remoteBtn.setAttribute('aria-pressed', String(mode === 'remote'));
-        remote.hidden = mode !== 'remote';
-        url.input.required = user.input.required = pass.input.required = mode === 'remote';
+        const remoteMode = mode === 'remote';
+        for (const [value, button] of Object.entries(buttons)) {
+          const selected = mode === value;
+          button.setAttribute('aria-checked', String(selected));
+          button.tabIndex = selected ? 0 : -1;
+          // The web UI styles the pressed state with `[aria-pressed="true"]`; keep the
+          // same look without exposing a pressed state on a radio.
+          button.style.background = selected ? 'var(--panel)' : 'none';
+          button.style.color = selected ? 'var(--ink)' : 'var(--ink-muted)';
+          button.style.boxShadow = selected ? '0 0 0 1px var(--hairline)' : 'none';
+        }
+        remote.hidden = !remoteMode;
+        remote.style.display = remoteMode ? 'grid' : 'none';
+        for (const input of inputs) {
+          // Disabled fields are skipped by validation and by the form, and their
+          // values stay in memory when the user switches back to remote mode.
+          input.disabled = !remoteMode;
+          input.required = remoteMode;
+        }
       };
-      localBtn.onclick = () => { mode = 'local'; sync(); };
-      remoteBtn.onclick = () => { mode = 'remote'; sync(); };
+      const select = (next, focus) => {
+        const changed = mode !== next;
+        mode = next;
+        sync();
+        if (!focus) return;
+        if (focus === 'segment') buttons[mode].focus();
+        else if (changed) (mode === 'remote' ? url.input : submit).focus();
+      };
+      // Radio groups move selection by relative position, wrapping at the ends,
+      // rather than mapping each arrow to a fixed mode (which got stuck).
+      const keyOffset = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+      localBtn.onclick = () => select('local', 'fields');
+      remoteBtn.onclick = () => select('remote', 'fields');
+      seg.addEventListener('keydown', event => {
+        let next;
+        if (event.key === 'Home') next = modes[0];
+        else if (event.key === 'End') next = modes[modes.length - 1];
+        else {
+          const offset = keyOffset[event.key];
+          if (!offset) return;
+          const index = modes.indexOf(mode);
+          next = modes[(index + offset + modes.length) % modes.length];
+        }
+        event.preventDefault();
+        select(next, 'segment');
+      });
       sync();
 
       form.onsubmit = async event => {
         event.preventDefault();
         submit.disabled = true; submit.textContent = 'Connecting…'; error.hidden = true;
         try {
-          const data = { mode, url: url.input.value, user: user.input.value, pass: pass.input.value };
+          // Local mode never sends the remote fields: `connect` would persist them
+          // in connection.json even though local mode does not use them.
+          const data = mode === 'remote'
+            ? { mode, url: url.input.value, user: user.input.value, pass: pass.input.value }
+            : { mode };
           const connection = await invoke('connect', data);
           await check(connection);
           open(connection);

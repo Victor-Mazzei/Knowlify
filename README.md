@@ -22,8 +22,6 @@ Knowlify is a self-hosted, local-first library for ebooks. It reads PDF and EPUB
 
 ## Quick start with Docker
 
-Docker Compose builds the image from this repository.
-
 1. Copy the example environment file: `cp .env.example .env`
 2. Open `.env`. Set `KNOWLIFY_PASSWORD` to a password that only you know.
 3. Set `KNOWLIFY_LIBRARY_DIR` to the host folder that holds your ebooks.
@@ -70,7 +68,7 @@ Knowlify is one server with several clients. Use the same library from the brows
 
 The desktop app has two modes:
 
-- **Local.** The app starts its own Knowlify server with the bundled Node.js. The database, uploaded books, covers, notes and reading progress stay in the app data folder on that computer. Source folders are indexed in place. You do not install Node.js.
+- **Local.** The app starts its own Knowlify server with the bundled Node.js. The database, uploaded books, covers, notes and reading progress stay in the app data folder on that computer. Source folders are indexed in place.
 - **Remote.** The app connects to a Knowlify server that you already run, for example the Docker container. The library, book files, covers, notes, reading progress, search index and settings stay on that server. The browser and the remote desktop app use the same data. The desktop app keeps the server URL, user name and password on the computer in `connection.json`.
 
 ### Connect the desktop app to your server
@@ -99,13 +97,11 @@ Get the installer for your system from the [GitHub Releases page](https://github
 
 Replace `X.Y.Z` with the version of the release. The app needs Windows 10 version 1809 or later, macOS 13.5 or later, or Linux with glibc 2.35 or later. The Linux installers are built on Ubuntu 22.04, so older distributions are not supported.
 
-The desktop app includes its own Node.js. You do not need to install Node.
-
-The app can run its own server or connect to the server you run. See [One library on every device](#one-library-on-every-device) for the two modes and the connection steps.
+The desktop app includes its own Node.js. You do not need to install Node. See [One library on every device](#one-library-on-every-device) for the two modes and the connection steps.
 
 ### Check the download
 
-The `SHA256SUMS` file lists the SHA-256 hash of each installer. Compare the hash of your file with its line in that file.
+Compare the hash of your installer with its line in `SHA256SUMS`.
 
 Linux:
 
@@ -125,13 +121,13 @@ Windows (PowerShell):
 Get-FileHash .\Knowlify_X.Y.Z_windows-x64-setup.exe -Algorithm SHA256
 ```
 
-On Linux and macOS, `sha256sum -c` and `shasum -a 256 -c` print `OK` for each file that matches. Files that you did not download are reported as `FAILED open or read`; ignore those lines, and note that the command exits nonzero because of them. The `OK` lines for the files you downloaded are the result that matters.
+On Linux and macOS, both commands print `OK` for each file that matches. Files that you did not download show `FAILED open or read` and make the command exit nonzero; ignore them.
 
-On Windows, `Get-FileHash` prints only the hash; it does not compare it. Open `SHA256SUMS`, find the line for your file, and compare the expected hash (the first field) with the printed `Hash` value manually. The comparison is not case-sensitive. If they match, the file is intact.
+On Windows, `Get-FileHash` prints only the hash. Compare it with the first field of the line for your file in `SHA256SUMS`; the comparison is not case-sensitive.
 
 ### Install
 
-The installers are not signed yet. Your system shows a warning the first time you open the app. The warning is expected. Install the app only if you downloaded it from this repository.
+The installers are not signed yet. Your system shows a warning the first time you open the app; the warning is expected.
 
 **Windows.** SmartScreen shows "Windows protected your PC". Select **More info**, then **Run anyway**. The installer does not need administrator rights.
 
@@ -191,11 +187,9 @@ Set variables in `.env`. The file `.env.example` lists every variable with comme
 | `KNOWLIFY_GOOGLE_BOOKS_API_KEY` | No | none | Optional Google Books API key. A key saved in Settings overrides it. |
 | `KNOWLIFY_METADATA_LOCKED` | No | `0` | `1` locks the toggle and the key to the environment. `PUT /api/settings/metadata` returns `403`. |
 | `KNOWLIFY_MCP` | No | `on` | `off` removes the `/mcp` route. |
-| `KNOWLIFY_TRUST_PROXY` | No | `off` | `on`, a hop count, or a list of proxy IPs/CIDRs. Use it only behind a reverse proxy that you control. See [Behind a reverse proxy](#behind-a-reverse-proxy). |
+| `KNOWLIFY_TRUST_PROXY` | No | `off` | `on`, a hop count, or a list of proxy IPs/CIDRs. Use only behind a proxy that you control. See [Behind a reverse proxy](#behind-a-reverse-proxy). |
 | `KNOWLIFY_LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `debug`, `trace` or `silent`. `debug` never logs secrets or the content of your library. |
 | `KNOWLIFY_FORCE_ENV_PASSWORD` | No | none | Set to `1` to sign in with `KNOWLIFY_PASSWORD` after you forget a changed password. |
-
-Never commit the `.env` file. It contains secrets.
 
 ## Connect other clients
 
@@ -232,7 +226,7 @@ Claude Desktop (`claude_desktop_config.json`, through `mcp-remote`):
 
 The scope `read` gives these tools: `search_passages`, `list_books`, `get_book`, `list_notes`, `list_tags` and `get_index_status`. The scope `write_notes` adds `create_note`, `add_tags_to_books`, `remove_tags_from_books` and `set_book_favorite`. No tool deletes data.
 
-Revoke a token in **Settings** at any time. The revocation takes effect at once. Each token has a limit of 120 messages and 20 writes per minute. The variables `KNOWLIFY_MCP_RATE_PER_MIN`, `KNOWLIFY_MCP_WRITE_RATE_PER_MIN`, `KNOWLIFY_MCP_ALLOWED_ORIGINS` and `KNOWLIFY_MCP_ALLOWED_HOSTS` change the limits and access rules.
+Revoke a token in **Settings**. The revocation takes effect at once. Each token has a limit of 120 messages and 20 writes per minute. The variables `KNOWLIFY_MCP_RATE_PER_MIN`, `KNOWLIFY_MCP_WRITE_RATE_PER_MIN`, `KNOWLIFY_MCP_ALLOWED_ORIGINS` and `KNOWLIFY_MCP_ALLOWED_HOSTS` change the limits and access rules.
 
 Do not put Basic authentication in front of `/mcp` in a reverse proxy. It conflicts with the `Authorization: Bearer` header.
 
@@ -254,10 +248,6 @@ Limitation: the code adds the E5 prefixes `query: ` and `passage: ` to the text,
 
 The base model `intfloat/multilingual-e5-small` uses the MIT license. If you put the model in an image or an installer, include the MIT license text and the copyright notice of the E5 authors.
 
-## Local development
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for requirements, setup, checks and tests. For the desktop app, see [apps/desktop/README.md](apps/desktop/README.md).
-
 ## Architecture
 
 Knowlify is an npm workspaces monorepo with three apps:
@@ -274,21 +264,19 @@ The server has six contexts: Library, Reading, Catalog, Knowledge, Assistant and
 
 - Every `/api` and `/opds` route needs Basic authentication. `/kosync` uses the KOSync headers that the protocol requires. `/mcp` needs a Bearer access token. `/health` is public.
 - The server stores the password as a scrypt hash. It stores only the SHA-256 hash of each MCP access token.
-- Knowlify never writes to source folders.
 - Every request that fetches a URL from a user (RSS, metadata lookup, LLM settings) blocks SSRF. The server accepts only public destinations, pins the resolved IP address, and limits response size and time.
 - The server encrypts the LLM key with AES-256-GCM. It never returns the key in a response and never writes it to a log.
 - If you use a remote LLM, the tutor sends your question and passages from your books to that provider.
 - The server rate-limits chat, MCP and metadata requests.
-- At start, the server writes a warning to the log if the password is a default value (`admin` or `change-this-password`) and the server listens on a non-loopback address. Change the password.
-- The desktop app accepts a plain `http://` server address only for local destinations. This includes private networks and the Tailscale range `100.64.0.0/10`. For other addresses, use HTTPS.
+- At start, the server logs a warning if the password is a default value (`admin` or `change-this-password`) and it listens on a non-loopback address; change the default password before you expose the server.
 
 ### HTTP on your local network
 
-You can open Knowlify at `http://<server IP>:8787` with no HTTPS. It works, but Basic authentication sends the password with each request, and KOSync sends its key, both in clear text on the network. Use this only on a network that you trust. Do not open port 8787 to the Internet.
+Knowlify works at `http://<server IP>:8787` without HTTPS. Basic authentication then sends the password with each request, and KOSync sends its key, both in clear text on the network. Use this only on a network that you trust, and do not forward port 8787 to the Internet.
 
 ### Turn on HTTPS
 
-For remote access, put Knowlify behind a reverse proxy that adds HTTPS (Caddy, Traefik or nginx), or use a private network such as Tailscale (`tailscale serve`). In Caddy, one line is enough:
+For remote access, put Knowlify behind a reverse proxy that adds HTTPS (Caddy, Traefik or nginx), or use a private network such as Tailscale (`tailscale serve`). In Caddy:
 
 ```
 knowlify.example.com { reverse_proxy 127.0.0.1:8787 }
@@ -298,13 +286,12 @@ Use a dedicated host name or port for Knowlify. A sub-path such as `/knowlify/` 
 
 ### Behind a reverse proxy
 
-- When you run behind a proxy, client IPs in the logs need `KNOWLIFY_TRUST_PROXY`.
-- `KNOWLIFY_TRUST_PROXY` is `off` by default, and the server then uses the socket address as the client address. Behind a proxy, every client has the proxy address, so the per-IP limits (MCP authentication failures and password changes) affect all users together. Set the variable to the proxy address or CIDR (for example `172.18.0.0/16`), to `on`, or to a number of proxy hops. Turn it on only when the proxy is under your control and clients cannot reach the port directly. If they can, they can forge `X-Forwarded-For` and bypass the limits.
-- MCP: do not add proxy authentication to `/mcp`. If the server listens on `127.0.0.1` (`HOST=127.0.0.1`), set `KNOWLIFY_MCP_ALLOWED_HOSTS` to your host name (without a port). A browser-based MCP client needs its address in `KNOWLIFY_MCP_ALLOWED_ORIGINS`. The server answers `403` without the reason when the check fails.
+- `KNOWLIFY_TRUST_PROXY` is `off` by default, and the server then uses the socket address as the client address. Behind a proxy, every client has the proxy address, so the per-IP limits (MCP authentication failures and password changes) affect all users together. Set the variable to the proxy address or CIDR (for example `172.18.0.0/16`), to `on`, or to a number of proxy hops. Enable it only behind a proxy that you control, preferably with the proxy IP/CIDR list; if clients can reach the port directly, they can forge `X-Forwarded-For` and bypass the per-IP limits.
+- MCP: if the server listens on `127.0.0.1` (`HOST=127.0.0.1`), set `KNOWLIFY_MCP_ALLOWED_HOSTS` to your host name (without a port). A browser-based MCP client needs its address in `KNOWLIFY_MCP_ALLOWED_ORIGINS`. The server answers `403` without the reason when the check fails.
 
 ## Contact
 
-For a vulnerability, open a public issue or use the private channel in [SECURITY.md](SECURITY.md).
+Report a vulnerability as described in [SECURITY.md](SECURITY.md).
 
 For other private questions about the project, send an email to [contact@vmmazz.com](mailto:contact@vmmazz.com).
 
@@ -314,7 +301,7 @@ Knowlify uses [Semantic Versioning](https://semver.org/). The [CHANGELOG](CHANGE
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, code style and architecture rules. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for requirements, setup, checks, code style and architecture rules, and [apps/desktop/README.md](apps/desktop/README.md) for the desktop app. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

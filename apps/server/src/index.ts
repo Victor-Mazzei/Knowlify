@@ -494,6 +494,10 @@ export async function buildApp(
     origin: true,
     allowedHeaders: ["Authorization", "Content-Type"],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    // Remote desktop/web clients are cross-origin and authenticate with a header, so
+    // every request would otherwise pay an OPTIONS preflight. Repeat calls to the same
+    // URL (status polling) then reuse the cached policy.
+    maxAge: 600,
   };
   await app.register(cors, {
     delegator: (req, callback) => {

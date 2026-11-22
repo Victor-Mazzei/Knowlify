@@ -20,11 +20,16 @@ import { NotFoundError } from "../domain/errors.js";
 import {
   buildTutorMessages,
   MAX_PASSAGES,
-  MAX_QUERY_CHARS,
   promptVersionFor,
   TUTOR_PROMPT_VERSION,
+  type TutorMessage,
   type TutorPassage,
 } from "../domain/assistant/tutorPrompt.js";
+import {
+  buildRetrievalQueries,
+  dropCannedPairs,
+  stripCitationMarkers,
+} from "../domain/assistant/sessionContext.js";
 import { LlmError } from "../ports/assistant.js";
 import type { ConversationRepository, LlmClient, PassageRetriever } from "../ports/assistant.js";
 import type { Book, BookRepository, Clock, IdGenerator, Logger } from "../ports/index.js";
@@ -38,6 +43,7 @@ export type ChatErrorCode =
   | "llm_timeout"
   | "llm_rejected"
   | "llm_protocol"
+  | "llm_empty"
   | "search_failed"
   | "aborted";
 
@@ -64,7 +70,6 @@ export interface ChatLimits {
 }
 
 export const MAX_CONCURRENT_STREAMS = 2;
-export const NO_PASSAGES_ANSWER = "I couldn't find passages about this in your library yet.";
 
 export type ChatRequestScope =
   | { kind: "library" }
@@ -88,6 +93,7 @@ const PUBLIC_ERRORS: Record<ChatErrorCode, string> = {
   llm_timeout: "The language model took too long to answer",
   llm_rejected: "The language model rejected the request",
   llm_protocol: "The language model returned an unexpected response",
+  llm_empty: "The language model returned no answer",
   search_failed: "The library search failed",
   aborted: "The request was cancelled",
 };
@@ -204,7 +210,7 @@ export class Chat {
 
     const now = this.clock.now();
     this.consumeRateLimit(now, limits.ratePerMin);
-    const history = existingMessages;
+    const history = cleanHistory(existingMessages);
     const title = existing?.title ?? conversationTitle(question);
     const turn: TurnContext = {
       conversation: existing,
@@ -226,8 +232,14 @@ export class Chat {
       let retrieval: RetrievalOutcome = { mode: "none", hits: [] };
       let searchFailed = false;
       try {
-        retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope);
+        retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope, signal);
       } catch (error) {
+        // Cancellation is not a search failure: release the turn (and the conversation
+        // mutex) without logging or waiting for the in-flight search to settle.
+        if (signal.aborted) {
+          yield this.errorEvent("aborted");
+          return;
+        }
         this.log.error(error, "chat retrieval failed");
         searchFailed = true;
       }
@@ -251,21 +263,6 @@ export class Chat {
       }
 
       const assistantId = this.ids.next();
-      if (citations.length === 0 && excerpt === undefined) {
-        const assistant: ChatMessage = {
-          id: assistantId,
-          role: "assistant",
-          content: NO_PASSAGES_ANSWER,
-          citations: null,
-          promptVersion: null,
-          createdAt: this.clock.now(),
-        };
-        this.persistTurn(turn, question, title, assistant, now);
-        yield { type: "delta", text: NO_PASSAGES_ANSWER };
-        yield { type: "done", conversationId, messageId: assistantId, title, finishReason: "stop" };
-        return;
-      }
-
       const passages: TutorPassage[] = retrieval.hits.map((hit, index) => ({
         n: index + 1,
         bookTitle: hit.bookTitle,
@@ -276,7 +273,7 @@ export class Chat {
       const messages = buildTutorMessages({
         question,
         passages,
-        history: history.map((message) => ({ role: message.role, content: message.content })),
+        history,
         systemPrompt,
         ...(excerpt !== undefined
           ? {
@@ -333,7 +330,9 @@ export class Chat {
         return;
       }
       if (!answer) {
-        yield this.errorEvent("llm_protocol");
+        // A reasoning model can spend the whole token budget before emitting content.
+        // Say so instead of presenting an empty assistant turn.
+        yield this.errorEvent("llm_empty", finishReason === "length" ? "length" : undefined);
         return;
       }
 
@@ -387,19 +386,28 @@ export class Chat {
   private async retrieve(
     scope: ChatScope,
     question: string,
-    history: ChatMessage[],
+    history: TutorMessage[],
     libraryScope: boolean,
+    signal: AbortSignal,
   ): Promise<RetrievalOutcome> {
     const searchable = scope.kind === "library" || libraryScope;
     if (!searchable) return { mode: "none", hits: [] };
-    const query = retrievalQuery(question, history);
-    if (query.length < 2) return { mode: "none", hits: [] };
-    const result = await this.retriever.search({
-      q: query,
-      ...(scope.kind === "book" ? { bookId: scope.bookId } : {}),
-      limit: MAX_PASSAGES,
-    });
-    return { mode: toRetrievalMode(result.mode), hits: result.hits.slice(0, MAX_PASSAGES) };
+    for (const query of buildRetrievalQueries(question, history)) {
+      if (query.length < 2) continue;
+      // The retriever is in-process today, but an embedding query can wait behind a busy
+      // worker. A cancelled turn must not hold the conversation mutex until it settles.
+      const result = await untilAborted(
+        this.retriever.search({
+          q: query,
+          ...(scope.kind === "book" ? { bookId: scope.bookId } : {}),
+          limit: MAX_PASSAGES,
+        }),
+        signal,
+      );
+      const hits = result.hits.slice(0, MAX_PASSAGES);
+      if (hits.length > 0) return { mode: toRetrievalMode(result.mode), hits };
+    }
+    return { mode: "none", hits: [] };
   }
 
   private persistTurn(
@@ -436,10 +444,11 @@ export class Chat {
   }
 }
 
-function retrievalQuery(question: string, history: ChatMessage[]): string {
-  const previous = [...history].reverse().find((message) => message.role === "user")?.content;
-  const query = question.length < 40 && previous ? `${previous} ${question}` : question;
-  return query.slice(0, MAX_QUERY_CHARS);
+function cleanHistory(messages: readonly ChatMessage[]): TutorMessage[] {
+  return dropCannedPairs(messages).map((message) => ({
+    role: message.role,
+    content: message.role === "assistant" ? stripCitationMarkers(message.content) : message.content,
+  }));
 }
 
 function toRetrievalMode(mode: string): ChatRetrieval {
@@ -494,15 +503,16 @@ class ConversationMutex {
   }
 }
 
-function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void> {
+/** Resolves with the work or rejects as soon as the turn is cancelled. */
+function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(new Error("The chat turn was aborted"));
   return new Promise((resolve, reject) => {
     const onAbort = () => reject(new Error("The chat turn was aborted"));
     signal.addEventListener("abort", onAbort, { once: true });
     promise.then(
-      () => {
+      (value) => {
         signal.removeEventListener("abort", onAbort);
-        resolve();
+        resolve(value);
       },
       (error: unknown) => {
         signal.removeEventListener("abort", onAbort);

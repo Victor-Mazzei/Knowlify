@@ -34,7 +34,8 @@ afterEach(() => {
 });
 
 describe("useCoverQueue", () => {
-  it("keeps at most six cover requests in flight for a hundred cards", async () => {
+  it("keeps a WebKit-safe number of cover requests in flight for a hundred cards", async () => {
+    expect(COVER_CONCURRENCY).toBeLessThanOrEqual(4);
     let inFlight = 0;
     let peak = 0;
     const waiting: { path: string; resolve: (respond: boolean) => void }[] = [];

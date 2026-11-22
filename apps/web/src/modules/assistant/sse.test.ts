@@ -67,6 +67,13 @@ describe("parseChatEvent", () => {
       code: "llm_timeout",
       message: "Too slow",
     });
+    expect(
+      parseChatEvent('{"type":"error","code":"llm_empty","message":"The language model returned no answer"}'),
+    ).toEqual({
+      type: "error",
+      code: "llm_empty",
+      message: "The language model returned no answer",
+    });
   });
 
   it("ignores unknown events, malformed JSON and malformed payloads", () => {

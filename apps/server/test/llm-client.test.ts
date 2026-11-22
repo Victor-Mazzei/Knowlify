@@ -90,6 +90,46 @@ describe("OpenAiCompatibleLlmClient", () => {
     });
   });
 
+  it("keeps the first-token timer alive while a reasoning model is thinking", async () => {
+    // Reasoning-first models can stream only `reasoning_content` for a long time.
+    // Ignoring it must not count as silence for the first-token timeout.
+    await withServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const timer = setInterval(() => {
+        res.write('data: {"choices":[{"delta":{"reasoning_content":"reasoning sentinel"}}]}\n\n');
+      }, 50);
+      setTimeout(() => {
+        clearInterval(timer);
+        res.write('data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\n');
+        res.end("data: [DONE]\n\n");
+      }, 2_000);
+    }, async (baseUrl) => {
+      const events = await collect(client(baseUrl, {
+        firstTokenTimeoutMs: 1_000,
+        idleTimeoutMs: 1_000,
+        timeoutMs: 6_000,
+      }).stream(request, new AbortController().signal));
+      expect(events).toEqual([
+        { type: "delta", text: "answer" },
+        { type: "done", finishReason: "stop" },
+      ]);
+      expect(JSON.stringify(events)).not.toContain("reasoning sentinel");
+    });
+  });
+
+  it("ignores empty choices, null content and usage-only chunks", async () => {
+    await withServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write('data: {"choices":[],"usage":null}\n\n');
+      res.write('data: {"choices":[{"delta":{"content":null},"finish_reason":null}]}\n\n');
+      res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"total_tokens":3}}\n\n');
+      res.end("data: [DONE]\n\n");
+    }, async (baseUrl) => {
+      const events = await collect(client(baseUrl).stream(request, new AbortController().signal));
+      expect(events).toEqual([{ type: "done", finishReason: "stop" }]);
+    });
+  });
+
   it("accepts a stream that closes after finish_reason without [DONE]", async () => {
     await withServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
