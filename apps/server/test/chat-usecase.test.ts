@@ -45,6 +45,7 @@ describe("Chat status", () => {
       promptVersion: "feynman-5",
       scopes: { library: false, book: false },
       modes: ["ask", "session"],
+      features: { recommendations: true },
       sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
   });
@@ -58,6 +59,7 @@ describe("Chat status", () => {
       promptVersion: "feynman-5",
       scopes: { library: true, book: true },
       modes: ["ask", "session"],
+      features: { recommendations: true },
       sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
 
@@ -656,7 +658,7 @@ describe("Chat turn", () => {
     expect(conversations.countAll()).toBe(0);
   });
 
-  it("sends cleaned history: no [n] markers and no legacy canned pairs", async () => {
+  it("sends history with citation markers and no legacy canned pairs", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
     const { chat, sessions, conversations } = fixture({ llm, retriever });
@@ -676,13 +678,15 @@ describe("Chat turn", () => {
     const history = llm.requests[0].messages.slice(1, -1);
     expect(history).toEqual([
       { role: "user", content: "What is deep work?" },
-      { role: "assistant", content: "Deep work is focus." },
+      // Earlier `[n]` markers are legitimate text: the prompt keeps them instead of
+      // rewriting the stored turn. Only the legacy canned pair is dropped.
+      { role: "assistant", content: "Deep work is focus [1]." },
       { role: "user", content: "Explain deliberate practice" },
-      { role: "assistant", content: "Which aspect of deliberate practice interests you?" },
+      { role: "assistant", content: "Which aspect of deliberate practice [2] interests you?" },
     ]);
     expect(JSON.stringify(history)).not.toContain(NO_PASSAGES_ANSWER);
-    expect(JSON.stringify(history)).not.toContain("[1]");
-    expect(JSON.stringify(history)).not.toContain("[2]");
+    expect(JSON.stringify(history)).toContain("[1]");
+    expect(JSON.stringify(history)).toContain("[2]");
   });
 
   it("reports search failures after sources and persists nothing", async () => {

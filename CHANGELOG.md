@@ -15,6 +15,27 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.3.0] - 2026-11-24
+
+### Added
+
+- Tutor Ask can recommend books from your own library for "what should I read" questions, with links to open them. It runs only in Ask over the whole library with "Use my library" on: the server picks at most five candidates from one wider passage search plus title, author, series and tag matches, sends only those to the model, validates the `[book:n]` markers it returns, and shows the cards only for markers that survive. With the library off it explains that suggestions need "Use my library" instead of naming books.
+- Recommendation cards link to each book, and a control that appears only in Ask with the whole library and "Use my library" on can turn automatic suggestions off; the choice is remembered on this device.
+- Tutor answers render as formatted Markdown in Ask and Session, in both book and library scopes: headings, bold and italic, nested lists, blockquotes, horizontal rules, tables with horizontal scroll, inline code, fenced code with a language header and an accessible Copy action, links, and line breaks. Citation chips stay inside formatted text, including lists, bold text and table cells.
+- Code blocks are highlighted on demand after the block closes; while a block is still streaming it stays in plain monospace. The highlighter is a separate lazy chunk, and a failed load leaves readable unhighlighted code.
+
+### Fixed
+
+- "Save as session" removes book suggestion markers from assistant text and never edits your messages.
+- A session limit reached after a tutor answer already started streaming now ends with a clear `conversation_limit` error instead of a generic language-model error, and the web keeps the partial answer, marks it incomplete and points to Settings → AI instead of dropping the turn.
+- The boot warning about `KNOWLIFY_LLM_HEADERS` describes the current compatibility seed instead of promising a removal that already happened.
+- The "Save as session" dialog now states the 20-message limit in the present tense before anything is attempted, and offers "Save last 20 messages" without saying that nothing was saved.
+
+### Security
+
+- Tutor Markdown never renders raw HTML or loads images: HTML is shown as text and image alt text and URLs are shown without a request. Links allow only http, https and mailto; other schemes stay text. Web links open with `noopener noreferrer nofollow`, show the destination host when the label does not, and the desktop shell shows mailto and public http as text because its bridge cannot open them safely.
+- Chat logs never record questions, answers, book titles or recommendation text at any level; regression tests with sentinel values now cover the book recommendation and the Save as session paths.
+
 ## [2.2.0] - 2026-11-23
 
 ### Added
@@ -383,7 +404,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...v2.0.4

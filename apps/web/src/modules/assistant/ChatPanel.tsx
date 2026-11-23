@@ -1,13 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import type { ApiFn } from "../../components/dialogs";
 import type { ChatExcerpt } from "./excerpt";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
 import { ModeStatus } from "./ModeStatus";
+import { RecommendControl } from "./RecommendControl";
 import { SessionLimitNotice } from "./SessionLimitNotice";
 import { useChat } from "./useChat";
 import type { ChatLimitDetails } from "./useChat";
-import type { ChatMessage, ChatMode, ChatRequestScope, ChatStatus, ConversationSummary } from "./types";
+import type {
+  ChatMessage,
+  ChatMode,
+  ChatRequestScope,
+  ChatStatus,
+  ConversationSummary,
+  RecommendMode,
+  RecommendPreference,
+} from "./types";
 import "./assistant.css";
 import "./sessions.css";
 
@@ -30,6 +40,11 @@ export function ChatPanel({
   mode = "session",
   modeSupported = false,
   useLibrary = true,
+  recommend = "auto",
+  recommendSupported = false,
+  onRecommendChange,
+  onEnableLibrary,
+  onOpenBook,
   scopeLabel = "Whole library",
   sessionTitle,
   sessionLimit,
@@ -57,6 +72,15 @@ export function ChatPanel({
   /** False on servers without `status.modes`: the panel behaves as Session only. */
   modeSupported?: boolean;
   useLibrary?: boolean;
+  /** Stored Ask preference; only "auto" and "off" are sent as the default. */
+  recommend?: RecommendPreference;
+  /** False on servers without `status.features.recommendations`: no control, no field. */
+  recommendSupported?: boolean;
+  onRecommendChange?: (mode: RecommendPreference) => void;
+  /** The library-off notice can turn the Ask switch on without resending the question. */
+  onEnableLibrary?: () => void;
+  /** A suggestion link was activated: a narrow dock closes before the route changes. */
+  onOpenBook?: () => void;
   scopeLabel?: string;
   sessionTitle?: string;
   sessionLimit?: { limit: number; count: number } | null;
@@ -68,6 +92,7 @@ export function ChatPanel({
   // Captured once: a new conversation id only means "load it" when the panel is (re)mounted.
   const [initialId] = useState(conversationId);
   const [draft, setDraft] = useState("");
+  const [recommendNext, setRecommendNext] = useState(false);
   const effectiveMode: ChatMode = modeSupported ? mode : "session";
   const lastQuestion = useRef("");
   const chat = useChat({
@@ -78,6 +103,8 @@ export function ChatPanel({
     mode: effectiveMode,
     useLibrary,
     modesSupported: modeSupported,
+    recommend,
+    recommendationsSupported: recommendSupported,
     onLimit: (details) => {
       setDraft(lastQuestion.current);
       onSessionLimit?.(details);
@@ -102,6 +129,11 @@ export function ChatPanel({
     streamingChange.current?.(chat.streaming);
   }, [chat.streaming]);
 
+  // The one-shot request only applies to the Ask turn it was armed for.
+  useEffect(() => {
+    setRecommendNext(false);
+  }, [effectiveMode, scope.kind, useLibrary]);
+
   useEffect(
     () => () => {
       streamingChange.current?.(false);
@@ -119,6 +151,9 @@ export function ChatPanel({
   const blockedByLimit =
     effectiveMode === "session" && !chat.loading && !chat.conversationId && Boolean(sessionLimit);
   const composerDisabled = disabled || blockedByLimit || chat.sessionFull;
+  const showRecommend = recommendSupported && effectiveMode === "ask" && scope.kind === "library";
+  const recommendAvailable = showRecommend && useLibrary && status.scopes.library;
+  const recommendArmed = recommendNext && recommendAvailable;
 
   return (
     <section className="asst-chat" aria-label={label}>
@@ -147,6 +182,10 @@ export function ChatPanel({
             setDraft(question);
             input.current?.focus();
           }}
+          api={api}
+          useLibrary={useLibrary}
+          onEnableLibrary={onEnableLibrary}
+          onOpenBook={onOpenBook}
         />
       )}
       {chat.error && (
@@ -157,6 +196,14 @@ export function ChatPanel({
               Retry
             </button>
           )}
+        </div>
+      )}
+      {chat.limitNotice && (
+        <div className="asst-limit" role="alert">
+          <span>{chat.limitNotice}</span>
+          <Link className="asst-limit-link" to="/settings/ai">
+            Settings → AI
+          </Link>
         </div>
       )}
       {chat.stopped && (
@@ -193,7 +240,8 @@ export function ChatPanel({
           onDraft={setDraft}
           onSubmit={(question) => {
             lastQuestion.current = question;
-            chat.send(question, excerpt);
+            chat.send(question, excerpt, recommendArmed ? "on" : undefined);
+            setRecommendNext(false);
             setDraft("");
             onClearExcerpt?.();
           }}
@@ -208,6 +256,19 @@ export function ChatPanel({
           mode={effectiveMode}
           useLibrary={useLibrary}
           libraryAvailable={status.scopes.library}
+          recommendControl={
+            showRecommend ? (
+              <RecommendControl
+                mode={recommend}
+                onModeChange={(value) => onRecommendChange?.(value)}
+                armed={recommendArmed}
+                onArm={setRecommendNext}
+                useLibrary={useLibrary}
+                libraryAvailable={status.scopes.library}
+                disabled={disabled || chat.streaming || chat.sessionFull}
+              />
+            ) : undefined
+          }
         />
       )}
     </section>

@@ -18,11 +18,13 @@ import {
   ConversationLimitError,
   InvalidModeError,
   LibraryChatUnavailableError,
+  LibraryRequiredError,
 } from "../domain/assistant/errors.js";
-import { NotFoundError } from "../domain/errors.js";
+import { NotFoundError, ValidationError } from "../domain/errors.js";
 import {
   buildTutorMessages,
   MAX_PASSAGES,
+  MAX_QUERY_CHARS,
   promptVersionFor,
   TUTOR_PROMPT_VERSION,
   type TutorMessage,
@@ -31,11 +33,25 @@ import {
 import {
   buildRetrievalQueries,
   dropCannedPairs,
-  stripCitationMarkers,
 } from "../domain/assistant/sessionContext.js";
+import { createBookMarkerFilter, stripBookMarkers, type BookMarkerFilter } from "../domain/assistant/bookMarkers.js";
+import { detectRecommendIntent, recommendationTerms, type RecommendFocus } from "../domain/assistant/recommendIntent.js";
+import {
+  buildRecommendationContext,
+  MAX_EVIDENCE_PER_BOOK,
+  RECOMMEND_PASSAGES,
+  type TutorCandidate,
+  type TutorCandidateEvidence,
+} from "../domain/assistant/recommendPrompt.js";
+import type { ReadingStatus } from "../domain/reading/ReadingStatus.js";
 import { LlmError } from "../ports/assistant.js";
 import type { ConversationRepository, LlmClient, PassageRetriever } from "../ports/assistant.js";
 import type { Book, BookRepository, Clock, IdGenerator, Logger } from "../ports/index.js";
+import type {
+  BookRecommendationService,
+  RecommendationOutcome,
+  RecommendedBook,
+} from "./BookRecommendations.js";
 
 export { TUTOR_PROMPT_VERSION as CHAT_PROMPT_VERSION };
 
@@ -48,7 +64,30 @@ export type ChatErrorCode =
   | "llm_protocol"
   | "llm_empty"
   | "search_failed"
+  | "conversation_limit"
   | "aborted";
+
+/** `on` is the explicit "Recommend books" click; `auto` detects the intent. */
+export type RecommendRequest = "auto" | "on" | "off";
+export const RECOMMEND_REQUESTS: readonly RecommendRequest[] = ["auto", "on", "off"];
+
+/** One card of the `recommendations` event; no path, size, source or passage text. */
+export interface ChatRecommendationBook {
+  n: number;
+  bookId: string;
+  title: string;
+  author: string;
+  format: "pdf" | "epub";
+  language: string | null;
+  hasCover: boolean;
+  coverRev: number | null;
+  progress: { status: ReadingStatus; percentage: number };
+  matched: string[];
+  evidence: Array<{ passageId: number; page: number | null; section: string | null }>;
+  source: "passages" | "metadata" | "both";
+}
+
+export type RecommendationEventStatus = "ready" | "none" | "library_off" | "unavailable";
 
 export type ChatEvent =
   | {
@@ -62,6 +101,13 @@ export type ChatEvent =
       /** Ask only: whether this turn used the library. */
       useLibrary?: boolean;
     }
+  | {
+      type: "recommendations";
+      status: RecommendationEventStatus;
+      intent: "explicit" | "detected";
+      focus: RecommendFocus;
+      books: ChatRecommendationBook[];
+    }
   | { type: "delta"; text: string }
   | {
       type: "done";
@@ -73,6 +119,8 @@ export type ChatEvent =
       persisted: boolean;
       /** Ask only: whether this turn used the library. */
       useLibrary?: boolean;
+      /** Ready recommendations only: validated `[book:n]` markers, in order. */
+      recommended?: number[];
     }
   | { type: "error"; code: ChatErrorCode; message: string; detail?: string };
 
@@ -90,6 +138,8 @@ export interface ChatStatus {
   scopes: { library: boolean; book: boolean };
   /** Additive capability marker so a new client never sends `mode` to an old server. */
   modes: ChatMode[];
+  /** Additive capabilities; the web hides a control whose flag is absent. */
+  features: { recommendations: boolean };
   sessionLimits: ChatSessionLimits;
 }
 
@@ -124,6 +174,8 @@ export interface ChatTurnInput {
   mode?: ChatMode;
   /** Ask only; defaults to `true`. A Session always uses the library. */
   useLibrary?: boolean;
+  /** Omitted means `auto`: detect a "what should I read" intent. */
+  recommend?: RecommendRequest;
 }
 
 const PUBLIC_ERRORS: Record<ChatErrorCode, string> = {
@@ -133,6 +185,7 @@ const PUBLIC_ERRORS: Record<ChatErrorCode, string> = {
   llm_protocol: "The language model returned an unexpected response",
   llm_empty: "The language model returned no answer",
   search_failed: "The library search failed",
+  conversation_limit: "You have reached the session limit. Delete a session or raise the limit to start a new one.",
   aborted: "The request was cancelled",
 };
 
@@ -140,7 +193,7 @@ const RATE_WINDOW_MS = 60_000;
 
 interface RetrievalOutcome {
   mode: ChatRetrieval;
-  hits: { passageId: number; bookId: string; bookTitle: string; text: string; location: { page: number | null; section: string | null } }[];
+  hits: { passageId: number; bookId: string; bookTitle: string; text: string; score: number; location: { page: number | null; section: string | null } }[];
   /** `timed_out` is preserved even when partial citations were found. */
   search: "used" | "not_used" | "timed_out";
 }
@@ -154,6 +207,21 @@ interface TurnContext {
   bookTitle: string | undefined;
   page: number | undefined;
   section: string | undefined;
+}
+
+/** Resolved activation of recommendations for one turn. */
+interface RecommendationPlan {
+  /** Run the wide retrieval and build a shortlist. */
+  active: boolean;
+  /** The user asked for books while "Use my library" is off: notice only, no reads. */
+  libraryOff: boolean;
+  intent: "explicit" | "detected";
+  focus: RecommendFocus;
+}
+
+interface RecommendationState {
+  status: RecommendationEventStatus;
+  books: RecommendedBook[];
 }
 
 /**
@@ -179,6 +247,8 @@ export class Chat {
     private readonly limits: () => ChatLimits,
     /** Effective persona for the next turn; `null` uses the default. Read per turn. */
     private readonly systemPrompt: () => string | null,
+    /** Candidate source plus ranking; only Ask turns in library scope reach it. */
+    private readonly recommendations: BookRecommendationService,
     private readonly log: Logger = { info: () => {}, error: () => {} },
   ) {}
 
@@ -192,6 +262,7 @@ export class Chat {
       promptVersion: promptVersionFor(this.systemPrompt()),
       scopes: { library: enabled && limits.libraryScope, book: enabled },
       modes: [...CHAT_MODES],
+      features: { recommendations: true },
       sessionLimits: {
         maxSessions: limits.maxConversations,
         count: this.conversations.countAll(),
@@ -217,6 +288,8 @@ export class Chat {
     if (useLibrary && input.scope.kind === "library" && !this.limits().libraryScope) {
       throw new LibraryChatUnavailableError("Library chat needs the search index");
     }
+    // Reject an impossible recommendation request before it spends rate limit or quota.
+    const recommendation = resolveRecommendation(input, question, mode, useLibrary, input.scope);
 
     const persisted = mode === "session";
     const conversationId = persisted ? input.conversationId ?? this.ids.next() : this.ids.next();
@@ -236,7 +309,7 @@ export class Chat {
     try {
       yield* this.streamTurn(
         input,
-        { conversationId, question, excerpt, book, mode, useLibrary, persisted },
+        { conversationId, question, excerpt, book, mode, useLibrary, persisted, recommendation },
         signal,
       );
     } finally {
@@ -254,10 +327,11 @@ export class Chat {
       mode: ChatMode;
       useLibrary: boolean;
       persisted: boolean;
+      recommendation: RecommendationPlan | null;
     },
     signal: AbortSignal,
   ): AsyncIterable<ChatEvent> {
-    const { conversationId, question, excerpt, book, mode, useLibrary, persisted } = resolved;
+    const { conversationId, question, excerpt, book, mode, useLibrary, persisted, recommendation } = resolved;
     // Snapshot once per turn: the answer keeps consistent limits and prompt version even
     // if the user saves new settings while it streams.
     const limits = this.limits();
@@ -314,10 +388,21 @@ export class Chat {
         throw new ChatRateLimitedError("Too many chats are streaming right now", 1);
       }
 
+      const retrievalLimit = recommendation?.active ? RECOMMEND_PASSAGES : MAX_PASSAGES;
+      const recommendationQuery = recommendation?.active ? recommendationSearchQuery(question) : undefined;
       let retrieval: RetrievalOutcome = { mode: "none", hits: [], search: "not_used" };
       let searchFailed = false;
       try {
-        retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope, useLibrary, signal);
+        retrieval = await this.retrieve(
+          input.scope,
+          question,
+          history,
+          limits.libraryScope,
+          useLibrary,
+          signal,
+          retrievalLimit,
+          recommendationQuery,
+        );
       } catch (error) {
         // Cancellation is not a search failure: release the turn (and the conversation
         // mutex) without logging or waiting for the in-flight search to settle.
@@ -325,7 +410,8 @@ export class Chat {
           yield this.errorEvent("aborted");
           return;
         }
-        this.log.error(error, "chat retrieval failed");
+        // A fixed stage marker only: a retriever error may carry the query or a path.
+        this.log.error({ stage: "chat_retrieval" }, "chat retrieval failed");
         searchFailed = true;
       }
       if (signal.aborted) {
@@ -333,14 +419,52 @@ export class Chat {
         return;
       }
 
-      const citations = retrieval.hits.map((hit, index) => ({
-        n: index + 1,
-        passageId: hit.passageId,
-        bookId: hit.bookId,
-        bookTitle: hit.bookTitle,
-        page: hit.location.page,
-        section: hit.location.section,
-      }));
+      const recommendationState = searchFailed
+        ? null
+        : this.evaluateRecommendation(recommendation, question, retrieval);
+      const citations: Citation[] = [];
+      const candidates: TutorCandidate[] = [];
+      if (recommendationState?.status === "ready") {
+        // Evidence passages are the only citations of a recommendation turn: they keep a
+        // global number so `[n]` from the model still resolves in the client.
+        for (const book of recommendationState.books) {
+          const evidence: TutorCandidateEvidence[] = [];
+          for (const hit of book.evidence.slice(0, MAX_EVIDENCE_PER_BOOK)) {
+            const n = citations.length + 1;
+            citations.push({
+              n,
+              passageId: hit.passageId,
+              bookId: book.bookId,
+              bookTitle: book.title,
+              page: hit.page,
+              section: hit.section,
+            });
+            evidence.push({ n, page: hit.page, section: hit.section, text: hit.text });
+          }
+          candidates.push({
+            n: book.n,
+            title: book.title,
+            author: book.author,
+            format: book.format,
+            language: book.language,
+            series: book.series,
+            tags: book.tags,
+            status: book.progress.status,
+            evidence,
+          });
+        }
+      } else if (recommendationState === null) {
+        retrieval.hits.forEach((hit, index) => {
+          citations.push({
+            n: index + 1,
+            passageId: hit.passageId,
+            bookId: hit.bookId,
+            bookTitle: hit.bookTitle,
+            page: hit.location.page,
+            section: hit.location.section,
+          });
+        });
+      }
       yield {
         type: "sources",
         conversationId: persisted ? conversationId : null,
@@ -350,25 +474,45 @@ export class Chat {
         persisted,
         ...(mode === "ask" ? { useLibrary } : {}),
       };
+      if (recommendationState && recommendation) {
+        yield {
+          type: "recommendations",
+          status: recommendationState.status,
+          intent: recommendation.intent,
+          focus: recommendation.focus,
+          books: recommendationState.books.map(toEventBook),
+        };
+      }
       if (searchFailed) {
         yield this.errorEvent("search_failed");
         return;
       }
 
       const assistantId = this.ids.next();
-      const passages: TutorPassage[] = retrieval.hits.map((hit, index) => ({
-        n: index + 1,
-        bookTitle: hit.bookTitle,
-        page: hit.location.page,
-        section: hit.location.section,
-        text: hit.text,
-      }));
+      const recommendationContext = recommendationState && recommendation
+        && recommendationState.status !== "unavailable"
+        ? buildRecommendationContext({
+            status: recommendationState.status,
+            focus: recommendation.focus,
+            candidates,
+          })
+        : undefined;
+      const passages: TutorPassage[] = recommendationContext === undefined
+        ? retrieval.hits.map((hit, index) => ({
+            n: index + 1,
+            bookTitle: hit.bookTitle,
+            page: hit.location.page,
+            section: hit.location.section,
+            text: hit.text,
+          }))
+        : [];
       const messages = buildTutorMessages({
         question,
         passages,
         history,
         systemPrompt,
         librarySearch: retrieval.search,
+        ...(recommendationContext !== undefined ? { recommendationContext } : {}),
         ...(excerpt !== undefined
           ? {
               excerpt: {
@@ -382,6 +526,11 @@ export class Chat {
           : {}),
       });
 
+      const markerFilter: BookMarkerFilter | null = recommendationState
+        ? createBookMarkerFilter(
+            recommendationState.status === "ready" ? recommendationState.books.map((book) => book.n) : [],
+          )
+        : null;
       let answer = "";
       let finishReason: "stop" | "length" = "stop";
       try {
@@ -390,8 +539,10 @@ export class Chat {
           signal,
         )) {
           if (event.type === "delta") {
-            answer += event.text;
-            yield { type: "delta", text: event.text };
+            const text = markerFilter ? markerFilter.push(event.text) : event.text;
+            if (!text) continue;
+            answer += text;
+            yield { type: "delta", text };
           } else {
             finishReason = event.finishReason;
           }
@@ -414,10 +565,15 @@ export class Chat {
             "chat completion failed",
           );
         } else {
-          this.log.error(error, "chat completion failed unexpectedly");
+          this.log.error({ stage: "chat_completion" }, "chat completion failed unexpectedly");
         }
         yield this.errorEvent(code, detail);
         return;
+      }
+      const tail = markerFilter?.flush() ?? "";
+      if (tail) {
+        answer += tail;
+        yield { type: "delta", text: tail };
       }
       if (signal.aborted) {
         yield this.errorEvent("aborted");
@@ -439,7 +595,20 @@ export class Chat {
         createdAt: this.clock.now(),
       };
       // Ask is ephemeral: no conversation row, no messages, nothing to delete.
-      if (persisted) this.persistTurn(turn, question, title, assistant, now, limits.maxConversations);
+      if (persisted) {
+        try {
+          this.persistTurn(turn, question, title, assistant, now, limits.maxConversations);
+        } catch (error) {
+          // Another process may have taken the last slot after the stream started. The
+          // answer cannot be saved, so end with a clear error instead of a protocol one.
+          if (error instanceof ConversationLimitError) {
+            this.log.warn?.("chat turn hit the session limit after the stream started");
+            yield this.errorEvent("conversation_limit");
+            return;
+          }
+          throw error;
+        }
+      }
       yield {
         type: "done",
         conversationId: persisted ? conversationId : null,
@@ -449,6 +618,9 @@ export class Chat {
         mode,
         persisted,
         ...(mode === "ask" ? { useLibrary } : {}),
+        ...(recommendationState?.status === "ready" && markerFilter
+          ? { recommended: [...markerFilter.markers] }
+          : {}),
       };
     } finally {
       this.activeStreams -= 1;
@@ -490,6 +662,8 @@ export class Chat {
     libraryScope: boolean,
     useLibrary: boolean,
     signal: AbortSignal,
+    limit: number,
+    queryOverride?: string,
   ): Promise<RetrievalOutcome> {
     // Ask with the library off must not touch the retriever at all (ADR-3); the prompt
     // receives "Library: not used for this question." and the excerpt stays allowed.
@@ -498,7 +672,10 @@ export class Chat {
     if (!searchable) return { mode: "none", hits: [], search: "not_used" };
     let attempted = false;
     let unavailable = false;
-    for (const query of buildRetrievalQueries(question, history)) {
+    // A recommendation searches its content terms, the same string metadataMatches gets;
+    // the question keeps the anchored follow-up queries of a normal turn.
+    const queries = queryOverride !== undefined ? [queryOverride] : buildRetrievalQueries(question, history);
+    for (const query of queries) {
       if (!query) continue;
       attempted = true;
       // The retriever is in-process today, but an embedding query can wait behind a busy
@@ -507,12 +684,12 @@ export class Chat {
         this.retriever.search({
           q: query,
           ...(scope.kind === "book" ? { bookId: scope.bookId } : {}),
-          limit: MAX_PASSAGES,
+          limit,
         }, { allowShortQuery: true }),
         signal,
       );
       unavailable ||= result.unavailable === true;
-      const hits = result.hits.slice(0, MAX_PASSAGES);
+      const hits = result.hits.slice(0, limit);
       if (hits.length > 0) {
         // Keep the partial warning: a prior read was unavailable, so the search may have
         // missed results even though these citations are valid and must be preserved.
@@ -523,6 +700,25 @@ export class Chat {
     // A completed search that found nothing is "used"; any unavailable attempt wins over
     // that clean no-match so the prompt never claims the library has no such passage.
     return { mode: "none", hits: [], search: unavailable ? "timed_out" : "used" };
+  }
+
+  /**
+   * Runs the candidate aggregation only when the turn is a library Ask with the library
+   * on. A library-off notice is emitted without touching the retriever or metadata.
+   */
+  private evaluateRecommendation(
+    plan: RecommendationPlan | null,
+    question: string,
+    retrieval: RetrievalOutcome,
+  ): RecommendationState | null {
+    if (!plan) return null;
+    if (plan.libraryOff) return { status: "library_off", books: [] };
+    const outcome: RecommendationOutcome = this.recommendations.recommend({
+      question,
+      hits: retrieval.hits,
+      search: retrieval.search,
+    });
+    return { status: outcome.status, books: outcome.books };
   }
 
   private persistTurn(
@@ -574,10 +770,75 @@ function resolveMode(input: ChatTurnInput): ChatMode {
   return mode;
 }
 
+/**
+ * Matrix of ADR-16/ADR-18: recommendations exist only in an Ask turn over the whole
+ * library with the library on. `on` outside it is a client mistake (`invalid_mode`);
+ * `on` with the library off is `library_required`. `auto`/`off` outside the context are
+ * accepted no-ops.
+ */
+function resolveRecommendation(
+  input: ChatTurnInput,
+  question: string,
+  mode: ChatMode,
+  useLibrary: boolean,
+  scope: ChatRequestScope,
+): RecommendationPlan | null {
+  const request = input.recommend ?? "auto";
+  if (!(RECOMMEND_REQUESTS as readonly string[]).includes(request)) {
+    throw new ValidationError("recommend must be auto, on or off");
+  }
+  if (request === "off") return null;
+  const detected = detectRecommendIntent(question);
+  if (request === "on") {
+    if (mode !== "ask" || scope.kind !== "library") {
+      throw new InvalidModeError("Book recommendations are only available in Ask mode for the whole library");
+    }
+    if (!useLibrary) throw new LibraryRequiredError();
+    return { active: true, libraryOff: false, intent: "explicit", focus: "recommend" };
+  }
+  if (!detected) return null;
+  if (mode !== "ask" || scope.kind !== "library") return null;
+  if (!useLibrary) return { active: false, libraryOff: true, intent: "detected", focus: detected.focus };
+  return { active: true, libraryOff: false, intent: "detected", focus: detected.focus };
+}
+
+/**
+ * The recommendation query is the content terms, never the whole question: the intent
+ * words and stopwords would only dilute the FTS plan. With no content term left, the
+ * capped question is still better than an empty search.
+ */
+function recommendationSearchQuery(question: string): string {
+  const terms = recommendationTerms(question);
+  return terms.length > 0 ? terms.join(" ") : question.trim().slice(0, MAX_QUERY_CHARS);
+}
+
+function toEventBook(book: RecommendedBook): ChatRecommendationBook {
+  return {
+    n: book.n,
+    bookId: book.bookId,
+    title: book.title,
+    author: book.author,
+    format: book.format,
+    language: book.language,
+    hasCover: book.hasCover,
+    coverRev: book.coverRev,
+    progress: book.progress,
+    matched: book.matched,
+    evidence: book.evidence.map((evidence) => ({
+      passageId: evidence.passageId,
+      page: evidence.page,
+      section: evidence.section,
+    })),
+    source: book.source,
+  };
+}
+
 function cleanHistory(messages: readonly ChatMessage[]): TutorMessage[] {
   return dropCannedPairs(messages).map((message) => ({
     role: message.role,
-    content: message.role === "assistant" ? stripCitationMarkers(message.content) : message.content,
+    // Earlier turns keep their text, spacing and `[n]` markers; only a stray card marker
+    // is removed. The stored transcript is never rewritten by this step.
+    content: message.role === "assistant" ? stripBookMarkers(message.content) : message.content,
   }));
 }
 

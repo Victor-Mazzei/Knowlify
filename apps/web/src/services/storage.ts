@@ -1,13 +1,15 @@
-import type { ChatMode } from "../modules/assistant/types";
+import type { ChatMode, RecommendPreference } from "../modules/assistant/types";
 
 /**
  * Small, typed preferences owned by the tutor. Each key stores one short value:
- * the last mode, whether the first-use hint was dismissed and the Ask library
- * switch. No book id, title, question or excerpt is ever stored here.
+ * the last mode, whether the first-use hint was dismissed, the Ask library
+ * switch and whether Ask looks for book suggestions. No book id, title,
+ * question or excerpt is ever stored here.
  */
 export const TUTOR_MODE_KEY = "knowlify.tutor.mode";
 export const TUTOR_HINT_KEY = "knowlify.tutor.hintDismissed";
 export const TUTOR_ASK_LIBRARY_KEY = "knowlify.tutor.askUseLibrary";
+export const TUTOR_RECOMMEND_KEY = "knowlify.tutor.recommend";
 
 const read = (key: string): string | null => {
   try {
@@ -50,4 +52,13 @@ export function readAskUseLibrary(): boolean {
 
 export function saveAskUseLibrary(useLibrary: boolean): void {
   write(TUTOR_ASK_LIBRARY_KEY, useLibrary ? "1" : "0");
+}
+
+/** Ask looks for book suggestions by default; only the exact `"off"` turns them off. */
+export function readTutorRecommend(): RecommendPreference {
+  return read(TUTOR_RECOMMEND_KEY) === "off" ? "off" : "auto";
+}
+
+export function saveTutorRecommend(recommend: RecommendPreference): void {
+  write(TUTOR_RECOMMEND_KEY, recommend);
 }

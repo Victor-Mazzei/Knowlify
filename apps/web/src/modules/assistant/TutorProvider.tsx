@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import type { ApiFn } from "../../components/dialogs";
 import { ApiError, useApi } from "../../services/api";
-import { saveAskUseLibrary, saveTutorMode } from "../../services/storage";
+import { saveAskUseLibrary, saveTutorMode, saveTutorRecommend } from "../../services/storage";
 import type { Credentials } from "../../types";
 import { MAX_IMPORTED_MESSAGES, planAskImport } from "./askImport";
 import { chatApi } from "./chatApi";
@@ -22,6 +22,7 @@ import type {
   ChatScope,
   ChatStatus,
   ConversationSummary,
+  RecommendPreference,
   SaveConversationRequest,
 } from "./types";
 
@@ -318,12 +319,12 @@ export function TutorProvider({
     if (!pending || savingAsk) return;
     const plan = planAskImport(pending.messages);
     if (plan.oversized) {
-      setSaveAskError("A message in this chat is too long for a session, so nothing was saved.");
+      setSaveAskError("A message in this chat is too long for a session, so it cannot be saved.");
       return;
     }
     if (plan.malformed) {
       setSaveAskError(
-        "This chat is not a question-and-answer sequence, so nothing was saved.",
+        "This chat is not a question-and-answer sequence, so it cannot be saved as a session.",
       );
       return;
     }
@@ -334,7 +335,7 @@ export function TutorProvider({
       }
     } else if (plan.overLimit) {
       setSaveAskError(
-        `This chat has ${plan.transcriptMessages} messages. A session can save at most ${MAX_IMPORTED_MESSAGES} messages, so nothing was saved.`,
+        `This chat has ${plan.transcriptMessages} messages. A session can hold at most ${MAX_IMPORTED_MESSAGES}, so it cannot be saved as one session.`,
       );
       return;
     }
@@ -402,6 +403,26 @@ export function TutorProvider({
     },
     [slots],
   );
+
+  const setSlotRecommend = useCallback(
+    (key: string, recommend: RecommendPreference) => {
+      slots.setSlotRecommend(key, recommend);
+      saveTutorRecommend(recommend);
+    },
+    [slots],
+  );
+
+  /**
+   * A suggested-book link navigates to `/book/:id`. The narrow dock is a modal
+   * over that page, so it closes first; on the page surface and the wide dock the
+   * tutor stays open.
+   */
+  const dismissOnNarrowNavigation = useCallback(() => {
+    if (surface !== "dock") return;
+    const narrow =
+      typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
+    if (narrow) closeTutor();
+  }, [surface, closeTutor]);
 
   const rememberConversation = useCallback(
     (key: string, summary: ConversationSummary) => {
@@ -506,6 +527,7 @@ export function TutorProvider({
     setChatMode,
     setSlotMode: slots.setSlotMode,
     setSlotUseLibrary,
+    setSlotRecommend,
     startNewSession,
     reportSessionLimit,
     clearSessionLimit,
@@ -524,6 +546,7 @@ export function TutorProvider({
     forgetConversation: slots.forgetConversation,
     isConversationStreaming: slots.isConversationStreaming,
     registerReaderContext,
+    dismissOnNarrowNavigation,
   };
   const askPlan = pendingAsk ? planAskImport(pendingAsk.messages) : null;
   return (

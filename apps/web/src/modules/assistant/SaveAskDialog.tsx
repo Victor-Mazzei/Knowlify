@@ -99,12 +99,12 @@ export function SaveAskDialog({
           </p>
           {overLimit && (
             <p className="error save-ask-error" role="alert">
-              This chat has {messageCount} messages. A session can save at most {maxMessages} messages, so
-              Save as session is disabled and nothing was saved.{" "}
-              {canSaveLast && `You can save the newest ${lastMessageCount} messages. `}
+              This chat has {messageCount} messages. A session can hold at most {maxMessages}, so Save
+              as session is not available.{" "}
               {canSaveLast &&
-                droppedMessages > 0 &&
-                `The ${droppedMessages} oldest ${droppedMessages === 1 ? "message" : "messages"} will not be saved. `}
+                (droppedMessages > 0
+                  ? `You can save the newest ${lastMessageCount} messages instead; the ${droppedMessages} oldest ${droppedMessages === 1 ? "message" : "messages"} will not be saved. `
+                  : `You can save the newest ${lastMessageCount} messages instead. `)}
               Cancel keeps this chat. Discard deletes it.
             </p>
           )}
@@ -113,13 +113,13 @@ export function SaveAskDialog({
               {oversized === "question"
                 ? `A question in this chat is longer than ${MAX_IMPORTED_USER_CHARS.toLocaleString("en-US")} characters.`
                 : `An answer in this chat is longer than ${MAX_IMPORTED_ASSISTANT_CHARS.toLocaleString("en-US")} characters.`}{" "}
-              Nothing was saved. Cancel keeps this chat. Discard deletes it.
+              This chat cannot be saved as a session. Cancel keeps this chat. Discard deletes it.
             </p>
           )}
           {malformed && (
             <p className="error save-ask-error" role="alert">
-              This chat is not a question-and-answer sequence, so you cannot save it as a session. Nothing
-              was saved. Cancel keeps this chat. Discard deletes it.
+              This chat is not a question-and-answer sequence, so it cannot be saved as a session.
+              Cancel keeps this chat. Discard deletes it.
             </p>
           )}
           {!malformed && !oversized && incompleteAnswers > 0 && (

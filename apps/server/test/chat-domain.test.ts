@@ -24,6 +24,7 @@ import {
   type TutorMessage,
 } from "../src/domain/assistant/tutorPrompt.js";
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
+import { stripBookMarkers } from "../src/domain/assistant/bookMarkers.js";
 import {
   LIBRARY_NOT_USED_BLOCK,
   REPLY_TO_CHECK_QUESTION_BLOCK,
@@ -425,7 +426,7 @@ describe("imported Ask transcript", () => {
       },
     ], bookTitleFor);
     expect(messages).toEqual([
-      { role: "user", content: "What is deep work?", citations: null },
+      { role: "user", content: "  What is deep work?  ", citations: null },
       {
         role: "assistant",
         content: "Focused work.",
@@ -434,6 +435,67 @@ describe("imported Ask transcript", () => {
         ],
       },
     ]);
+  });
+
+  it("keeps the reviewer cases exact", () => {
+    const messages = normalizeImportedMessages([
+      { role: "user", content: "Explain [book:1] in this spec" },
+      { role: "assistant", content: "Use list[1] to read second value." },
+      { role: "user", content: "Explain list[0] and [1, 2]" },
+      { role: "assistant", content: "Claim [book:3]." },
+      { role: "user", content: "  if x:\n    print(items[0])  " },
+      { role: "assistant", content: "  if x:\n    print(items[0])  " },
+    ], () => undefined);
+    expect(messages.map((message) => message.content)).toEqual([
+      "Explain [book:1] in this spec",
+      "Use list[1] to read second value.",
+      "Explain list[0] and [1, 2]",
+      "Claim.",
+      "  if x:\n    print(items[0])  ",
+      "  if x:\n    print(items[0])  ",
+    ]);
+  });
+
+  it("is the identity for text without a book marker", () => {
+    const texts = [
+      "  leading and trailing  ",
+      "Explain list[0] and [1, 2]",
+      "  if x:\n    print(items[0])\n  ",
+      "Use list[1] to read second value.",
+      "```\nconst x = [1];\n```",
+      "Claim [99].",
+      "Explain [book:1234] is not a marker",
+    ];
+    for (const text of texts) {
+      const messages = normalizeImportedMessages([
+        { role: "user", content: text },
+        { role: "assistant", content: text },
+      ], () => undefined);
+      expect(messages[0]?.content).toBe(text);
+      expect(messages[1]?.content).toBe(text);
+    }
+  });
+
+  it("processes adversarial imports in linear time", () => {
+    const unit = "]([";
+    const adversarial = unit.repeat(Math.ceil(8_000 / unit.length)).slice(0, 8_000);
+    const input: Array<{ role: string; content: string }> = [];
+    for (let index = 0; index < 7; index += 1) {
+      input.push({ role: "user", content: "q" });
+      input.push({ role: "assistant", content: adversarial });
+    }
+    const importStarted = performance.now();
+    const imported = normalizeImportedMessages(input, () => undefined);
+    const importMs = performance.now() - importStarted;
+    expect(imported.filter((message) => message.role === "assistant")).toHaveLength(7);
+    expect(importMs).toBeLessThan(100);
+
+    const malformed = "[book:".repeat(Math.ceil(200_000 / "[book:".length));
+    const stripStarted = performance.now();
+    const stripped = stripBookMarkers(malformed);
+    const stripMs = performance.now() - stripStarted;
+    expect(stripped).toBe(malformed);
+    expect(stripMs).toBeLessThan(100);
   });
 
   it("rejects odd, misordered, oversized and malformed transcripts", () => {

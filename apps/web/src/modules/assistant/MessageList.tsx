@@ -1,7 +1,42 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
+import type { ApiFn } from "../../components/dialogs";
+import { BookSuggestions } from "./BookSuggestions";
 import { AnswerText, Sources } from "./Citations";
 import { TutorStatus } from "./TutorStatus";
 import type { ChatMessage } from "./types";
+
+/**
+ * One assistant answer. Memoizing at the message boundary means a streaming
+ * delta re-parses only the live answer; finished turns keep their DOM and do
+ * not re-run Markdown when the list re-renders.
+ */
+const AssistantAnswer = memo(function AssistantAnswer({
+  message,
+  live,
+  onOpenBook,
+}: {
+  message: ChatMessage;
+  live: boolean;
+  onOpenBook?: () => void;
+}) {
+  const books = useMemo(
+    () =>
+      message.recommendations
+        ? message.recommendations.books.filter((book) => message.recommended?.includes(book.n))
+        : undefined,
+    [message.recommendations, message.recommended],
+  );
+  if (!message.content) return null;
+  return (
+    <AnswerText
+      text={message.content}
+      citations={message.citations}
+      books={books}
+      onOpenBook={onOpenBook}
+      partial={live || Boolean(message.incomplete)}
+    />
+  );
+});
 
 export function MessageList({
   messages,
@@ -10,6 +45,10 @@ export function MessageList({
   emptyTitle,
   emptyCopy,
   onExample,
+  api,
+  useLibrary = true,
+  onEnableLibrary,
+  onOpenBook,
 }: {
   messages: ChatMessage[];
   streaming: boolean;
@@ -17,6 +56,11 @@ export function MessageList({
   emptyTitle: string;
   emptyCopy?: string;
   onExample: (question: string) => void;
+  api: ApiFn;
+  /** Ask library switch; when off the library-off notice can offer to turn it on. */
+  useLibrary?: boolean;
+  onEnableLibrary?: () => void;
+  onOpenBook?: () => void;
 }) {
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -55,11 +99,21 @@ export function MessageList({
           <article className="asst-turn" key={message.id}>
             <p className="asst-turn-label">Tutor</p>
             <div className="asst-answer-wrap" aria-busy={live ? true : undefined}>
-              {message.content ? <AnswerText text={message.content} citations={message.citations} /> : null}
+              <AssistantAnswer message={message} live={live} onOpenBook={onOpenBook} />
               {live ? <TutorStatus phase={message.content ? "writing" : "thinking"} /> : null}
               {message.incomplete ? <p className="asst-incomplete">Answer incomplete.</p> : null}
             </div>
             <Sources citations={message.citations} />
+            {!live && (
+              <BookSuggestions
+                recommendations={message.recommendations}
+                recommended={message.recommended}
+                api={api}
+                useLibrary={useLibrary}
+                onEnableLibrary={onEnableLibrary}
+                onOpenBook={onOpenBook}
+              />
+            )}
           </article>
         );
       })}

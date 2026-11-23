@@ -77,6 +77,22 @@ describe("useChatStatus", () => {
     expect(screen.getByTestId("status")).not.toHaveTextContent('"sessionLimits"');
   });
 
+  it("reads the additive recommendation feature and hides a malformed one", async () => {
+    const withFeature = { ...enabledStatus, features: { recommendations: true } };
+    const api = vi.fn(async () => new Response(JSON.stringify(withFeature)));
+    const { unmount } = render(<StatusHarness api={api} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent('"recommendations":true'),
+    );
+    unmount();
+
+    const malformed = vi.fn(async () =>
+      new Response(JSON.stringify({ ...enabledStatus, features: { recommendations: "yes" } })),
+    );
+    render(<StatusHarness api={malformed} />);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("null"));
+  });
+
   it("keeps a confirmed enabled status through a refresh", async () => {
     const api = vi.fn(async () => new Response(JSON.stringify(enabledStatus)));
     render(<Harness api={api} />);

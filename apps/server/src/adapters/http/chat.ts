@@ -8,6 +8,7 @@ import {
   ConversationScopeMismatchError,
   InvalidModeError,
   LibraryChatUnavailableError,
+  LibraryRequiredError,
 } from "../../domain/assistant/errors.js";
 import { NotFoundError, ValidationError } from "../../domain/errors.js";
 import {
@@ -70,13 +71,14 @@ const scopeSchema = {
 const messageBodySchema = {
   type: "object",
   required: ["message", "scope"],
-  propertyNames: { enum: ["conversationId", "message", "scope", "mode", "useLibrary"] },
+  propertyNames: { enum: ["conversationId", "message", "scope", "mode", "useLibrary", "recommend"] },
   properties: {
     conversationId: { type: "string", minLength: 1, maxLength: MAX_CONVERSATION_ID_CHARS },
     message: { type: "string", minLength: 1, maxLength: MAX_QUESTION_CHARS },
     scope: scopeSchema,
     mode: { type: "string", enum: ["ask", "session"] },
     useLibrary: { type: "boolean" },
+    recommend: { type: "string", enum: ["auto", "on", "off"] },
   },
 } as const;
 
@@ -155,6 +157,9 @@ export async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) 
     if (error instanceof ValidationError) return reply.code(400).send({ message: error.message });
     if (error instanceof NotFoundError) return reply.code(404).send({ message: error.message });
     if (error instanceof InvalidModeError) {
+      return reply.code(400).send({ message: error.message, code: error.code });
+    }
+    if (error instanceof LibraryRequiredError) {
       return reply.code(400).send({ message: error.message, code: error.code });
     }
     if (error instanceof ConversationLimitError) {

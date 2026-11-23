@@ -1,41 +1,41 @@
 import { Link } from "react-router-dom";
-import type { Citation } from "./types";
-
-const citationHref = (citation: Citation) =>
-  `/read/${encodeURIComponent(citation.bookId)}${citation.page === null ? "" : `?at=${citation.page}`}`;
+import { citationHref } from "./MarkerChips";
+import { MarkdownMessage } from "./markdown/Markdown";
+import type { Citation, RecommendedBook } from "./types";
 
 const citationLocation = (citation: Citation) => {
   const parts = [citation.section, citation.page === null ? "" : `page ${citation.page}`].filter(Boolean);
   return parts.join(" · ");
 };
 
-function CitationChip({ citation }: { citation: Citation }) {
-  return (
-    <Link
-      className="asst-cite"
-      to={citationHref(citation)}
-      title={`${citation.bookTitle}${citation.page === null ? "" : `, page ${citation.page}`}`}
-      aria-label={`Source ${citation.n}: ${citation.bookTitle}${citation.page === null ? "" : `, page ${citation.page}`}`}
-    >
-      {citation.n}
-    </Link>
-  );
-}
-
 /**
- * Answer text is rendered as text: only `[n]` markers that match a real citation
- * become links, so model output cannot inject markup.
+ * Answer text is rendered as Markdown, never as HTML. The Markdown renderer
+ * turns `[n]` and `[book:n]` markers that match real data into the same chips
+ * as before, and leaves every other marker as text (or hides an unknown book
+ * marker). Model output cannot inject markup.
  */
-export function AnswerText({ text, citations }: { text: string; citations: Citation[] | null }) {
-  const byNumber = new Map((citations ?? []).map((citation) => [citation.n, citation]));
+export function AnswerText({
+  text,
+  citations,
+  books,
+  onOpenBook,
+  partial = false,
+}: {
+  text: string;
+  citations: Citation[] | null;
+  books?: RecommendedBook[];
+  onOpenBook?: () => void;
+  /** Streaming or incomplete: close pending emphasis/code for display only. */
+  partial?: boolean;
+}) {
   return (
-    <p className="asst-answer">
-      {text.split(/(\[\d+\])/g).map((part, index) => {
-        const match = /^\[(\d+)\]$/.exec(part);
-        const citation = match ? byNumber.get(Number(match[1])) : undefined;
-        return citation ? <CitationChip key={index} citation={citation} /> : <span key={index}>{part}</span>;
-      })}
-    </p>
+    <MarkdownMessage
+      text={text}
+      citations={citations}
+      books={books}
+      onOpenBook={onOpenBook}
+      partial={partial}
+    />
   );
 }
 

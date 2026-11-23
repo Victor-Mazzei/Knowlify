@@ -17,7 +17,7 @@ import type { Db } from "./adapters/storage/db.js";
 import type { Logger } from "./ports/index.js";
 import type { IndexEpoch } from "./ports/index-epoch.js";
 import type { IngestionRunner, PassageQueryStore, PassageRepository, VectorStore } from "./ports/knowledge.js";
-import { SqliteBookRepository, SqliteSourceRepository, SqliteNoteRepository, SqliteProgressRepository, SqliteSyncProgressRepository, SqliteBookDuplicateRepository, SqliteMergeLogRepository, SqliteUnitOfWork, SqliteTagRepository, SqliteIgnoredBookRepository, SqliteMcpTokenRepository, SqliteBookMetadataRepository } from "./adapters/storage/repositories.js";
+import { SqliteBookRepository, SqliteSourceRepository, SqliteNoteRepository, SqliteProgressRepository, SqliteSyncProgressRepository, SqliteBookDuplicateRepository, SqliteMergeLogRepository, SqliteUnitOfWork, SqliteTagRepository, SqliteIgnoredBookRepository, SqliteMcpTokenRepository, SqliteBookMetadataRepository, SqliteBookCandidateSource } from "./adapters/storage/repositories.js";
 import { SqliteBookListQuery } from "./adapters/storage/SqliteBookListQuery.js";
 import { SqliteBookIndexRepository, SqlitePassageRepository } from "./adapters/storage/SqliteKnowledgeRepositories.js";
 import { SqliteBlobVectorStore } from "./adapters/storage/SqliteBlobVectorStore.js";
@@ -79,6 +79,7 @@ import { chatRoutes } from "./adapters/http/chat.js";
 import { settingsChatRoutes } from "./adapters/http/settings-chat.js";
 import { Chat } from "./use-cases/Chat.js";
 import { ChatSessions } from "./use-cases/ChatSessions.js";
+import { BookRecommendations } from "./use-cases/BookRecommendations.js";
 import { ChatLimitsSettings } from "./use-cases/ChatLimitsSettings.js";
 import { createLlmClient } from "./adapters/llm/createLlmClient.js";
 import { SwitchableLlmClient } from "./adapters/llm/SwitchableLlmClient.js";
@@ -377,6 +378,11 @@ export function createServices(
     ids,
     () => ({ maxConversations: chatLimitsSettings.current() }),
   );
+  const bookRecommendations = new BookRecommendations(
+    new SqliteBookCandidateSource(db),
+    progressRepository,
+    log,
+  );
   const chat = new Chat(
     llmRuntime,
     passageSearch,
@@ -390,6 +396,7 @@ export function createServices(
       maxConversations: chatLimitsSettings.current(),
     }),
     () => tutorPromptSettings.current(),
+    bookRecommendations,
     log,
   );
   const scanner = new Scanner(books, sources, files, clock, ids, metadata, log, indexing, config.browseRoots, {

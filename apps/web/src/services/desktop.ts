@@ -24,6 +24,11 @@ export type FolderPick =
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
+/** True inside the Tauri webview; false in a normal browser and in tests. */
+export function isDesktopShell(): boolean {
+  return Boolean(window.__TAURI__);
+}
+
 function isLocalServer(): boolean {
   const base = window.__KNOWLIFY__?.apiBaseUrl;
   if (!base) return false;

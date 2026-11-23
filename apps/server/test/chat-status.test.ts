@@ -36,6 +36,7 @@ describe("GET /api/chat/status", () => {
     const body = response.json();
     expect(Object.keys(body).sort()).toEqual([
       "enabled",
+      "features",
       "host",
       "model",
       "modes",
@@ -50,6 +51,7 @@ describe("GET /api/chat/status", () => {
       promptVersion: "feynman-5",
       scopes: { library: false, book: false },
       modes: ["ask", "session"],
+      features: { recommendations: true },
       sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);

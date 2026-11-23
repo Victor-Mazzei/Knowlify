@@ -5,7 +5,6 @@ import {
   estimateTokens,
   MAX_QUERY_CHARS,
   NO_PASSAGES_ANSWER,
-  stripCitationMarkers,
   type ContextMessage,
 } from "../src/domain/assistant/sessionContext.js";
 
@@ -21,11 +20,15 @@ describe("session context helpers", () => {
     expect(estimateTokens("x".repeat(4_000))).toBe(1_000);
   });
 
-  it("strips stored citation markers and leaves ordinary brackets alone", () => {
-    expect(stripCitationMarkers("Deep work [1] needs focus [12].")).toBe("Deep work needs focus.");
-    expect(stripCitationMarkers("[1] Focus.")).toBe("Focus.");
-    expect(stripCitationMarkers("An array-like [note] and [x] stay.")).toBe("An array-like [note] and [x] stay.");
-    expect(stripCitationMarkers("  [1]  ")).toBe("");
+  it("keeps numeric markers and removes only card markers from the derived anchor", () => {
+    const history: ContextMessage[] = [
+      message("user", "What is deep work?"),
+      message("assistant", "Great question. Which part [book:1] of deep work [1] would you like to practice first?"),
+    ];
+    expect(buildRetrievalQueries("The focus part.", history)).toEqual([
+      "Which part of deep work [1] would you like to practice first? The focus part.",
+      "The focus part.",
+    ]);
   });
 
   it("drops only exact legacy canned pairs, including the paired question", () => {
@@ -54,7 +57,7 @@ describe("session context helpers", () => {
       message("assistant", "Great question. Which part of deep work [1] would you like to practice first?"),
     ];
     expect(buildRetrievalQueries("The focus part.", history)).toEqual([
-      "Which part of deep work would you like to practice first? The focus part.",
+      "Which part of deep work [1] would you like to practice first? The focus part.",
       "The focus part.",
     ]);
   });

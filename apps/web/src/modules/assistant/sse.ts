@@ -1,4 +1,15 @@
-import type { ChatErrorCode, ChatEvent, ChatMode, ChatRetrieval, Citation } from "./types";
+import type {
+  ChatErrorCode,
+  ChatEvent,
+  ChatMode,
+  ChatRecommendations,
+  ChatRetrieval,
+  Citation,
+  RecommendationFocus,
+  RecommendationIntent,
+  RecommendationStatus,
+  RecommendedBook,
+} from "./types";
 
 type SseMessage = { event: string; data: string };
 
@@ -9,6 +20,7 @@ const ERROR_CODES: readonly ChatErrorCode[] = [
   "llm_protocol",
   "llm_empty",
   "search_failed",
+  "conversation_limit",
   "aborted",
 ];
 
@@ -87,8 +99,103 @@ function parseCitation(value: unknown): Citation | null {
   };
 }
 
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const parseEvidence = (value: unknown): RecommendedBook["evidence"] => {
+  if (!Array.isArray(value)) return [];
+  const evidence: RecommendedBook["evidence"] = [];
+  for (const item of value) {
+    if (!isRecord(item) || typeof item.passageId !== "number") continue;
+    evidence.push({
+      passageId: item.passageId,
+      page: typeof item.page === "number" ? item.page : null,
+      section: typeof item.section === "string" ? item.section : null,
+    });
+    if (evidence.length === 2) break;
+  }
+  return evidence;
+};
+
+/** Malformed books are dropped; the rest of the event still renders. */
+function parseRecommendedBook(value: unknown): RecommendedBook | null {
+  if (!isRecord(value)) return null;
+  const progress = value.progress;
+  const readingStatus = isRecord(progress)
+    ? READING_STATUSES.find((status) => status === progress.status)
+    : undefined;
+  const format = BOOK_FORMATS.find((item) => item === value.format);
+  const source = BOOK_SOURCES.find((item) => item === value.source);
+  if (
+    typeof value.n !== "number" ||
+    !Number.isInteger(value.n) ||
+    value.n < 1 ||
+    typeof value.bookId !== "string" ||
+    typeof value.title !== "string" ||
+    typeof value.author !== "string" ||
+    !format ||
+    !source ||
+    !readingStatus ||
+    !isRecord(progress) ||
+    typeof progress.percentage !== "number" ||
+    typeof value.hasCover !== "boolean"
+  )
+    return null;
+  return {
+    n: value.n,
+    bookId: value.bookId,
+    title: value.title,
+    author: value.author,
+    format,
+    language: typeof value.language === "string" ? value.language : null,
+    hasCover: value.hasCover,
+    coverRev: typeof value.coverRev === "number" ? value.coverRev : null,
+    progress: { status: readingStatus, percentage: progress.percentage },
+    matched: isStringArray(value.matched) ? value.matched.slice(0, 6) : [],
+    evidence: parseEvidence(value.evidence),
+    source,
+  };
+}
+
+function parseRecommendations(value: Record<string, unknown>): ChatRecommendations | null {
+  const status = RECOMMENDATION_STATUSES.find((item) => item === value.status);
+  const intent = RECOMMENDATION_INTENTS.find((item) => item === value.intent);
+  const focus = RECOMMENDATION_FOCUSES.find((item) => item === value.focus);
+  if (!status || !intent || !focus) return null;
+  const books = Array.isArray(value.books)
+    ? value.books
+        .map(parseRecommendedBook)
+        .filter((book): book is RecommendedBook => book !== null)
+        .slice(0, 5)
+    : [];
+  return { status, intent, focus, books };
+}
+
+const parseRecommendedNumbers = (value: unknown): number[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  const numbers = value.filter(
+    (item): item is number => typeof item === "number" && Number.isInteger(item) && item >= 1,
+  );
+  return numbers.length > 0 ? numbers : [];
+};
+
 const RETRIEVALS: readonly ChatRetrieval[] = ["hybrid", "semantic", "lexical", "none"];
 const MODES: readonly ChatMode[] = ["ask", "session"];
+const RECOMMENDATION_STATUSES: readonly RecommendationStatus[] = [
+  "ready",
+  "none",
+  "library_off",
+  "unavailable",
+];
+const RECOMMENDATION_INTENTS: readonly RecommendationIntent[] = ["explicit", "detected"];
+const RECOMMENDATION_FOCUSES: readonly RecommendationFocus[] = ["recommend", "learn"];
+const READING_STATUSES: readonly RecommendedBook["progress"]["status"][] = [
+  "unread",
+  "reading",
+  "finished",
+];
+const BOOK_SOURCES: readonly RecommendedBook["source"][] = ["passages", "metadata", "both"];
+const BOOK_FORMATS: readonly RecommendedBook["format"][] = ["pdf", "epub"];
 
 const parseMode = (value: unknown): ChatMode | undefined =>
   MODES.find((mode) => mode === value);
@@ -133,6 +240,10 @@ export function parseChatEvent(data: string): ChatEvent | null {
   if (value.type === "delta") {
     return typeof value.text === "string" ? { type: "delta", text: value.text } : null;
   }
+  if (value.type === "recommendations") {
+    const recommendations = parseRecommendations(value);
+    return recommendations ? { type: "recommendations", ...recommendations } : null;
+  }
   if (value.type === "done") {
     const conversationId = parseConversationId(value.conversationId);
     if (
@@ -144,6 +255,7 @@ export function parseChatEvent(data: string): ChatEvent | null {
     const finishReason = value.finishReason === "length" ? "length" : "stop";
     const mode = parseMode(value.mode);
     const persisted = typeof value.persisted === "boolean" ? value.persisted : undefined;
+    const recommended = parseRecommendedNumbers(value.recommended);
     return {
       type: "done",
       conversationId,
@@ -152,6 +264,7 @@ export function parseChatEvent(data: string): ChatEvent | null {
       finishReason,
       ...(mode ? { mode } : {}),
       ...(persisted === undefined ? {} : { persisted }),
+      ...(recommended === undefined ? {} : { recommended }),
     };
   }
   if (value.type === "error") {

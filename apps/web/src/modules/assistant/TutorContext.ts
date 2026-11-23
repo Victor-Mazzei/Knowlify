@@ -2,7 +2,7 @@ import { createContext, useContext, useLayoutEffect } from "react";
 import type { ApiFn } from "../../components/dialogs";
 import type { ChatExcerpt } from "./excerpt";
 import type { TutorReaderContext, TutorSlot, TutorSurface, TutorView } from "./tutorTypes";
-import type { ChatMessage, ChatMode, ChatStatus, ConversationSummary } from "./types";
+import type { ChatMessage, ChatMode, ChatStatus, ConversationSummary, RecommendPreference } from "./types";
 import type { ChatLimitDetails } from "./useChat";
 
 export type TutorContextValue = {
@@ -33,6 +33,7 @@ export type TutorContextValue = {
   setChatMode: (mode: ChatMode) => void;
   setSlotMode: (key: string, mode: ChatMode) => void;
   setSlotUseLibrary: (key: string, useLibrary: boolean) => void;
+  setSlotRecommend: (key: string, recommend: RecommendPreference) => void;
   /** "New session" never deletes the previous one. */
   startNewSession: () => void;
   reportSessionLimit: (details: ChatLimitDetails) => void;
@@ -53,6 +54,8 @@ export type TutorContextValue = {
   forgetConversation: (id: string) => void;
   isConversationStreaming: (id: string) => boolean;
   registerReaderContext: (context: TutorReaderContext) => () => void;
+  /** Closes the tutor before a suggestion link opens on a narrow (modal) dock. */
+  dismissOnNarrowNavigation: () => void;
 };
 
 export const TutorContext = createContext<TutorContextValue | null>(null);

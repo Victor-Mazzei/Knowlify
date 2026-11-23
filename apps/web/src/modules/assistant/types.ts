@@ -7,11 +7,22 @@
 /** Ask answers are ephemeral; Session answers are saved with their history. */
 export type ChatMode = "ask" | "session";
 
+/** Per-turn book recommendation request; `on` comes from the explicit button. */
+export type RecommendMode = "auto" | "on" | "off";
+
+/** Stored Ask preference: automatic suggestions or none. */
+export type RecommendPreference = Exclude<RecommendMode, "on">;
+
 /** Effective limits reported by `GET /api/chat/status` (absent on older servers). */
 export type SessionLimits = {
   maxSessions: number;
   count: number;
   maxMessages: number;
+};
+
+/** Additive capabilities reported by `GET /api/chat/status`. */
+export type ChatFeatures = {
+  recommendations?: boolean;
 };
 
 /** Whether the operator configured a provider; when false every chat surface stays hidden. */
@@ -24,6 +35,8 @@ export type ChatStatus = {
   /** Present only on servers that support Ask. Absent means Session only. */
   modes?: ChatMode[];
   sessionLimits?: SessionLimits;
+  /** Additive feature flags; absent means the server predates them. */
+  features?: ChatFeatures;
 };
 
 /** Scope of a persisted conversation; it cannot change once the conversation exists. */
@@ -54,6 +67,35 @@ export type Citation = {
   section: string | null;
 };
 
+export type RecommendationStatus = "ready" | "none" | "library_off" | "unavailable";
+/** `explicit` when the user pressed "Recommend books"; `detected` for the automatic path. */
+export type RecommendationIntent = "explicit" | "detected";
+export type RecommendationFocus = "recommend" | "learn";
+
+/** One shortlisted book from the user's library; `n` matches `[book:n]` in the answer. */
+export type RecommendedBook = {
+  n: number;
+  bookId: string;
+  title: string;
+  author: string;
+  format: "pdf" | "epub";
+  language: string | null;
+  hasCover: boolean;
+  coverRev: number | null;
+  progress: { status: "unread" | "reading" | "finished"; percentage: number };
+  matched: string[];
+  evidence: Array<{ passageId: number; page: number | null; section: string | null }>;
+  source: "passages" | "metadata" | "both";
+};
+
+/** Payload of the one `recommendations` SSE event of a turn. */
+export type ChatRecommendations = {
+  status: RecommendationStatus;
+  intent: RecommendationIntent;
+  focus: RecommendationFocus;
+  books: RecommendedBook[];
+};
+
 export type ChatRole = "user" | "assistant";
 
 export type ChatMessage = {
@@ -64,6 +106,10 @@ export type ChatMessage = {
   createdAt: number;
   /** Client-only: a partial answer kept after a failure or Stop; never sent by the server. */
   incomplete?: boolean;
+  /** Client-only: the turn's recommendation payload, attached when the turn reaches `done`. */
+  recommendations?: ChatRecommendations;
+  /** Client-only: the validated `[book:n]` markers from `done.recommended`. */
+  recommended?: number[];
 };
 
 /** `GET /api/chat/conversations` item, ordered by `updatedAt` desc. */
@@ -113,6 +159,8 @@ export type ChatRequest = {
   mode?: ChatMode;
   /** Ask only: whether the turn may search the library. */
   useLibrary?: boolean;
+  /** Ask + library scope only: `on` for one explicit request, else the stored preference. */
+  recommend?: RecommendMode;
 };
 
 /** Failure codes carried by the terminal SSE `error` event. */
@@ -123,6 +171,7 @@ export type ChatErrorCode =
   | "llm_protocol"
   | "llm_empty"
   | "search_failed"
+  | "conversation_limit"
   | "aborted";
 
 /** First SSE event of a turn: citations the answer may reference. */
@@ -140,6 +189,9 @@ export type ChatSourcesEvent = {
 /** Zero or more incremental answer chunks. */
 export type ChatDeltaEvent = { type: "delta"; text: string };
 
+/** Emitted once, after `sources` and before the deltas, when recommendations ran. */
+export type ChatRecommendationsEvent = { type: "recommendations" } & ChatRecommendations;
+
 /** Last SSE event on success. */
 export type ChatDoneEvent = {
   type: "done";
@@ -150,9 +202,16 @@ export type ChatDoneEvent = {
   finishReason: "stop" | "length";
   mode?: ChatMode;
   persisted?: boolean;
+  /** `[book:n]` markers the model emitted, in order, only when recommendations were `ready`. */
+  recommended?: number[];
 };
 
 /** Terminal SSE event that replaces `done`. */
 export type ChatErrorEvent = { type: "error"; code: ChatErrorCode; message: string };
 
-export type ChatEvent = ChatSourcesEvent | ChatDeltaEvent | ChatDoneEvent | ChatErrorEvent;
+export type ChatEvent =
+  | ChatSourcesEvent
+  | ChatRecommendationsEvent
+  | ChatDeltaEvent
+  | ChatDoneEvent
+  | ChatErrorEvent;

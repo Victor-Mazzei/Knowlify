@@ -1,6 +1,6 @@
 import type { Selection } from "../notes/types";
 import type { ChatExcerpt } from "./excerpt";
-import type { ChatMode } from "./types";
+import type { ChatMode, RecommendPreference } from "./types";
 
 const MAX_BOOK_SLOTS = 3;
 export const LIBRARY_SLOT_KEY = "library";
@@ -25,6 +25,8 @@ export type TutorSlot = {
   mode: ChatMode;
   /** Ask only: the library switch for the next question. */
   useLibrary: boolean;
+  /** Ask + whole library: automatic book suggestions for the next questions. */
+  recommend: RecommendPreference;
   conversationId?: string;
   conversationTitle?: string;
   /** Conversation the panel must load when it (re)mounts. */
@@ -46,13 +48,14 @@ export type TutorView = "chat" | "sessions";
 export const newSlot = (
   kind: "library" | "book",
   book: { id: string; title: string } | undefined,
-  defaults: { mode: ChatMode; useLibrary: boolean },
+  defaults: { mode: ChatMode; useLibrary: boolean; recommend: RecommendPreference },
 ): TutorSlot => ({
   key: kind === "library" ? LIBRARY_SLOT_KEY : bookSlotKey(book?.id ?? ""),
   kind,
   ...(kind === "book" ? { bookId: book?.id, bookTitle: book?.title } : {}),
   mode: defaults.mode,
   useLibrary: defaults.useLibrary,
+  recommend: defaults.recommend,
   session: 0,
   streaming: false,
 });
