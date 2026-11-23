@@ -100,6 +100,8 @@ export interface PassageRepository {
   clear(bookId: string): void;
   append(bookId: string, items: { passage: Passage; vector: Float32Array | null }[]): void;
   searchLexical(q: string, limit: number, bookId?: string): LexicalHit[];
+  /** Same read plus whether the full plan ran to completion inside the read deadline. */
+  searchLexicalResult(q: string, limit: number, bookId?: string): LexicalQueryResult;
   hydrate(ids: number[]): PassageView[];
 }
 
@@ -144,6 +146,17 @@ export interface LexicalHit {
   rank: number;
 }
 
+/**
+ * Lexical retrieval outcome. `complete` is false when the full plan did not run to
+ * completion inside the read deadline (the cheap/fallback layer answered instead); the
+ * retrieval cache must not admit it, because a later read with a warm plan could produce
+ * a different result.
+ */
+export interface LexicalQueryResult {
+  hits: LexicalHit[];
+  complete: boolean;
+}
+
 export interface ScoredPassage {
   passageId: number;
   score: number;
@@ -157,6 +170,8 @@ export interface ScoredPassage {
  */
 export interface PassageQueryStore {
   searchLexical(q: string, limit: number, bookId?: string): Promise<LexicalHit[]>;
+  /** Same read with the completeness signal used by the retrieval cache. */
+  searchLexicalResult(q: string, limit: number, bookId?: string): Promise<LexicalQueryResult>;
   hydrate(ids: number[]): Promise<PassageView[]>;
   nearest(query: Float32Array, limit: number, filter?: VectorFilter): Promise<ScoredPassage[]>;
   /** Number of stored vectors, used to decide whether the exact scan needs a pre-filter. */

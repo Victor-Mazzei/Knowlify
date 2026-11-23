@@ -4,12 +4,14 @@ import type { LexicalHit, PassageView, ScoredPassage, VectorFilter } from "../..
 export type SearchWorkerRequest =
   | { type: "lexical"; id: number; q: string; limit: number; bookId?: string }
   | { type: "hydrate"; id: number; ids: number[] }
-  | { type: "nearest"; id: number; vector: Float32Array; limit: number; filter?: VectorFilter }
+  /** `epoch` is the sample offset captured by the API process with the request. */
+  | { type: "nearest"; id: number; vector: Float32Array; limit: number; filter?: VectorFilter; epoch: number }
   | { type: "vector-count"; id: number }
   | { type: "close" };
 
 export type SearchWorkerResponse =
-  | { type: "lexical"; id: number; hits: LexicalHit[] }
+  /** `complete` is false when the read only reached the cheap/fallback layer. */
+  | { type: "lexical"; id: number; hits: LexicalHit[]; complete: boolean }
   | { type: "hydrate"; id: number; views: PassageView[] }
   | { type: "nearest"; id: number; hits: ScoredPassage[] }
   | { type: "vector-count"; id: number; count: number }

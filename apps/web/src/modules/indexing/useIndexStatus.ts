@@ -4,8 +4,10 @@ import { isCurrentSession, useSessionScope, type SessionScope } from "../../comp
 import { ApiError } from "../../services/api";
 import type { IndexStatusResponse } from "./types";
 
-/** The queue moves in seconds; polling only runs while there is work. */
+/** The queue moves in seconds; the fast cadence applies while work is moving. */
 export const INDEX_POLL_MS = 3000;
+/** An idle server can start warming on its own, and a paused pass can wait 10 min. */
+export const INDEX_SLOW_POLL_MS = 30_000;
 
 export type IndexStatusState = {
   status: IndexStatusResponse | null;
@@ -14,6 +16,33 @@ export type IndexStatusState = {
   refresh: () => Promise<IndexStatusResponse | null>;
 };
 
+/**
+ * The single cadence for the status poller. Work in the queue, a folder scan or an
+ * active warm-up moves in seconds, so they get the fast interval. A warm-up that is
+ * `idle` (the server waits for the first search in `auto`, or for the boot delay in
+ * `on`) or `paused` (cooldowns last up to 10 min) can change without any user action,
+ * so it is checked slowly instead of not at all. `off` and servers without `retrieval`
+ * cannot warm, and `warm` only starts a new pass after index growth (seen on focus or
+ * an explicit refresh), so neither keeps a timer.
+ */
+function pollDelay(status: IndexStatusResponse | null, scanning: boolean): number | null {
+  if (scanning) return INDEX_POLL_MS;
+  if (status === null || !status.enabled) return null;
+  if (status.counts.pending + status.counts.indexing > 0) return INDEX_POLL_MS;
+  const warmup = status.retrieval?.warmup;
+  if (!warmup || warmup.mode === "off") return null;
+  switch (warmup.state) {
+    case "waiting":
+    case "warming":
+      return INDEX_POLL_MS;
+    case "idle":
+    case "paused":
+      return INDEX_SLOW_POLL_MS;
+    default:
+      return null;
+  }
+}
+
 type IndexRequest = {
   scope: SessionScope;
   controller: AbortController;
@@ -21,9 +50,12 @@ type IndexRequest = {
 };
 
 /**
- * Keeps the search-index status fresh: every 3 s while importing or queueing,
- * once on mount and on window focus when idle. An explicit `refresh` also wakes
- * the poller when its response reports queued work (for example, after upload).
+ * Keeps the search-index status fresh with one poller: every 3 s while importing,
+ * queueing, scanning or warming, and every 30 s while a warm-up is idle or paused.
+ * The slow interval exists because the server can start or resume warming with no
+ * user action; without it the UI would only notice on focus. Focus and an explicit
+ * `refresh` still refetch immediately, while a legacy server (no `retrieval`) and an
+ * `off` warm-up never poll in the background.
  */
 export function useIndexStatus(api: ApiFn, scanning: boolean, onRevision?: () => void | Promise<void>): IndexStatusState {
   const [status, setStatus] = useState<IndexStatusResponse | null>(null);
@@ -80,12 +112,12 @@ export function useIndexStatus(api: ApiFn, scanning: boolean, onRevision?: () =>
     refreshInBackground();
   }, [refreshInBackground]);
 
-  const busy = scanning || (status !== null && status.counts.pending + status.counts.indexing > 0);
+  const delay = pollDelay(status, scanning);
   useEffect(() => {
-    if (!busy) return;
-    const timer = window.setInterval(refreshInBackground, INDEX_POLL_MS);
+    if (delay === null) return;
+    const timer = window.setInterval(refreshInBackground, delay);
     return () => window.clearInterval(timer);
-  }, [busy, refreshInBackground]);
+  }, [delay, refreshInBackground]);
 
   useEffect(() => {
     const onFocus = () => {

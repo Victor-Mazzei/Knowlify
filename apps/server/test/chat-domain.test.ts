@@ -15,6 +15,7 @@ import {
   MAX_HISTORY_MESSAGES,
   MAX_HISTORY_TOKENS,
   TUTOR_PROMPT_VERSION,
+  TUTOR_SAFETY_RULES,
   trimHistory,
   type TutorMessage,
 } from "../src/domain/assistant/tutorPrompt.js";
@@ -24,6 +25,12 @@ import {
   SEARCH_PARTIAL_BLOCK,
   SEARCH_TIMED_OUT_BLOCK,
 } from "../src/domain/assistant/tutorPrompt.js";
+
+function safetyRule(id: string): string {
+  const rule = TUTOR_SAFETY_RULES.split("\n").find((line) => line.startsWith(`${id}. `));
+  if (!rule) throw new Error(`missing safety rule ${id}`);
+  return rule;
+}
 
 describe("assistant domain", () => {
   it("trims questions and enforces the documented limits", () => {
@@ -55,7 +62,7 @@ describe("assistant domain", () => {
 
 describe("Feynman tutor prompt", () => {
   it("is versioned and carries the grounding rules", () => {
-    expect(TUTOR_PROMPT_VERSION).toBe("feynman-3");
+    expect(TUTOR_PROMPT_VERSION).toBe("feynman-4");
     const messages = buildTutorMessages({ question: "What is deep work?", passages: [], history: [] });
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("[n]");
@@ -69,6 +76,27 @@ describe("Feynman tutor prompt", () => {
     });
   });
 
+  it("treats a reply to its own check question as an answer, with the turn in history", () => {
+    const tutorQuestion = "Why does `readLine` need to be inside the `extern \"C\"` block if it is written in C++?";
+    const messages = buildTutorMessages({
+      question: "nao sei",
+      passages: [],
+      history: [
+        { role: "user", content: "Explique `extern \"C\"` em C++." },
+        { role: "assistant", content: `Pense neste detalhe: ${tutorQuestion}` },
+      ],
+    });
+    const system = messages[0]?.content ?? "";
+    expect(system).toContain("Turn rule");
+    expect(system).toContain("\"I don't know\"");
+    expect(system).toContain("never call their reply a question");
+    expect(system).toContain("previous message ended with a question");
+    expect(system).toContain("one new short check question or the next step");
+    expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(messages[2]?.content).toBe(`Pense neste detalhe: ${tutorQuestion}`);
+    expect(messages.at(-1)?.content).toBe(`${NO_PASSAGES_BLOCK}\n\nQuestion: nao sei`);
+  });
+
   it("replaces the no-passages note with a timeout note and keeps the envelope rule", () => {
     const messages = buildTutorMessages({
       question: "What is deep work?",
@@ -80,8 +108,91 @@ describe("Feynman tutor prompt", () => {
     expect(user).toContain(SEARCH_TIMED_OUT_BLOCK);
     expect(user).not.toContain(NO_PASSAGES_BLOCK);
     expect(messages[0].content).toContain(SEARCH_TIMED_OUT_BLOCK);
-    expect(messages[0].content).toContain("briefly mention");
-    expect(messages[0].content).toContain("Never say the library does not contain the information");
+    expect(messages[0].content).toContain("never claim that the library does not contain the information");
+  });
+
+  it("puts content first and keeps the check question after a conditional search closing line", () => {
+    const rule = safetyRule("1d");
+    const content = rule.indexOf("Start with the content");
+    const closing = rule.indexOf("you may add one short neutral sentence");
+    const lastMove = rule.indexOf("stays the last line");
+    expect(content).toBeGreaterThan(-1);
+    expect(closing).toBeGreaterThan(content);
+    expect(lastMove).toBeGreaterThan(closing);
+    expect(rule).toContain("after the content");
+    expect(rule).toContain("A check question or next step that rule 1c or the persona asks for stays the last line, after that sentence");
+    expect(rule).toContain("when no closing move is asked for, the sentence may end the reply");
+    expect(rule).toContain("There may be more about this in your books; try again in a moment.");
+    expect(safetyRule("1c")).toContain("end with one new short check question or the next step");
+    expect(TUTOR_SAFETY_RULES).not.toContain("briefly mention");
+  });
+
+  it("offers the closing search line only when a search really did not finish", () => {
+    const rule = safetyRule("1d");
+    expect(rule).toContain("When the context says \"Library search: timed out.\" or \"Library search: partial\", the search did not finish");
+    expect(rule).toContain("only if the passages or excerpt are not enough to answer well");
+    expect(rule).toContain("the search finished: do not suggest retrying or imply a failure");
+    expect(rule).toContain("Mention that you could not find it in the library only when the reply makes a claim about the user's books");
+    expect(rule).toContain("a conversational reply or Feynman feedback (rules 1b and 1c) needs no library mention");
+    expect(rule).not.toContain("say that you could not find it in the library (rule 1) and mark any general-knowledge answer as such");
+    expect(rule).toContain("When the context says \"Library search: partial\" and the passages are enough, say nothing about the search.");
+    expect(rule).toContain("After a timeout, never claim that the library does not contain the information: the search did not finish.");
+    expect(rule.indexOf("There may be more about this in your books")).toBeLessThan(rule.indexOf("no passages matched"));
+    expect(TUTOR_SAFETY_RULES).not.toContain("Only when the passages are not enough to answer well, or");
+    expect(rule).not.toContain("at the very end");
+  });
+
+  it("does not require a library mention for a conversational no-match reply", () => {
+    const messages = buildTutorMessages({
+      question: "nao sei",
+      passages: [],
+      history: [
+        { role: "user", content: "Explique `extern \"C\"` em C++." },
+        { role: "assistant", content: "O que `extern \"C\"` muda no linkage?" },
+      ],
+      librarySearch: "used",
+    });
+    const system = messages[0]?.content ?? "";
+    const user = messages.at(-1)?.content ?? "";
+    expect(user).toBe(`${NO_PASSAGES_BLOCK}\n\nQuestion: nao sei`);
+    expect(system).toContain("missing passages are not a reason to refuse");
+    expect(system).toContain("a conversational reply or Feynman feedback (rules 1b and 1c) needs no library mention");
+    expect(system).not.toContain("say that you could not find it in the library (rule 1) and mark any general-knowledge answer as such");
+  });
+
+  it("never infers a search or suggests a retry when the library was not used", () => {
+    const rule = safetyRule("1e");
+    expect(rule).toContain("If the context says \"Library: not used for this question.\", no search ran");
+    expect(rule).toContain("do not claim or imply that you searched the library or could not find something in it");
+    expect(rule).toContain("rule 1's fallback applies only when a search ran");
+    expect(rule).toContain("do not mention a search or suggest a retry");
+  });
+
+  it("instructs content first for every search state and a conditional closing line", () => {
+    const states = [
+      { name: "clean no-match", librarySearch: "used" as const, userBlock: NO_PASSAGES_BLOCK, withPassage: false },
+      { name: "total timeout", librarySearch: "timed_out" as const, userBlock: SEARCH_TIMED_OUT_BLOCK, withPassage: false },
+      { name: "partial timeout", librarySearch: "timed_out" as const, userBlock: SEARCH_PARTIAL_BLOCK, withPassage: true },
+      { name: "library not used", librarySearch: "not_used" as const, userBlock: LIBRARY_NOT_USED_BLOCK, withPassage: false },
+    ];
+    for (const state of states) {
+      const messages = buildTutorMessages({
+        question: "What is deep work?",
+        passages: state.withPassage
+          ? [{ n: 1, bookTitle: "Deep Work", page: 1, section: null, text: "Focus is rare." }]
+          : [],
+        history: [],
+        librarySearch: state.librarySearch,
+      });
+      const system = messages[0]?.content ?? "";
+      expect(system, state.name).toContain("Never open the reply with the library search");
+      expect(system, state.name).toContain("Start with the content");
+      expect(system, state.name).toContain("stays the last line");
+      expect(system, state.name).toContain("There may be more about this in your books; try again in a moment.");
+      expect(system, state.name).toContain("say nothing about the search");
+      expect(system, state.name).not.toContain("briefly mention");
+      expect(messages.at(-1)?.content, state.name).toContain(state.userBlock);
+    }
   });
 
   it("distinguishes a library that was not used from a clean no-match", () => {
@@ -103,6 +214,21 @@ describe("Feynman tutor prompt", () => {
     });
     expect(noMatch.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
     expect(noMatch.at(-1)?.content).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+  });
+
+  it("marks the library as not used even when a reader excerpt is present", () => {
+    const messages = buildTutorMessages({
+      question: "Explain this page",
+      passages: [],
+      history: [],
+      excerpt: { text: "visible text", kind: "visible" },
+      librarySearch: "not_used",
+    });
+    const user = messages.at(-1)?.content ?? "";
+    expect(user).toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(user).toContain("<excerpt");
+    expect(user).not.toContain(NO_PASSAGES_BLOCK);
+    expect(user).not.toContain(SEARCH_TIMED_OUT_BLOCK);
   });
 
   it("keeps the partial-timeout note alongside passages and the total-timeout note without them", () => {

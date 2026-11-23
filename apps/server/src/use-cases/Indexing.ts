@@ -15,6 +15,7 @@ import {
   type IndexState,
 } from "../domain/knowledge/BookIndex.js";
 import type { BookRepository, Clock, Logger } from "../ports/index.js";
+import type { IndexEpoch } from "../ports/index-epoch.js";
 import type {
   BookIndexRepository,
   EmbeddingsStatus,
@@ -126,6 +127,7 @@ export class Indexing implements IndexScheduler {
     private clock: Clock,
     private options: IndexingOptions,
     private log: Logger = { info: () => {}, error: () => {} },
+    private readonly epoch?: IndexEpoch,
   ) {
     // HTTP status must report a persisted pause before the queue starts (restart, rebuilt app).
     this.paused = this.options.settings?.get(PAUSE_KEY) === "1";
@@ -137,6 +139,11 @@ export class Indexing implements IndexScheduler {
 
   get pausedState(): boolean {
     return this.paused;
+  }
+
+  /** An ingestion job is running; background warm-up reads must yield to it. */
+  isBusy(): boolean {
+    return this.active.size > 0;
   }
 
   schedule(book: { id: string; size: number; mtime: number | null }, priority: 0 | 1): void {
@@ -186,6 +193,9 @@ export class Indexing implements IndexScheduler {
       now: this.clock.now(),
       resetAttempts: true,
     });
+    // The stored chunks stay readable until the job starts, but a reindex makes every
+    // cached passage id for this book disposable; invalidate before the first batch.
+    this.epoch?.bump();
     this.kick();
     return "pending";
   }
@@ -194,6 +204,7 @@ export class Indexing implements IndexScheduler {
     if (!this.options.enabled) throw new IndexingDisabledError("Indexing is disabled");
     const now = this.clock.now();
     let queued = 0;
+    this.epoch?.bump();
     if (scope === "all") {
       this.forcedLexical.clear();
       const unindexed = this.indexes.unindexedReadyBookIds();
@@ -602,12 +613,18 @@ export class Indexing implements IndexScheduler {
   }
 
   private upsertBlocks(items: PendingIndexUpsert[]): void {
+    if (items.length === 0) return;
+    // Queuing a reindex (manual or the automatic stale/model reconciliation) makes cached
+    // passage ids disposable: the stored chunks are about to be replaced.
+    this.epoch?.bump();
     for (let offset = 0; offset < items.length; offset += RECONCILE_BLOCK) {
       this.indexes.upsertPendingMany(items.slice(offset, offset + RECONCILE_BLOCK));
     }
   }
 
   private async upsertBlocksAsync(items: PendingIndexUpsert[]): Promise<void> {
+    if (items.length === 0) return;
+    this.epoch?.bump();
     for (let offset = 0; offset < items.length; offset += RECONCILE_BLOCK) {
       if (!this.running) return;
       this.indexes.upsertPendingMany(items.slice(offset, offset + RECONCILE_BLOCK));

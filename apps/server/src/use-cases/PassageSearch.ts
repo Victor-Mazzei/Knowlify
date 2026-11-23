@@ -51,6 +51,12 @@ export interface PassageSearchOptions {
    * Past this ceiling the query degrades to lexical search instead of holding the turn.
    */
   embedTimeoutMs?: number;
+  /**
+   * Optional observer around each retrieval. The warm-up controller uses it to pause
+   * background reads before a query reaches the worker and to start only after the first
+   * query has completed. It must be cheap and synchronous.
+   */
+  activity?: { begin(): void; end(): void };
 }
 
 /** Reciprocal rank fusion constant from the IR literature; scores are relative. */
@@ -96,6 +102,16 @@ export class PassageSearch {
     if (q.length < minimumChars || q.length > MAX_QUERY_CHARS) {
       throw new ValidationError(`Search query must be between ${minimumChars} and ${MAX_QUERY_CHARS} characters`);
     }
+    this.options.activity?.begin();
+    try {
+      return await this.run({ ...query, q });
+    } finally {
+      this.options.activity?.end();
+    }
+  }
+
+  private async run(query: PassageSearchQuery): Promise<PassageSearchResult> {
+    const q = query.q;
     const limit = Math.max(1, Math.min(MAX_LIMIT, Math.trunc(query.limit) || 8));
     const candidates = limit * CANDIDATES_PER_SOURCE;
     const state: SearchState = { unavailable: false };
@@ -126,24 +142,26 @@ export class PassageSearch {
   }
 
   private async lexical(q: string, limit: number, bookId: string | undefined, state: SearchState): Promise<LexicalHit[]> {
+    const started = Date.now();
     try {
       return await this.store.searchLexical(q, limit, bookId);
-    } catch (error) {
+    } catch {
       // Timed-out or crashed worker: the turn continues with the sources it has, and
       // the prompt is told the search was unavailable instead of a clean no-match.
       state.unavailable = true;
-      this.log.error(error, "lexical search failed; answering with fewer sources");
+      this.failed("lexical search", started, "answering with fewer sources");
       return [];
     }
   }
 
   private async hydrate(ids: number[], state: SearchState): Promise<PassageView[]> {
     if (ids.length === 0) return [];
+    const started = Date.now();
     try {
       return await this.store.hydrate(ids);
-    } catch (error) {
+    } catch {
       state.unavailable = true;
-      this.log.error(error, "passage hydration failed; answering with fewer sources");
+      this.failed("passage hydration", started, "answering with fewer sources");
       return [];
     }
   }
@@ -166,20 +184,31 @@ export class PassageSearch {
     }
     if (!vector) return { embedded: false, hits: [] };
     let filter: VectorFilter;
+    const started = Date.now();
     try {
       filter = await this.vectorFilter(q, bookId, state);
-    } catch (error) {
+    } catch {
       state.unavailable = true;
-      this.log.error(error, "vector pre-filter failed; falling back to lexical search");
+      this.failed("vector pre-filter", started, "falling back to lexical search");
       return { embedded: false, hits: [] };
     }
+    const scanned = Date.now();
     try {
       return { embedded: true, hits: await this.store.nearest(vector, limit, filter) };
-    } catch (error) {
+    } catch {
       state.unavailable = true;
-      this.log.error(error, "vector search failed; falling back to lexical search");
+      this.failed("vector search", scanned, "falling back to lexical search");
       return { embedded: false, hits: [] };
     }
+  }
+
+  /**
+   * Index reads degrade to fewer sources; one short warning with the stage and duration
+   * is enough to diagnose it. The error object (and its stack) adds nothing here, and the
+   * query, passages and SQL must never reach a log.
+   */
+  private failed(stage: string, started: number, outcome: string): void {
+    this.log.warn?.(`${stage} failed after ${Date.now() - started} ms; ${outcome}`);
   }
 
   /** Aborts the request on timeout so the runner drops it instead of completing it later. */

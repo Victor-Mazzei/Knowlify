@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AnswerText, Sources } from "./Citations";
-import { Spinner } from "./Spinner";
+import { TutorStatus } from "./TutorStatus";
 import type { ChatMessage } from "./types";
 
 export function MessageList({
@@ -56,7 +56,7 @@ export function MessageList({
             <p className="asst-turn-label">Tutor</p>
             <div className="asst-answer-wrap" aria-busy={live ? true : undefined}>
               {message.content ? <AnswerText text={message.content} citations={message.citations} /> : null}
-              {live ? <Spinner label="The tutor is answering" inline={Boolean(message.content)} /> : null}
+              {live ? <TutorStatus phase={message.content ? "writing" : "thinking"} /> : null}
               {message.incomplete ? <p className="asst-incomplete">Answer incomplete.</p> : null}
             </div>
             <Sources citations={message.citations} />

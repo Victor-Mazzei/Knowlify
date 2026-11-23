@@ -103,6 +103,11 @@ export class Scanner {
       ignoredSkipped: this.ignoredSkipped,
     };
   }
+
+  /** A folder walk is running; background warm-up reads must yield to it. */
+  isScanning(): boolean {
+    return this.scanning;
+  }
   sources() { return this.sourceRepository.list(); }
   async listSources() {
     return Promise.all(this.sources().map(async s => ({ ...s, accessible: await this.files.isDirectory(s.path), books: this.books.countForSource(s.id) })));

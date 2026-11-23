@@ -1,8 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { unavailableEmbedderStatus, idleIndexStatus, indexStatus, pausedIndexStatus, runningIndexStatus } from "./fixtures";
+import {
+  unavailableEmbedderStatus,
+  idleIndexStatus,
+  indexStatus,
+  pausedIndexStatus,
+  retrievalStatus,
+  runningIndexStatus,
+} from "./fixtures";
 import { IndexStatusContext } from "./IndexStatusContext";
 import { SearchIndexCard } from "./SearchIndexCard";
+import type { IndexWarmupReason } from "./types";
 import type { IndexStatusState } from "./useIndexStatus";
 
 function renderCard(
@@ -10,7 +18,8 @@ function renderCard(
   available = true,
   options: { pause?: unknown; pauseError?: boolean } = {},
 ) {
-  const refresh = vi.fn(async () => status);
+  let current = status;
+  const refresh = vi.fn(async () => current);
   const api = vi.fn(async (path: string) => {
     if (path.endsWith("/index/pause") || path.endsWith("/index/resume")) {
       if (options.pauseError) throw new Error("offline");
@@ -23,7 +32,15 @@ function renderCard(
       <SearchIndexCard api={api} />
     </IndexStatusContext.Provider>,
   );
-  return { api, refresh, view };
+  const rerender = (next: IndexStatusState["status"]) => {
+    current = next;
+    view.rerender(
+      <IndexStatusContext.Provider value={{ status: next, available, refresh }}>
+        <SearchIndexCard api={api} />
+      </IndexStatusContext.Provider>,
+    );
+  };
+  return { api, refresh, view, rerender };
 }
 
 describe("SearchIndexCard", () => {
@@ -124,5 +141,98 @@ describe("SearchIndexCard", () => {
     expect(screen.queryByRole("button", { name: /indexing/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Idle")).not.toBeInTheDocument();
     expect(screen.queryByText(/Vectors:/)).not.toBeInTheDocument();
+  });
+});
+
+describe("SearchIndexCard retrieval status", () => {
+  it("hides the retrieval line when the server does not send it", () => {
+    renderCard(idleIndexStatus);
+    expect(screen.queryByText(/Search speed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Faster repeated searches/)).not.toBeInTheDocument();
+  });
+
+  it("shows the warm state, cache size and the short hint", () => {
+    renderCard(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warm" } }) }));
+    expect(screen.getByText("Search speed:")).toBeInTheDocument();
+    expect(screen.getByText("Warm")).toBeInTheDocument();
+    expect(screen.getByText("Cache: 1.5 MB of 8 MB")).toBeInTheDocument();
+    expect(screen.getByText("Faster repeated searches")).toBeInTheDocument();
+  });
+
+  it("shows the warming percentage with an accessible progressbar", () => {
+    renderCard(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 75.6, targetMB: 120 } }) }),
+    );
+    expect(screen.getByText("Warming the search index…")).toBeInTheDocument();
+    const bar = screen.getByRole("progressbar", { name: "Search index warm-up" });
+    expect(bar).toHaveAttribute("aria-valuenow", "63");
+    expect(bar).toHaveTextContent("63%");
+  });
+
+  it("announces state changes but not percentage changes", () => {
+    const { rerender } = renderCard(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 30, targetMB: 120 } }) }),
+    );
+    const live = screen.getByText("Warming the search index…");
+    expect(live).toHaveAttribute("role", "status");
+    expect(live).toHaveAttribute("aria-live", "polite");
+
+    rerender(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 60, targetMB: 120 } }) }),
+    );
+    expect(screen.getByText("Warming the search index…")).toBe(live);
+    expect(live).not.toHaveTextContent("50%");
+
+    rerender(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warm" } }) }));
+    expect(screen.getByText("Warm")).toBe(live);
+  });
+
+  it("explains why the warm-up is off, paused or waiting", () => {
+    const { rerender } = renderCard(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "off", reason: "small-index" } }) }),
+    );
+    expect(screen.getByText("Off (small index)")).toBeInTheDocument();
+
+    rerender(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "paused", reason: "activity" } }) }));
+    expect(screen.getByText("Paused (busy)")).toBeInTheDocument();
+
+    rerender(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "waiting", warmedMB: 0 } }) }));
+    expect(screen.getByText("Waiting for a quiet moment")).toBeInTheDocument();
+
+    rerender(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "idle" } }) }));
+    expect(screen.getByText("Idle")).toBeInTheDocument();
+  });
+
+  it("keeps unexpected percentages and reasons readable", () => {
+    const { rerender } = renderCard(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 500, targetMB: 100 } }) }),
+    );
+    expect(screen.getByRole("progressbar", { name: "Search index warm-up" })).toHaveAttribute("aria-valuenow", "100");
+
+    rerender(
+      indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: -10, targetMB: 100 } }) }),
+    );
+    expect(screen.getByRole("progressbar", { name: "Search index warm-up" })).toHaveAttribute("aria-valuenow", "0");
+
+    rerender(
+      indexStatus({
+        retrieval: retrievalStatus({
+          warmup: { state: "off", reason: "future-reason" as IndexWarmupReason },
+        }),
+      }),
+    );
+    expect(screen.getByText("Off (unknown reason)")).toBeInTheDocument();
+  });
+
+  it("omits the percentage when the warm-up has no target", () => {
+    renderCard(indexStatus({ retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 0, targetMB: 0 } }) }));
+    expect(screen.getByText("Warming the search index…")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("shows the cache as off without the hint", () => {
+    renderCard(indexStatus({ retrieval: retrievalStatus({ cache: { enabled: false } }) }));
+    expect(screen.getByText("Cache: off")).toBeInTheDocument();
+    expect(screen.queryByText("Faster repeated searches")).not.toBeInTheDocument();
   });
 });

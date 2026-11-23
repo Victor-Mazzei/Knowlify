@@ -130,6 +130,42 @@ const readHttpBaseUrl = (value: string | undefined): string | null => {
   }
 };
 
+export type SearchCacheMode = "auto" | "off";
+
+/**
+ * `auto` sizes the query cache from the effective memory; `off` passes every read
+ * straight to the worker. An unknown value is a boot-time mistake and is never echoed:
+ * it could be a mistyped secret, and the message alone is enough to fix it.
+ */
+export const readSearchCacheMode = (value: string | undefined): SearchCacheMode => {
+  const raw = value?.trim().toLowerCase();
+  if (!raw || raw === "auto") return "auto";
+  if (raw === "off") return "off";
+  throw new Error("KNOWLIFY_SEARCH_CACHE must be auto or off");
+};
+
+export type SearchWarmupMode = "auto" | "on" | "off";
+
+/** `auto` warms lazily after the first query; `on` warms after the boot; `off` never. */
+export const readSearchWarmupMode = (value: string | undefined): SearchWarmupMode => {
+  const raw = value?.trim().toLowerCase();
+  if (!raw || raw === "auto") return "auto";
+  if (raw === "on") return "on";
+  if (raw === "off") return "off";
+  throw new Error("KNOWLIFY_SEARCH_WARMUP must be auto, on or off");
+};
+
+/**
+ * Optional ceiling for the warm-up budget. `0` disables warming; an empty value derives
+ * the budget from the effective memory. The invalid value is never echoed.
+ */
+export const readSearchWarmupMaxMb = (value: string | undefined): number | null => {
+  const raw = value?.trim();
+  if (!raw) return null;
+  if (!/^\d+$/.test(raw)) throw new Error("KNOWLIFY_SEARCH_WARMUP_MAX_MB must be a non-negative integer");
+  return Number(raw);
+};
+
 /** Unlike the tolerant numeric readers, an unknown style is a boot-time mistake. */
 const readApiStyle = (value: string | undefined): LlmApiStyle => {
   const raw = value?.trim();
@@ -242,6 +278,15 @@ export const config = {
     lookup: readChoice(process.env.KNOWLIFY_METADATA_LOOKUP, ["on", "off"] as const, "on") === "on",
     /** Optional Google Books key. Never logged, never returned by any route. */
     googleBooksApiKey: process.env.KNOWLIFY_GOOGLE_BOOKS_API_KEY?.trim() || null,
+  },
+  // Retrieval cache (ADR-3). `auto` sizes it from the effective memory limit; `off`
+  // bypasses it. Warming is a separate switch with its own budget (ADR-2).
+  search: {
+    cache: readSearchCacheMode(process.env.KNOWLIFY_SEARCH_CACHE),
+    warmup: {
+      mode: readSearchWarmupMode(process.env.KNOWLIFY_SEARCH_WARMUP),
+      maxMb: readSearchWarmupMaxMb(process.env.KNOWLIFY_SEARCH_WARMUP_MAX_MB),
+    },
   },
   // MCP endpoint (ADR-3..7). Disabled means the route is not registered at all.
   mcp: {

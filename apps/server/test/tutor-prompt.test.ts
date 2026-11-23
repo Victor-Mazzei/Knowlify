@@ -115,9 +115,9 @@ describe("custom persona normalization", () => {
 
 describe("prompt version", () => {
   it("uses the default version for the default persona", () => {
-    expect(promptVersionFor(null)).toBe("feynman-3");
-    expect(promptVersionFor(TUTOR_PERSONA_DEFAULT)).toBe("feynman-3");
-    expect(promptVersionFor(`\r\n${TUTOR_PERSONA_DEFAULT}\r\n`)).toBe("feynman-3");
+    expect(promptVersionFor(null)).toBe("feynman-4");
+    expect(promptVersionFor(TUTOR_PERSONA_DEFAULT)).toBe("feynman-4");
+    expect(promptVersionFor(`\r\n${TUTOR_PERSONA_DEFAULT}\r\n`)).toBe("feynman-4");
   });
 
   it("derives a stable custom hash from the normalized text", () => {
@@ -155,7 +155,7 @@ describe("TutorPromptSettings", () => {
     expect(settings.get()).toEqual({
       custom: null,
       default: TUTOR_PERSONA_DEFAULT,
-      version: "feynman-3",
+      version: "feynman-4",
       maxChars: MAX_SYSTEM_PROMPT_CHARS,
       locked: false,
     });
@@ -205,7 +205,7 @@ describe("TutorPromptSettings", () => {
     expect(settings.get()).toEqual({
       custom: null,
       default: TUTOR_PERSONA_DEFAULT,
-      version: "feynman-3",
+      version: "feynman-4",
       maxChars: MAX_SYSTEM_PROMPT_CHARS,
       locked: true,
     });

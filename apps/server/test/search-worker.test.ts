@@ -194,8 +194,10 @@ describe("SearchWorkerStore", () => {
     });
     stores.push(store);
 
-    await expect(store.searchLexical("anything", 4)).rejects.toBeInstanceOf(SearchTimeoutError);
-    expect(log.messages).toContain("search worker timed out; discarding the worker");
+    await expect(store.searchLexical("secretneedle question", 4)).rejects.toBeInstanceOf(SearchTimeoutError);
+    expect(log.messages).toContain("search worker timed out after 25 ms (lexical); discarding the worker");
+    // One fixed line: the operation and the ceiling, never the question.
+    expect(JSON.stringify(log.messages)).not.toContain("secretneedle");
   });
 
   it("recovers after a timed-out request by discarding and recreating the worker", async () => {

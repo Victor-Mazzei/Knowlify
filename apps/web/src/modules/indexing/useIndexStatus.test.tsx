@@ -3,8 +3,16 @@ import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
 import { ApiError } from "../../services/api";
-import { busyIndexStatus, idleIndexStatus, indexStatus } from "./fixtures";
-import { INDEX_POLL_MS, useIndexStatus } from "./useIndexStatus";
+import {
+  busyIndexStatus,
+  idleIndexStatus,
+  indexStatus,
+  retrievalStatus,
+  waitingIndexStatus,
+  warmIndexStatus,
+  warmingIndexStatus,
+} from "./fixtures";
+import { INDEX_POLL_MS, INDEX_SLOW_POLL_MS, useIndexStatus } from "./useIndexStatus";
 
 const body = (value: unknown) => new Response(JSON.stringify(value));
 
@@ -45,11 +53,207 @@ describe("useIndexStatus", () => {
     });
     expect(api).toHaveBeenCalledTimes(3);
 
+    // Legacy server (no retrieval): an idle status cannot change on its own, so even
+    // the slow cadence is off.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS * 2);
+    });
+    expect(api).toHaveBeenCalledTimes(3);
+    unmount();
+  });
+
+  it("polls while the search warm-up is paused, waits or runs and stops when warm", async () => {
+    vi.useFakeTimers();
+    let status = indexStatus({ retrieval: retrievalStatus({ warmup: { state: "paused", reason: "activity" } }) });
+    const api = vi.fn(async () => body(status));
+    const { result, unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("paused");
+
+    // A paused pass is checked slowly, not every 3 s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+
+    status = waitingIndexStatus;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS - INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("waiting");
+
+    // Waiting and warming move in seconds, so the fast cadence takes over.
+    status = warmingIndexStatus;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
     });
     expect(api).toHaveBeenCalledTimes(3);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warming");
+
+    status = warmIndexStatus;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warm");
+
+    // No slow timer from the paused phase survives into the settled state.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS * 2);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
     unmount();
+  });
+
+  it("keeps a ten-minute pause on the slow cadence", async () => {
+    vi.useFakeTimers();
+    const status = indexStatus({
+      retrieval: retrievalStatus({ warmup: { state: "paused", reason: "cooldown", warmedMB: 0 } }),
+    });
+    const api = vi.fn(async () => body(status));
+    const { unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+
+    // A cooldown can last ten minutes: 20 slow reads instead of 200 fast ones.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
+    expect(api).toHaveBeenCalledTimes(21);
+    unmount();
+  });
+
+  it("observes an auto warm-up that starts after a search, without focus", async () => {
+    vi.useFakeTimers();
+    let status = indexStatus({
+      retrieval: retrievalStatus({ warmup: { mode: "auto", state: "idle", warmedMB: 0, targetMB: 120 } }),
+    });
+    const api = vi.fn(async () => body(status));
+    const { result, unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("idle");
+
+    // A search happened elsewhere; the controller waits for five quiet seconds.
+    status = waitingIndexStatus;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("waiting");
+
+    status = warmingIndexStatus;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(3);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warming");
+
+    status = warmIndexStatus;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warm");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS * 2);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    unmount();
+  });
+
+  it("observes an on-mode warm-up that starts after the boot delay, without focus", async () => {
+    vi.useFakeTimers();
+    let status = indexStatus({
+      retrieval: retrievalStatus({ warmup: { mode: "on", state: "idle", warmedMB: 0, targetMB: 120 } }),
+    });
+    const api = vi.fn(async () => body(status));
+    const { result, unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("idle");
+
+    // `on` waits sixty seconds after boot; the slow poll is still idle at 30 s.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("idle");
+
+    status = indexStatus({ retrieval: retrievalStatus({ warmup: { mode: "on", state: "warming", warmedMB: 8 } }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(3);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warming");
+
+    status = indexStatus({ retrieval: retrievalStatus({ warmup: { mode: "on", warmedMB: 120 } }) });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    expect(result.current.status?.retrieval?.warmup.state).toBe("warm");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS * 2);
+    });
+    expect(api).toHaveBeenCalledTimes(4);
+    unmount();
+  });
+
+  it.each([
+    { mode: "auto", reason: "small-index" },
+    { mode: "off", reason: "disabled" },
+  ] as const)("does not poll when the warm-up is off ($mode, $reason)", async ({ mode, reason }) => {
+    vi.useFakeTimers();
+    const status = indexStatus({
+      retrieval: retrievalStatus({ warmup: { mode, state: "off", reason, warmedMB: 0, targetMB: 0 } }),
+    });
+    const api = vi.fn(async () => body(status));
+    const { unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_SLOW_POLL_MS * 3);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("stops polling after unmount", async () => {
+    vi.useFakeTimers();
+    const api = vi.fn(async () => body(busyIndexStatus));
+    const { unmount } = renderHook(() => useIndexStatus(api, false));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(INDEX_POLL_MS * 3);
+    });
+    expect(api).toHaveBeenCalledTimes(1);
   });
 
   it("keeps polling while a metadata scan runs, even with an idle queue", async () => {
