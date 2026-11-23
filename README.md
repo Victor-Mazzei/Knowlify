@@ -191,6 +191,10 @@ Set variables in `.env`. The file `.env.example` lists every variable with comme
 | `KNOWLIFY_LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `debug`, `trace` or `silent`. `debug` never logs secrets or the content of your library. |
 | `KNOWLIFY_FORCE_ENV_PASSWORD` | No | none | Set to `1` to sign in with `KNOWLIFY_PASSWORD` after you forget a changed password. |
 
+### Search on very large libraries
+
+Library search and the tutor read the passage index in a separate read-only worker, so a slow search does not block the server. On a very large index, the first search can be slower while the database cache is cold. A single read stops after 8 seconds, and the tutor then answers without library passages and tells you that the search timed out.
+
 ## Connect other clients
 
 ### KOReader

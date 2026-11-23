@@ -76,6 +76,12 @@ export async function knowledgeRoutes(app: FastifyInstance, opts: { indexing: In
   app.get<{ Querystring: { q: string; bookId?: string; limit?: number } }>(
     "/passages/search",
     { schema: { querystring: searchQuerySchema } },
-    async (req) => passageSearch.search({ q: req.query.q, bookId: req.query.bookId, limit: req.query.limit ?? 8 }),
+    async (req) => {
+      const result = await passageSearch.search({ q: req.query.q, bookId: req.query.bookId, limit: req.query.limit ?? 8 });
+      // The availability flag is internal to the tutor prompt; the public envelope stays
+      // { mode, coverage, hits } and no API field is added.
+      const { unavailable: _unavailable, ...publicResult } = result;
+      return publicResult;
+    },
   );
 }

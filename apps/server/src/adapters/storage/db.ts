@@ -13,6 +13,9 @@ export function openDb(file: string): Db {
   db.pragma("synchronous = NORMAL");
   db.pragma("busy_timeout = 5000");
   db.pragma("temp_store = MEMORY");
+  // 64 MiB is a deliberate cap: a 200k-chunk lab measured no gain above SQLite's default
+  // 2 MiB for search (the OS page cache serves the index), so the process memory stays
+  // predictable even with a 6.7 GB database.
   db.pragma("cache_size = -65536");
   db.pragma("wal_autocheckpoint = 2000");
   db.pragma("journal_size_limit = 67108864");

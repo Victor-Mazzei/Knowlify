@@ -51,7 +51,12 @@ export interface LlmClient {
   stream(request: LlmRequest, signal: AbortSignal): AsyncIterable<LlmEvent>;
 }
 export interface PassageRetriever {
-  search(q: { q: string; bookId?: string; limit: number }): Promise<{ mode: string; hits: PassageSearchHit[] }>;
+  search(q: { q: string; bookId?: string; limit: number }, options?: { allowShortQuery?: boolean }): Promise<{
+    mode: string;
+    hits: PassageSearchHit[];
+    /** A search read timed out or the worker was discarded; the prompt must say so. */
+    unavailable?: boolean;
+  }>;
 }
 /** Retention caps enforced atomically with the turn write. */
 export interface ConversationCaps {

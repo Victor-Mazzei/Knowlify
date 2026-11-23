@@ -36,9 +36,17 @@ export interface EmbeddingsStatus {
   state: "off" | "loading" | "ready" | "unavailable";
 }
 
+export interface EmbedQueryOptions {
+  /**
+   * Cancels the request. The runner settles with null and drops the pending work; work
+   * already running inside a worker cannot be interrupted, but its result is discarded.
+   */
+  signal?: AbortSignal;
+}
+
 export interface IngestionRunner {
   run(job: IngestJob, sink: IngestSink): Promise<IngestOutcome>;
-  embedQuery(text: string): Promise<Float32Array | null>;
+  embedQuery(text: string, options?: EmbedQueryOptions): Promise<Float32Array | null>;
   embeddings(): EmbeddingsStatus;
   indexVersion(): string;
   onEmbeddingsReady(cb: () => void): void;
@@ -91,7 +99,7 @@ export interface KeyValueStore {
 export interface PassageRepository {
   clear(bookId: string): void;
   append(bookId: string, items: { passage: Passage; vector: Float32Array | null }[]): void;
-  searchLexical(q: string, limit: number, bookId?: string): { passageId: number; rank: number }[];
+  searchLexical(q: string, limit: number, bookId?: string): LexicalHit[];
   hydrate(ids: number[]): PassageView[];
 }
 
@@ -99,6 +107,17 @@ export interface VectorFilter {
   bookId?: string;
   /** Restrict the scan to the given books (lexical pre-filter above the scan ceiling). */
   bookIds?: string[];
+  /**
+   * Above the ceiling, also add a rotating uniform stride sample of all eligible books to
+   * the lexical candidates, so semantic recall is not limited to the lexical neighbourhood.
+   */
+  includeSample?: boolean;
+  /**
+   * Upper bound on the vectors examined when no book restriction applies. Above it the
+   * store scans a deterministic, evenly spread sample of books instead of dropping the
+   * semantic branch: bounded cost, still a hit for questions with no lexical overlap.
+   */
+  maxVectors?: number;
 }
 
 export interface VectorStore {
@@ -106,7 +125,7 @@ export interface VectorStore {
     query: Float32Array,
     limit: number,
     filter?: VectorFilter,
-  ): Promise<{ passageId: number; score: number }[]>;
+  ): Promise<ScoredPassage[]>;
   /** Number of stored vectors, used to decide whether the exact scan needs a pre-filter. */
   count(): number;
 }
@@ -118,6 +137,30 @@ export interface PassageView {
   text: string;
   page: number | null;
   section: string | null;
+}
+
+export interface LexicalHit {
+  passageId: number;
+  rank: number;
+}
+
+export interface ScoredPassage {
+  passageId: number;
+  score: number;
+}
+
+/**
+ * Read side of the knowledge index used by retrieval. It is separate from the write
+ * repositories so production can run it in a worker thread with its own connection:
+ * FTS5 ranking and the exact vector scan are CPU/IO heavy and must never block the
+ * API event loop, however large the index grows.
+ */
+export interface PassageQueryStore {
+  searchLexical(q: string, limit: number, bookId?: string): Promise<LexicalHit[]>;
+  hydrate(ids: number[]): Promise<PassageView[]>;
+  nearest(query: Float32Array, limit: number, filter?: VectorFilter): Promise<ScoredPassage[]>;
+  /** Number of stored vectors, used to decide whether the exact scan needs a pre-filter. */
+  vectorCount(): Promise<number>;
 }
 
 /** Read model returned by passage retrieval; shared by search and the assistant port. */

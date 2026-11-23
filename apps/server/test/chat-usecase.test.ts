@@ -5,9 +5,11 @@ import { ChatDisabledError, ChatRateLimitedError, ConversationFullError, Convers
 import { composeSystemPrompt, promptVersionFor } from "../src/domain/assistant/tutorPrompt.js";
 import { NO_PASSAGES_ANSWER } from "../src/domain/assistant/sessionContext.js";
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
+import { LIBRARY_NOT_USED_BLOCK, SEARCH_PARTIAL_BLOCK, SEARCH_TIMED_OUT_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { NotFoundError } from "../src/domain/errors.js";
 import { LlmError } from "../src/ports/assistant.js";
-import type { LlmClient, LlmEvent, LlmRequest } from "../src/ports/assistant.js";
+import type { LlmClient, LlmEvent, LlmRequest, PassageRetriever } from "../src/ports/assistant.js";
+import type { Logger } from "../src/ports/index.js";
 import type { ChatEvent } from "../src/use-cases/Chat.js";
 import {
   BOOK,
@@ -241,6 +243,153 @@ describe("Chat turn", () => {
     expect(assistant?.content).toBe("Start with one focused block.");
     expect(assistant?.content).not.toBe(NO_PASSAGES_ANSWER);
     expect(assistant?.promptVersion).toBe("feynman-3");
+  });
+
+  it("marks a timed-out search in the prompt and still streams the provider answer", async () => {
+    const llm = new FakeLlmClient();
+    llm.chunks = ["The library search was slow. ", "A general-knowledge answer."];
+    const retriever = new FakeRetriever();
+    retriever.unavailable = true;
+    const logs: string[] = [];
+    const log: Logger = {
+      info: (message) => logs.push(message),
+      error: (_error, message) => logs.push(message),
+      warn: (message) => logs.push(message),
+    };
+    const { chat } = fixture({ llm, retriever, log });
+    const sentinel = "zebraquantum-question";
+
+    const events = await collect(chat.stream({
+      message: `What is ${sentinel}?`,
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+
+    expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    expect(llm.requests).toHaveLength(1);
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+    expect(prompt).toContain(`Question: What is ${sentinel}?`);
+
+    const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
+    expect(sources).toMatchObject({ type: "sources", retrieval: "none", citations: [] });
+    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations"]);
+    const assistant = chat.get(sources.conversationId)?.messages.at(-1);
+    expect(assistant?.content).toBe("The library search was slow. A general-knowledge answer.");
+    expect(logs.join("\n")).not.toContain(sentinel);
+  });
+
+  it("distinguishes a book-only turn where the library was not used", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    const { chat } = fixture({ llm, retriever, limits: { libraryScope: false } });
+
+    const events = await collect(chat.stream({
+      message: "Explain this book",
+      scope: { kind: "book", bookId: BOOK.id },
+    }, new AbortController().signal));
+
+    expect(events.at(-1)?.type).toBe("done");
+    expect(retriever.queries).toEqual([]);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(llm.requests[0].messages.at(-1)?.content).not.toContain(NO_PASSAGES_BLOCK);
+  });
+
+  it("keeps a lexical result after the embedding fallback without a timeout note", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    retriever.mode = "lexical";
+    retriever.hits = [passage({ text: "A lexical passage survives." })];
+    const { chat } = fixture({ llm, retriever });
+
+    await collect(chat.stream({ message: "Find this in my library", scope: { kind: "library" } }, new AbortController().signal));
+
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain("A lexical passage survives.");
+    expect(prompt).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+  });
+
+  it("keeps grounding and the partial timeout warning together", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    retriever.unavailable = true;
+    retriever.hits = [passage({ text: "Grounding survives a partial timeout." })];
+    const { chat } = fixture({ llm, retriever });
+
+    const events = await collect(chat.stream({ message: "Find grounding", scope: { kind: "library" } }, new AbortController().signal));
+
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(SEARCH_PARTIAL_BLOCK);
+    expect(prompt).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(prompt).toContain("Grounding survives a partial timeout.");
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+    const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
+    expect(sources.citations).toHaveLength(1);
+  });
+
+  it("uses grounding from a later query instead of a partial timeout from an earlier one", async () => {
+    class FollowUpLlm implements LlmClient {
+      readonly configured = true;
+      readonly model = "fake-model";
+      readonly host = "llm.example";
+      readonly requests: LlmRequest[] = [];
+      async *stream(request: LlmRequest): AsyncIterable<LlmEvent> {
+        this.requests.push(request);
+        yield {
+          type: "delta",
+          text: this.requests.length === 1
+            ? "Which part of deep work should we study?"
+            : "Use the grounded passage.",
+        };
+        yield { type: "done", finishReason: "stop" };
+      }
+    }
+    class TwoAttemptRetriever implements PassageRetriever {
+      calls = 0;
+      async search(): Promise<{ mode: string; hits: ReturnType<typeof passage>[]; unavailable?: boolean }> {
+        this.calls += 1;
+        if (this.calls === 1) return { mode: "hybrid", hits: [passage()] };
+        if (this.calls === 2) return { mode: "lexical", hits: [], unavailable: true };
+        return { mode: "lexical", hits: [passage({ text: "second attempt grounding" })] };
+      }
+    }
+    const llm = new FollowUpLlm();
+    const retriever = new TwoAttemptRetriever();
+    const { chat } = fixture({ llm, retriever });
+
+    const first = await collect(chat.stream({ message: "Explain deep work", scope: { kind: "library" } }, new AbortController().signal));
+    const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
+    const second = await collect(chat.stream({
+      conversationId,
+      message: "The focus part.",
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+
+    expect(second.map((event) => event.type)).toEqual(["sources", "delta", "done"]);
+    expect(retriever.calls).toBeGreaterThanOrEqual(3);
+    const prompt = llm.requests[1].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(SEARCH_PARTIAL_BLOCK);
+    expect(prompt).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(prompt).toContain("second attempt grounding");
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+    expect((second[0] as Extract<ChatEvent, { type: "sources" }>).citations).toHaveLength(1);
+  });
+
+  it("sends a single-character question to the retriever with the internal short-query option", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage({ text: "The R language for statistics." })];
+    const { chat } = fixture({ llm, retriever });
+
+    await collect(chat.stream({ message: "R", scope: { kind: "library" } }, new AbortController().signal));
+
+    expect(retriever.queries[0]).toMatchObject({ q: "R", allowShortQuery: true });
+    expect(llm.requests).toHaveLength(1);
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain("The R language for statistics.");
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
   });
 
   it("still calls the provider when retrieval returns irrelevant passages", async () => {

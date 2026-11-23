@@ -103,6 +103,8 @@ const RATE_WINDOW_MS = 60_000;
 interface RetrievalOutcome {
   mode: ChatRetrieval;
   hits: { passageId: number; bookId: string; bookTitle: string; text: string; location: { page: number | null; section: string | null } }[];
+  /** `timed_out` is preserved even when partial citations were found. */
+  search: "used" | "not_used" | "timed_out";
 }
 
 interface TurnContext {
@@ -229,7 +231,7 @@ export class Chat {
         throw new ChatRateLimitedError("Too many chats are streaming right now", 1);
       }
 
-      let retrieval: RetrievalOutcome = { mode: "none", hits: [] };
+      let retrieval: RetrievalOutcome = { mode: "none", hits: [], search: "not_used" };
       let searchFailed = false;
       try {
         retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope, signal);
@@ -275,6 +277,7 @@ export class Chat {
         passages,
         history,
         systemPrompt,
+        librarySearch: retrieval.search,
         ...(excerpt !== undefined
           ? {
               excerpt: {
@@ -391,9 +394,12 @@ export class Chat {
     signal: AbortSignal,
   ): Promise<RetrievalOutcome> {
     const searchable = scope.kind === "library" || libraryScope;
-    if (!searchable) return { mode: "none", hits: [] };
+    if (!searchable) return { mode: "none", hits: [], search: "not_used" };
+    let attempted = false;
+    let unavailable = false;
     for (const query of buildRetrievalQueries(question, history)) {
-      if (query.length < 2) continue;
+      if (!query) continue;
+      attempted = true;
       // The retriever is in-process today, but an embedding query can wait behind a busy
       // worker. A cancelled turn must not hold the conversation mutex until it settles.
       const result = await untilAborted(
@@ -401,13 +407,21 @@ export class Chat {
           q: query,
           ...(scope.kind === "book" ? { bookId: scope.bookId } : {}),
           limit: MAX_PASSAGES,
-        }),
+        }, { allowShortQuery: true }),
         signal,
       );
+      unavailable ||= result.unavailable === true;
       const hits = result.hits.slice(0, MAX_PASSAGES);
-      if (hits.length > 0) return { mode: toRetrievalMode(result.mode), hits };
+      if (hits.length > 0) {
+        // Keep the partial warning: a prior read was unavailable, so the search may have
+        // missed results even though these citations are valid and must be preserved.
+        return { mode: toRetrievalMode(result.mode), hits, search: unavailable ? "timed_out" : "used" };
+      }
     }
-    return { mode: "none", hits: [] };
+    if (!attempted) return { mode: "none", hits: [], search: "not_used" };
+    // A completed search that found nothing is "used"; any unavailable attempt wins over
+    // that clean no-match so the prompt never claims the library has no such passage.
+    return { mode: "none", hits: [], search: unavailable ? "timed_out" : "used" };
   }
 
   private persistTurn(
