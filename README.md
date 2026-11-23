@@ -195,6 +195,8 @@ Set variables in `.env`. The file `.env.example` lists every variable with comme
 
 Library search and the tutor read the passage index in a separate read-only worker, so a slow search does not block the server. On a very large index, the first search can be slower while the database cache is cold. A single read stops after 8 seconds, and the tutor then answers without library passages and tells you that the search timed out.
 
+Knowlify can also warm the search index in the background, slowly and only while the server is idle, so that later searches are faster. In the default `auto` mode, warm-up starts only after the first search finishes and never at start, so the first search itself is not faster. Set `KNOWLIFY_SEARCH_WARMUP` to `on` to start warm-up about 60 seconds after the server starts, or to `off` to turn it off. Set `KNOWLIFY_SEARCH_WARMUP_MAX_MB` to cap how much memory it may use. Settings > Search index shows the warm-up state.
+
 ## Connect other clients
 
 ### KOReader

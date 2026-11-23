@@ -81,7 +81,7 @@ describe("Knowledge HTTP contract", () => {
     expect(response.statusCode).toBe(200);
     const body = response.json();
     expect(Object.keys(body).sort()).toEqual([
-      "counts", "current", "enabled", "etaSec", "paused", "rate", "revision", "search", "vectors", "workers",
+      "counts", "current", "enabled", "etaSec", "paused", "rate", "retrieval", "revision", "search", "vectors", "workers",
     ]);
     expect(Object.keys(body.search).sort()).toEqual(["embeddings", "model", "semantic", "state"]);
     expect(Object.keys(body.vectors).sort()).toEqual(["maxBooks", "mode"]);
@@ -95,7 +95,15 @@ describe("Knowledge HTTP contract", () => {
       etaSec: null,
       workers: expect.any(Number),
       vectors: { mode: "auto", maxBooks: 1000 },
+      retrieval: {
+        memory: { limitMB: expect.any(Number), budgetMB: expect.any(Number) },
+        warmup: { mode: "auto", state: "off", reason: "disabled", warmedMB: 0, targetMB: 0 },
+        cache: { enabled: false, entries: 0, maxEntries: 0, usedKB: 0, maxKB: 0, hits: 0, misses: 0 },
+      },
     });
+    expect(Object.keys(body.retrieval).sort()).toEqual(["cache", "memory", "warmup"]);
+    expect(Object.keys(body.retrieval.warmup).sort()).toEqual(["mode", "state", "reason", "targetMB", "warmedMB"].sort());
+    expect(response.body).not.toMatch(/api[_-]?key|secret|https?:\/\/|knowlify\.db/i);
     expect(typeof body.revision).toBe("number");
     expect(response.body).not.toMatch(/api[_-]?key|secret|https?:\/\//i);
     expect((await app.inject({ method: "GET", url: "/api/index/status" })).statusCode).toBe(401);

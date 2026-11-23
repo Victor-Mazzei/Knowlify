@@ -68,6 +68,21 @@ describe("SqliteConversationRepository", () => {
       .toThrow("Conversation does not exist");
   });
 
+  it("keeps messages written by an earlier prompt version readable", () => {
+    const db = database();
+    const repo = new SqliteConversationRepository(db);
+    repo.create(conversation("legacy", { kind: "library" }));
+    const user = message("legacy-u", "user", "Why?");
+    const assistant: ChatMessage = {
+      ...message("legacy-a", "assistant", "Because of linkage."),
+      promptVersion: "feynman-3",
+    };
+
+    repo.saveTurn({ conversationId: "legacy", newConversation: null, user, assistant }, CAPS, 1);
+
+    expect(repo.messages("legacy")[1]?.promptVersion).toBe("feynman-3");
+  });
+
   it("creates a conversation and its first turn in the same operation", () => {
     const db = database();
     const repo = new SqliteConversationRepository(db);

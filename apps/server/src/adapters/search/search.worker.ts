@@ -32,9 +32,16 @@ function requireParentPort(value: typeof parentPort): NonNullable<typeof parentP
   return value;
 }
 
-const { file } = workerData as { file: string };
+const { file, timeoutMs } = workerData as { file: string; timeoutMs?: number };
 const db = openReadOnly(file);
 const passages = new SqlitePassageRepository(db);
+/**
+ * The parent terminates a request after `timeoutMs`. The cheap search layer uses this
+ * deadline to decide whether a full second pass still fits; leaving a reply margin lets
+ * it answer with the cheap hits instead of being killed with nothing.
+ */
+const searchBudgetMs = Math.max(1, timeoutMs ?? 8_000);
+const REPLY_MARGIN_MS = 250;
 // This connection never writes, so `data_version` invalidates the count on every commit
 // by the API process; the per-search COUNT(*) disappears from the hot path.
 const vectors = new SqliteBlobVectorStore(db, { cacheCount: true });
@@ -45,14 +52,20 @@ function post(message: SearchWorkerResponse): void {
 
 function handle(message: SearchWorkerRequest): void {
   switch (message.type) {
-    case "lexical":
-      post({ type: "lexical", id: message.id, hits: passages.searchLexical(message.q, message.limit, message.bookId) });
+    case "lexical": {
+      let complete = false;
+      const hits = passages.searchLexical(message.q, message.limit, message.bookId, {
+        timeoutAt: Date.now() + searchBudgetMs - REPLY_MARGIN_MS,
+        onComplete: (value) => { complete = value; },
+      });
+      post({ type: "lexical", id: message.id, hits, complete });
       return;
+    }
     case "hydrate":
       post({ type: "hydrate", id: message.id, views: passages.hydrate(message.ids) });
       return;
     case "nearest":
-      void vectors.nearest(message.vector, message.limit, message.filter).then(
+      void vectors.nearest(message.vector, message.limit, message.filter, message.epoch).then(
         (hits) => post({ type: "nearest", id: message.id, hits }),
         (error: unknown) => post({ type: "error", id: message.id, errorType: safeErrorType(error) }),
       );

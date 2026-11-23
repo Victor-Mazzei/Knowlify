@@ -3,8 +3,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
+import type { IndexEpoch } from "../../ports/index-epoch.js";
 import type {
   LexicalHit,
+  LexicalQueryResult,
   PassageQueryStore,
   PassageView,
   ScoredPassage,
@@ -23,8 +25,19 @@ export interface SearchWorkerStoreOptions {
   timeoutMs?: number;
   /** Test seam: run an alternative worker entry point. */
   workerPath?: string;
+  /**
+   * Rotating sample offset sent with every vector query. Production passes the process
+   * `IndexEpoch`; the worker must not derive it from SQLite `data_version`, which changes
+   * on unrelated commits and would rotate the sample behind an unchanged cache key.
+   */
+  epoch?: IndexEpoch;
   /** Fixed messages and error types only; never query text or passages. */
   log?: (message: string, error?: unknown) => void;
+  /**
+   * The worker was discarded. A timeout may be disk thrash, so the warm-up controller
+   * backs off when it sees one.
+   */
+  onDiscard?: (reason: "timeout" | "crash" | "exit") => void;
 }
 
 export class SearchWorkerError extends Error {}
@@ -45,7 +58,7 @@ interface Slot {
 }
 
 interface WorkerResult {
-  lexical: LexicalHit[];
+  lexical: LexicalQueryResult;
   hydrate: PassageView[];
   nearest: ScoredPassage[];
   "vector-count": number;
@@ -84,7 +97,11 @@ export class SearchWorkerStore implements PassageQueryStore {
     this.log = options.log ?? (() => {});
   }
 
-  searchLexical(q: string, limit: number, bookId?: string): Promise<LexicalHit[]> {
+  async searchLexical(q: string, limit: number, bookId?: string): Promise<LexicalHit[]> {
+    return (await this.searchLexicalResult(q, limit, bookId)).hits;
+  }
+
+  searchLexicalResult(q: string, limit: number, bookId?: string): Promise<LexicalQueryResult> {
     return this.call("lexical", (id) => ({ type: "lexical", id, q, limit, ...(bookId ? { bookId } : {}) }));
   }
 
@@ -93,7 +110,14 @@ export class SearchWorkerStore implements PassageQueryStore {
   }
 
   nearest(query: Float32Array, limit: number, filter?: VectorFilter): Promise<ScoredPassage[]> {
-    return this.call("nearest", (id) => ({ type: "nearest", id, vector: query, limit, ...(filter ? { filter } : {}) }));
+    return this.call("nearest", (id) => ({
+      type: "nearest",
+      id,
+      vector: query,
+      limit,
+      ...(filter ? { filter } : {}),
+      epoch: this.options.epoch?.current() ?? 0,
+    }));
   }
 
   vectorCount(): Promise<number> {
@@ -128,7 +152,9 @@ export class SearchWorkerStore implements PassageQueryStore {
     const id = ++this.nextId;
     return new Promise<WorkerResult[K]>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.log("search worker timed out; discarding the worker");
+        // One line, fixed shape: the operation and the ceiling, never the query text.
+        this.log(`search worker timed out after ${this.timeoutMs} ms (${kind}); discarding the worker`);
+        this.options.onDiscard?.("timeout");
         this.discard(slot, new SearchTimeoutError("The library search took too long"));
       }, this.timeoutMs);
       timer.unref();
@@ -147,7 +173,7 @@ export class SearchWorkerStore implements PassageQueryStore {
     if (this.slot) return this.slot;
     const path = resolveWorkerPath(this.options.workerPath);
     const worker = new Worker(path, {
-      workerData: { file: this.options.file },
+      workerData: { file: this.options.file, timeoutMs: this.timeoutMs },
       ...(path.endsWith(".ts") ? { execArgv: ["--import", "tsx"] } : {}),
     });
     const slot: Slot = { worker, pending: new Map(), stopping: false };
@@ -166,7 +192,7 @@ export class SearchWorkerStore implements PassageQueryStore {
         return;
       }
       const result = message.type === "lexical"
-        ? message.hits
+        ? { hits: message.hits, complete: message.complete ?? false }
         : message.type === "hydrate"
           ? message.views
           : message.type === "nearest"
@@ -176,11 +202,13 @@ export class SearchWorkerStore implements PassageQueryStore {
     });
     worker.on("error", (error) => {
       this.log("search worker crashed", error);
+      this.options.onDiscard?.("crash");
       this.discard(slot, new SearchWorkerError(`The search worker crashed (${safeErrorType(error)})`));
     });
     worker.on("exit", (code) => {
       if (slot.stopping || this.closing) return;
       this.log(`search worker exited with code ${code}`);
+      this.options.onDiscard?.("exit");
       this.discard(slot, new SearchWorkerError("The search worker stopped"));
     });
     return slot;

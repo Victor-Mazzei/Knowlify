@@ -14,6 +14,10 @@
  *   (all rare simplifies to the `OR`). Common terms are never a standalone `OR` in the
  *   primary. Only when there is no rare term at all and the `AND` is empty, the three
  *   lowest-df terms are ORed as the single bounded fallback.
+ * - when the estimated `rows × terms` cost is over the budget, `budget` carries a cheaper
+ *   layered expression: every protected short/number term plus the lowest-df common terms
+ *   that still fit, common ones exact; the caller runs it first and only reaches the full
+ *   expression when the cheap pass is short.
  */
 
 /** Longest terms kept. */
@@ -31,6 +35,25 @@ export interface FtsPlan {
   terms: number;
   /** Number of terms classified rare by df. */
   rare: number;
+  /** Estimated rows the primary expression scores (upper bound). */
+  estimatedRows?: number;
+  /** Estimated `rows × terms` work of the primary; the runtime budget compares it with a ceiling. */
+  estimatedRowTerms?: number;
+  /**
+   * Cheaper primary for an over-budget query: only the lowest-df terms (protected short
+   * terms are pinned), common terms as exact tokens and the rare union preserved. The
+   * caller runs it first and reaches for `primary` only when the cheap pass is short.
+   */
+  budget?: FtsBudgetPlan;
+}
+
+export interface FtsBudgetPlan {
+  primary: string;
+  /** Bounded `OR` used only when the cheap AND is empty and no term is rare. */
+  fallback?: string;
+  terms: number;
+  rows: number;
+  rowTerms: number;
 }
 
 export interface FtsPlanOptions {
@@ -46,6 +69,11 @@ export interface FtsPlanOptions {
 
 const DEFAULT_RARE_FRACTION = 0.02;
 const DEFAULT_RARE_CAP = 20_000;
+/**
+ * Target for the cheap pass: protected short/number terms always stay, and the remaining
+ * slots go to the lowest-df common terms. More protected terms than this are not truncated.
+ */
+const BUDGET_TERMS = 3;
 
 interface Candidate {
   text: string;
@@ -134,31 +162,104 @@ export function toFtsPlan(q: string, options: FtsPlanOptions = {}): FtsPlan {
     ),
   );
   const rare = selected.filter((candidate) => (candidate.df ?? 0) <= rareLimit);
-  const allAnd = selected.map(render).join(" AND ");
-  const rareOr = rare.map(render).join(" OR ");
+  const primary = primaryExpression(selected, rare, selected.length, render);
 
   // The fallback is allowed only when there is no rare term at all and the AND is empty.
   // With rare terms, common terms never enter an OR; the rare union is the recall pass.
   const fallback = rare.length === 0 && selected.length > 1
-    ? [...selected]
-      .sort((left, right) => (left.df ?? 0) - (right.df ?? 0) || right.key.length - left.key.length || left.order - right.order)
-      .slice(0, 3)
-      .map(render)
-      .join(" OR ")
+    ? orderByFrequency(selected).slice(0, 3).map(render).join(" OR ")
     : undefined;
 
-  let primary: string;
-  if (selected.length === 1) {
-    primary = render(selected[0]!);
-  } else if (rare.length === 0) {
-    primary = allAnd;
-  } else if (rare.length === selected.length) {
-    // Every term is rare: the AND is subsumed by the OR, so keep the cheaper exact union.
-    primary = rareOr;
-  } else {
-    primary = `(${allAnd}) OR (${rareOr})`;
-  }
-  return { primary, fallback, terms: selected.length, rare: rare.length };
+  const estimatedRows = estimateRows(selected, rare);
+  const estimatedRowTerms = estimatedRows * selected.length;
+  // Built unconditionally: the caller decides from the runtime ceiling whether to run it.
+  const budget = buildBudgetPlan(selected, rare, rareLimit);
+
+  return {
+    primary,
+    fallback,
+    terms: selected.length,
+    rare: rare.length,
+    estimatedRows,
+    estimatedRowTerms,
+    budget,
+  };
+}
+
+/**
+ * Cheap layered plan: every protected short term and number is kept in the AND (because
+ * `C`, `R`, `Go`, `C++` and years are real named things); the lowest-df limit only picks
+ * the remaining common terms. Common terms render as exact tokens so derivatives do not
+ * multiply the scored rows, and the rare union stays untouched for recall. Returns
+ * `undefined` when it would be identical to the full plan.
+ */
+function buildBudgetPlan(
+  selected: readonly Candidate[],
+  rare: readonly Candidate[],
+  rareLimit: number,
+): FtsBudgetPlan | undefined {
+  const pinned = selected.filter((candidate) => candidate.protectedTerm);
+  const pinnedSet = new Set(pinned);
+  const cheapest = [
+    ...pinned,
+    ...orderByFrequency(selected)
+      .filter((candidate) => !pinnedSet.has(candidate))
+      .slice(0, Math.max(0, BUDGET_TERMS - pinned.length)),
+  ];
+  const keep = new Set(cheapest);
+  // Preserve the original order so the expression reads like the question.
+  const andTerms = selected.filter((candidate) => keep.has(candidate));
+  const renderCheap = (candidate: Candidate): string =>
+    (candidate.df ?? 0) > rareLimit ? quoteExact(candidate) : render(candidate);
+  const budgetPrimary = primaryExpression(andTerms, rare, selected.length, renderCheap);
+  if (budgetPrimary === primaryExpression(selected, rare, selected.length, render)) return undefined;
+
+  const budgetFallback = rare.length === 0 && selected.length > 1
+    ? orderByFrequency(selected).slice(0, 3).map(renderCheap).join(" OR ")
+    : undefined;
+  const rows = estimateRows(andTerms.length > 0 ? andTerms : selected, rare);
+  return {
+    primary: budgetPrimary,
+    fallback: budgetFallback,
+    terms: andTerms.length,
+    rows,
+    rowTerms: rows * Math.max(1, andTerms.length),
+  };
+}
+
+/** Estimated scored rows: an AND is bounded by its smallest df, a rare union adds each df. */
+function estimateRows(selected: readonly Candidate[], rare: readonly Candidate[]): number {
+  if (selected.length === 0) return 0;
+  const sumRare = rare.reduce((total, candidate) => total + (candidate.df ?? 0), 0);
+  if (selected.length === 1) return selected[0]!.df ?? 0;
+  const minDf = Math.min(...selected.map((candidate) => candidate.df ?? 0));
+  if (rare.length === 0) return minDf;
+  if (rare.length === selected.length) return sumRare;
+  return minDf + sumRare;
+}
+
+function primaryExpression(
+  andTerms: readonly Candidate[],
+  rare: readonly Candidate[],
+  totalTerms: number,
+  renderTerm: (candidate: Candidate) => string,
+): string {
+  if (andTerms.length === 1 && rare.length === 0) return renderTerm(andTerms[0]!);
+  const and = andTerms.map(renderTerm).join(" AND ");
+  if (rare.length === 0) return and;
+  const rareOr = rare.map(renderTerm).join(" OR ");
+  // Every term is rare: the AND is subsumed by the union, so keep the cheaper expression.
+  if (rare.length === totalTerms) return rareOr;
+  return `(${and}) OR (${rareOr})`;
+}
+
+function orderByFrequency(candidates: readonly Candidate[]): Candidate[] {
+  return [...candidates].sort(
+    (left, right) =>
+      (left.df ?? 0) - (right.df ?? 0)
+      || right.key.length - left.key.length
+      || left.order - right.order,
+  );
 }
 
 /**
@@ -233,7 +334,11 @@ function stripDiacritics(text: string): string {
   return text.normalize("NFD").replace(/\p{M}/gu, "");
 }
 
+function quoteExact(candidate: Candidate): string {
+  return `"${candidate.text.replaceAll('"', '""')}"`;
+}
+
 function render(candidate: Candidate): string {
-  const quoted = `"${candidate.text.replaceAll('"', '""')}"`;
+  const quoted = quoteExact(candidate);
   return candidate.exact ? quoted : `${quoted}*`;
 }

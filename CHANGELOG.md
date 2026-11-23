@@ -15,6 +15,27 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.1.0] - 2026-11-23
+
+### Added
+
+- Passage retrieval keeps a small in-process LRU of stage results (passage ids and scores only, never hydrated text) with single-flight, a ten-minute TTL and cost-based admission; the cache is sized from the effective memory limit (cgroup v1/v2 or physical RAM), capped at 32/128/512 entries by memory tier, and is off with `KNOWLIFY_SEARCH_CACHE=off`. Every passage-index write increments an `IndexEpoch`, so a cached result is never served after an append, clear, deletion, merge, restore or reindex.
+- The search index is warmed in the background by a transient worker thread with its own read-only connection: it reads the FTS5 shadow tables page by page (`dbstat`, 1 MiB slices, 16/48/128 MB/s by memory band, at most a quarter of the wall time), pauses within one slice before every query, chat stream, ingestion job and folder scan, waits five minutes after a query-worker timeout, stops on memory pressure and is cancelled on shutdown. `auto` (default) starts two seconds after the first completed query and never at boot; `on` also starts sixty seconds after the server listens; `off` never warms. It stays off on small indexes, below 128 MB of usable memory and when the working set does not fit the budget (metadata-only pass above 1 GB of budget), so 512 MB and 1 GB machines never issue warm-up reads on a large index. `KNOWLIFY_SEARCH_WARMUP=auto|on|off` and `KNOWLIFY_SEARCH_WARMUP_MAX_MB` (0 disables warming) control it.
+- `GET /api/index/status` gains an additive `retrieval` block with the effective memory limit and budget, the warm-up mode, state, reason, scope, progress and last completion time, and the query-cache counters (entries, bytes, hits, misses). It is served from in-memory counters only: status polling never reads the disk or the query worker, and the block carries no path, key or query text.
+- Settings > Search index shows the search warm-up state (off, idle, waiting, warming with progress, warm or paused), the reason when it is off or paused, and the retrieval cache size when the server reports them.
+
+### Changed
+
+- An FTS5 query whose full ranking is estimated not to fit the eight-second read ceiling now runs a cheap layered plan first: the three lowest-document-frequency terms (protected short terms and numbers pinned), common terms as exact tokens instead of prefixes, and the rare-term union preserved. If that pass returns fewer results than requested and the full pass still fits, the full ranking runs and the cheap hits follow it; otherwise the cheap hits are returned instead of discarding the worker and losing every match. Queries that already fit keep the previous results exactly. The stage-1 record documents the measured performance/recall trade-off at 3.3M chunks.
+- The retrieval path keeps the unfiltered FTS query free of the passage-text join; a `bookId` filter still uses the bounded join, measured as the cheaper plan in the stage-1 lab.
+
+### Fixed
+
+- A timed-out search worker and a failed index read now log one short warning with the operation and duration, without a stack, SQL, query text or passage.
+- The tutor answers a reply to its own check question as Feynman feedback instead of treating it as a new question: "I don't know", partial and wrong answers get a plain explanation, a gentle correction and one new short question, with prompt `feynman-4`.
+- Tutor answers no longer open with library-search internals or partial-result narration; the neutral "try again in a moment" closing line is offered only when the search really timed out and the passages are insufficient, before the closing check question. A clean no-match never suggests a retry and mentions the missing library result only when a claim about the user's books needs that fallback; a conversational reply or Feynman feedback does not mention the library. A turn where the library was not used never suggests a retry or implies that a search ran.
+- The tutor's working indicator is now three small dots that pulse in sequence while it thinks, and fade slowly on opacity alone when the system asks for reduced motion instead of freezing as static dots.
+
 ## [2.0.4] - 2026-11-22
 
 ### Fixed
@@ -342,7 +363,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...v2.0.2

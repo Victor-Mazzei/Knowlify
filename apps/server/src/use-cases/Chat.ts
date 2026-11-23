@@ -154,6 +154,11 @@ export class Chat {
     };
   }
 
+  /** Active answer streams; background warm-up reads must yield to them. */
+  busyStreams(): number {
+    return this.activeStreams;
+  }
+
   async *stream(input: ChatTurnInput, signal: AbortSignal): AsyncIterable<ChatEvent> {
     if (!this.llm.configured) throw new ChatDisabledError();
     const question = normalizeQuestion(input.message);

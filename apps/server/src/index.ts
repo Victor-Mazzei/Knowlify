@@ -15,6 +15,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { Db } from "./adapters/storage/db.js";
 import type { Logger } from "./ports/index.js";
+import type { IndexEpoch } from "./ports/index-epoch.js";
 import type { IngestionRunner, PassageQueryStore, PassageRepository, VectorStore } from "./ports/knowledge.js";
 import { SqliteBookRepository, SqliteSourceRepository, SqliteNoteRepository, SqliteProgressRepository, SqliteSyncProgressRepository, SqliteBookDuplicateRepository, SqliteMergeLogRepository, SqliteUnitOfWork, SqliteTagRepository, SqliteIgnoredBookRepository, SqliteMcpTokenRepository, SqliteBookMetadataRepository } from "./adapters/storage/repositories.js";
 import { SqliteBookListQuery } from "./adapters/storage/SqliteBookListQuery.js";
@@ -69,6 +70,10 @@ import { Indexing } from "./use-cases/Indexing.js";
 import { PassageSearch } from "./use-cases/PassageSearch.js";
 import { SqlitePassageQueryStore } from "./adapters/storage/SqlitePassageQueryStore.js";
 import { SearchWorkerStore } from "./adapters/search/SearchWorkerStore.js";
+import { CachedPassageQueryStore, withSearchCache } from "./adapters/search/CachedPassageQueryStore.js";
+import { WarmupController, type RetrievalStatus } from "./adapters/search/WarmupController.js";
+import { IndexEpochCounter } from "./adapters/runtime/IndexEpochCounter.js";
+import { MemoryProfile, cacheLimits } from "./adapters/runtime/memoryProfile.js";
 import { knowledgeRoutes } from "./adapters/http/knowledge.js";
 import { chatRoutes } from "./adapters/http/chat.js";
 import { Chat } from "./use-cases/Chat.js";
@@ -151,7 +156,12 @@ export function createServices(
   rss: RssSource = new SafeRssSource(undefined, undefined, log),
   ingestionRunner?: IngestionRunner,
 ) {
-  const books = new SqliteBookRepository(db);
+  // One counter for every passage-index writer in this process. The retrieval cache
+  // compares it around each read, so no write can leave a stale entry behind.
+  const epoch = new IndexEpochCounter();
+  // One memory profile for the cache tier and the warm-up budget.
+  const memory = new MemoryProfile();
+  const books = new SqliteBookRepository(db, epoch);
   // HMAC key for opaque cursors. An operator-provided secret keeps cursors valid across
   // restarts; otherwise a per-process key is enough because a rejected cursor restarts paging.
   const bookList = new SqliteBookListQuery(db, config.secret.value ?? undefined);
@@ -190,9 +200,24 @@ export function createServices(
   });
   metadataSettings.bootstrap();
   const credentials = new EffectiveCredentials(settingsRepository, new ScryptPasswordHasher(), config);
-  const bookIndexes = new SqliteBookIndexRepository(db);
-  const passages = new SqlitePassageRepository(db);
-  const vectors = new SqliteBlobVectorStore(db);
+  // Warm-up reads the FTS working set into the OS page cache. It is created before the
+  // search store so a discarded query worker can back the controller off; the busy
+  // predicate is filled once indexing, the scanner and chat exist.
+  let warmupBusy: () => boolean = () => false;
+  const warmup = new WarmupController({
+    mode: config.search.warmup.mode,
+    maxMb: config.search.warmup.maxMb,
+    // A worker cannot share SQLite's in-memory database (tests and ephemeral builds).
+    file: db.name === ":memory:" ? null : db.name,
+    enabled: config.indexing.enabled && ingestionRunner !== undefined,
+    profile: memory,
+    isBusy: () => warmupBusy(),
+    settings: settingsRepository,
+    log,
+  });
+  const bookIndexes = new SqliteBookIndexRepository(db, epoch);
+  const passages = new SqlitePassageRepository(db, epoch);
+  const vectors = new SqliteBlobVectorStore(db, { epoch: () => epoch.current() });
   const runner = ingestionRunner ?? NO_INGESTION_RUNNER;
   const workers = indexingWorkers(config.indexing);
   const indexing = new Indexing(bookIndexes, passages, books, runner, clock, {
@@ -206,8 +231,20 @@ export function createServices(
     vectorsMaxBooks: config.indexing.vectorsMaxBooks,
     settings: settingsRepository,
     backpressure: { enabled: true },
-  }, log);
-  const searchStore = createPassageQueryStore(db, passages, vectors, log);
+  }, log, epoch);
+  const innerSearchStore = createPassageQueryStore(db, passages, vectors, log, epoch, {
+    onDiscard: () => warmup.noteDiscard(),
+  });
+  // The in-memory database is the test/ephemeral path (no worker either); keep it direct.
+  const searchStore = withSearchCache(
+    innerSearchStore,
+    config.search.cache === "off" || db.name === ":memory:"
+      ? null
+      : {
+        epoch,
+        ...cacheLimits(memory.limitBytes()),
+      },
+  );
   const passageSearch = new PassageSearch(
     searchStore,
     runner,
@@ -216,6 +253,10 @@ export function createServices(
     {
       enabled: indexing.enabled,
       vectorScanMax: config.indexing.vectorScanMax,
+      activity: {
+        begin: () => warmup.noteSearchStart(),
+        end: () => warmup.noteSearchEnd(),
+      },
     },
     log,
   );
@@ -332,6 +373,9 @@ export function createServices(
     scanConcurrency: config.scanConcurrency,
     metadataWorkers: config.metadataWorkers,
   }, { identity: contentIdentity, aliases: duplicateRepository, onScanComplete: () => duplicateFinder.trigger() }, ignoredRepository);
+  // Background reads yield to anything the user can feel: a chat stream, an ingestion job
+  // or a folder walk.
+  warmupBusy = () => indexing.isBusy() || scanner.isScanning() || chat.busyStreams() > 0;
   const tags = new Tags(tagRepository, bookList, unitOfWork, clock, ids);
   const favorites = new Favorites(favoriteRepository, bookList, unitOfWork);
   const mcpAccess = new McpAccess(
@@ -356,7 +400,28 @@ export function createServices(
     log,
     bookLocks,
   );
-  const ignoredBooks = new IgnoredBooks(ignoredRepository, () => { void scanner.scan(); });
+  const ignoredBooks = new IgnoredBooks(ignoredRepository, () => { void scanner.scan(); }, epoch);
+  // Additive `retrieval` block of GET /api/index/status. Every value is an in-memory
+  // counter: no disk read, no query-worker call and no query text or path.
+  const cacheStats = (): ReturnType<CachedPassageQueryStore["stats"]> => searchStore instanceof CachedPassageQueryStore
+    ? searchStore.stats()
+    : { enabled: false, entries: 0, maxEntries: 0, usedBytes: 0, maxBytes: 0, hits: 0, misses: 0 };
+  const retrieval = (): RetrievalStatus => {
+    const stats = cacheStats();
+    return {
+      memory: warmup.memoryStatus(),
+      warmup: warmup.status(),
+      cache: {
+        enabled: stats.enabled,
+        entries: stats.entries,
+        maxEntries: stats.maxEntries,
+        usedKB: Math.round(stats.usedBytes / 1024),
+        maxKB: Math.round(stats.maxBytes / 1024),
+        hits: stats.hits,
+        misses: stats.misses,
+      },
+    };
+  };
   return {
     credentials,
     account: new Account(credentials, clock, config),
@@ -382,6 +447,8 @@ export function createServices(
     indexing,
     passageSearch,
     searchStore,
+    warmup,
+    retrieval,
     chat,
     llmSettings,
     metadataSettings,
@@ -493,6 +560,7 @@ export async function buildApp(
   app.addHook("onClose", async () => {
     indexing.stop();
     services.duplicates.stop();
+    await services.warmup.close();
     await services.metadataExtractors.close();
     await services.ingestionRunner.close();
     await services.searchStore.close();
@@ -586,7 +654,7 @@ export async function buildApp(
     );
   }
 
-  return { app, scanner, indexing, duplicates: services.duplicates };
+  return { app, scanner, indexing, duplicates: services.duplicates, warmup: services.warmup };
 }
 
 export type PassageQueryStoreHandle = PassageQueryStore & { close(): Promise<void> };
@@ -601,14 +669,18 @@ export function createPassageQueryStore(
   passages: PassageRepository,
   vectors: VectorStore,
   log: Logger,
+  epoch?: IndexEpoch,
+  hooks: { onDiscard?: () => void } = {},
 ): PassageQueryStoreHandle {
   if (db.name === ":memory:") return new SqlitePassageQueryStore(passages, vectors);
   return new SearchWorkerStore({
     file: db.name,
+    epoch,
     log: (message, error) => {
       if (error === undefined) log.warn?.(message);
       else log.error(error, message);
     },
+    ...(hooks.onDiscard === undefined ? {} : { onDiscard: hooks.onDiscard }),
   });
 }
 
@@ -680,10 +752,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const passwordWarning = storedPassword === undefined ? defaultPasswordWarning(config.host, config.password) : null;
   if (passwordWarning !== null) console.warn(`[auth] ${passwordWarning}`);
   const ingestionRunner = await createIngestionRunner();
-  const { app, scanner, indexing, duplicates } = await buildApp(db, true, undefined, ingestionRunner);
+  const { app, scanner, indexing, duplicates, warmup } = await buildApp(db, true, undefined, ingestionRunner);
   let timer: NodeJS.Timeout | undefined;
   app.addHook("onClose", async () => { clearInterval(timer); });
   await app.listen({ port: config.port, host: config.host });
+  // The scheduler is not started in tests: warming needs a real file and a listening server.
+  warmup.start();
   indexing.start();
   duplicates.start();
   for (const path of config.libraryPaths) scanner.addSource(path);

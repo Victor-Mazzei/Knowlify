@@ -1,5 +1,6 @@
 import type { FastifyError, FastifyInstance } from "fastify";
 import { ConflictError, NotFoundError, ValidationError } from "../../domain/errors.js";
+import type { RetrievalStatus } from "../search/WarmupController.js";
 import { IndexingDisabledError, type Indexing } from "../../use-cases/Indexing.js";
 import { PassageSearchDisabledError, type PassageSearch } from "../../use-cases/PassageSearch.js";
 
@@ -36,8 +37,11 @@ const searchQuerySchema = {
   },
 } as const;
 
-export async function knowledgeRoutes(app: FastifyInstance, opts: { indexing: Indexing; passageSearch: PassageSearch }) {
-  const { indexing, passageSearch } = opts;
+export async function knowledgeRoutes(
+  app: FastifyInstance,
+  opts: { indexing: Indexing; passageSearch: PassageSearch; retrieval?: () => RetrievalStatus },
+) {
+  const { indexing, passageSearch, retrieval } = opts;
 
   app.setErrorHandler((error: FastifyError, _req, reply) => {
     if (error.validation) return reply.code(400).send({ message: error.message });
@@ -50,7 +54,12 @@ export async function knowledgeRoutes(app: FastifyInstance, opts: { indexing: In
     return reply.send(error);
   });
 
-  app.get("/index/status", async () => indexing.status());
+  // The retrieval block is additive: older clients ignore it, and it is served from
+  // in-memory counters only (no disk read, no query-worker round-trip).
+  app.get("/index/status", async () => {
+    const status = indexing.status();
+    return retrieval === undefined ? status : { ...status, retrieval: retrieval() };
+  });
 
   app.post("/index/pause", async () => ({ paused: indexing.pause() }));
   app.post("/index/resume", async () => ({ paused: indexing.resume() }));

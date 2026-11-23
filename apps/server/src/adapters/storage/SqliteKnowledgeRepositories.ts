@@ -11,13 +11,42 @@ import {
 } from "../../domain/knowledge/BookIndex.js";
 import type {
   BookIndexRepository,
+  LexicalQueryResult,
   PassageRepository,
   PassageView,
   PendingIndexUpsert,
 } from "../../ports/knowledge.js";
-import { toFtsPlan, type FtsPlanOptions } from "./ftsQuery.js";
+import type { IndexEpoch } from "../../ports/index-epoch.js";
+import { toFtsPlan, type FtsBudgetPlan, type FtsPlan, type FtsPlanOptions } from "./ftsQuery.js";
 
 export { toFtsPlan, toFtsQuery, type FtsPlan } from "./ftsQuery.js";
+
+/** Same ceiling as the worker request; used only to decide whether a full pass still fits. */
+const DEFAULT_SEARCH_BUDGET_MS = 8_000;
+/** Keep a margin so the worker answers before the parent terminates it. */
+const BUDGET_SAFETY_MARGIN_MS = 300;
+/**
+ * Lab-calibrated bm25 cost per `row × term` unit. The measured dense queries range from
+ * 0.18 to 0.86 µs; 0.3 µs is the median shape and keeps every query that actually fits
+ * inside the eight-second ceiling on the full plan, so only a pass that would not fit
+ * takes the cheaper layer (the 3.3M lab's 15 s query estimates 9.5 s and is layered).
+ */
+const ROW_TERM_MS = 0.0003;
+
+export interface SearchLexicalOptions {
+  /** Epoch milliseconds by which the worker must answer; the cheap layer never overruns it. */
+  timeoutAt?: number;
+  /** Test seam: overrides the target that decides whether the full plan is cheap enough. */
+  fullBudgetMs?: number;
+  /** Test seam and future observability: which layers actually ran and for how long. */
+  onLayer?: (layer: "cheap" | "full" | "full-skipped" | "fallback", info: { ms: number; hits: number }) => void;
+  /**
+   * Reports whether the full plan ran and the read finished inside its deadline. The
+   * retrieval cache only admits `true`; a cheap or fallback result that skipped the full
+   * plan must stay uncached so a later warm read can still produce the full ranking.
+   */
+  onComplete?: (complete: boolean) => void;
+}
 
 interface BookIndexRow {
   book_id: string;
@@ -76,7 +105,13 @@ const UPSERT_PENDING = `
 /** The queue is the book_index table itself: pending rows are jobs. */
 export class SqliteBookIndexRepository implements BookIndexRepository {
   private revisionCounter = 0;
-  constructor(private db: Db) {}
+  /**
+   * Every write here can change which books are eligible for the sampled vector scan
+   * (`state`, `index_version`, row presence) or the queue transition that produced it.
+   * The retrieval cache keys `nearest` by the epoch, so a transition that is not bumped
+   * could leave a sampled result cached after the book list changed.
+   */
+  constructor(private db: Db, private readonly epoch?: IndexEpoch) {}
 
   get(bookId: string): BookIndex | undefined {
     const row = this.db.prepare("SELECT * FROM book_index WHERE book_id = ?").get(bookId) as BookIndexRow | undefined;
@@ -95,6 +130,7 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
       });
       if (before?.state !== "pending") this.revisionCounter++;
     })();
+    this.epoch?.bump();
   }
 
   upsertPendingMany(items: readonly PendingIndexUpsert[]): void {
@@ -116,10 +152,11 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
       }
       if (changed) this.revisionCounter++;
     })();
+    this.epoch?.bump();
   }
 
   claimNext(now: number): BookIndex | undefined {
-    return this.db.transaction(() => {
+    const claimed = this.db.transaction(() => {
       const row = this.db.prepare(`
         SELECT * FROM book_index
         WHERE state = 'pending' AND next_attempt_at <= ?
@@ -133,6 +170,8 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
       this.revisionCounter++;
       return toBookIndex({ ...row, state: "indexing", started_at: now });
     })();
+    if (claimed) this.epoch?.bump();
+    return claimed;
   }
 
   nextDueAt(): number | null {
@@ -180,11 +219,15 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
       });
       if (before?.state !== index.state) this.revisionCounter++;
     })();
+    this.epoch?.bump();
   }
 
   resetInterrupted(): number {
     const result = this.db.prepare("UPDATE book_index SET state = 'pending', started_at = NULL WHERE state = 'indexing'").run();
-    if (result.changes > 0) this.revisionCounter += result.changes;
+    if (result.changes > 0) {
+      this.revisionCounter += result.changes;
+      this.epoch?.bump();
+    }
     return result.changes;
   }
 
@@ -209,7 +252,7 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
   }
 
   requeue(scope: "failed" | "all", now: number): number {
-    return this.db.transaction(() => {
+    const changes = this.db.transaction(() => {
       const filter = scope === "failed" ? "state = 'error'" : "state IN ('ready','error')";
       const result = this.db.prepare(`
         UPDATE book_index
@@ -220,6 +263,8 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
       if (result.changes > 0) this.revisionCounter += result.changes;
       return result.changes;
     })();
+    if (changes > 0) this.epoch?.bump();
+    return changes;
   }
 
   staleIds(currentVersion: string): string[] {
@@ -298,11 +343,12 @@ export class SqlitePassageRepository implements PassageRepository {
   private dfTotal = 0;
   private vocab: { exact: Database.Statement; range: Database.Statement } | null | undefined;
 
-  constructor(private db: Db) {}
+  constructor(private db: Db, private readonly epoch?: IndexEpoch) {}
 
   clear(bookId: string): void {
     this.db.prepare("DELETE FROM chunks WHERE book_id = ?").run(bookId);
     this.invalidateFrequencyCache();
+    this.epoch?.bump();
   }
 
   append(bookId: string, items: { passage: Passage; vector: Float32Array | null }[]): void {
@@ -316,6 +362,7 @@ export class SqlitePassageRepository implements PassageRepository {
       }
     })();
     this.invalidateFrequencyCache();
+    this.epoch?.bump();
   }
 
   /**
@@ -328,9 +375,21 @@ export class SqlitePassageRepository implements PassageRepository {
     this.dfCache.clear();
   }
 
-  searchLexical(q: string, limit: number, bookId?: string): { passageId: number; rank: number }[] {
+  searchLexicalResult(q: string, limit: number, bookId?: string): LexicalQueryResult {
+    let complete = false;
+    const hits = this.searchLexical(q, limit, bookId, {
+      onComplete: (value) => { complete = value; },
+    });
+    return { hits, complete };
+  }
+
+  searchLexical(q: string, limit: number, bookId?: string, options: SearchLexicalOptions = {}): { passageId: number; rank: number }[] {
+    const entered = Date.now();
     const plan = toFtsPlan(q, this.frequencyOptions());
-    if (!plan.primary || limit <= 0) return [];
+    if (!plan.primary || limit <= 0) {
+      options.onComplete?.(true);
+      return [];
+    }
     // The FTS rowid *is* chunks.id (`content_rowid='id'`), so the unfiltered path needs no
     // join. Joining read one chunks row per match, which costs 3-6x more on a cold page
     // cache (random reads) and neither changes the ranking nor the returned ids.
@@ -354,14 +413,78 @@ export class SqlitePassageRepository implements PassageRepository {
         ? filtered.all(match, bookId, limit)
         : unfiltered.all(match, limit)) as { passageId: number; rank: number }[];
 
+    const deadline = options.timeoutAt ?? entered + DEFAULT_SEARCH_BUDGET_MS;
+    const fullMs = (plan.estimatedRowTerms ?? 0) * ROW_TERM_MS;
+    // By default the full ranking is the reference: it runs whenever its estimate fits
+    // the hard worker ceiling, so feasible queries keep the 2.0.4 results. The cheap layer
+    // is only for a pass that would not fit; `fullBudgetMs` is the experiment/test seam for
+    // a tighter latency target (see the stage-1 record for the measured recall trade-off).
+    const target = options.fullBudgetMs
+      ?? Math.max(0, deadline - Date.now() - BUDGET_SAFETY_MARGIN_MS);
+    // Fast enough: the full ranking is used unchanged, so every corpus/query that already
+    // meets the target keeps the 2.0.4 results exactly.
+    const budgeted = plan.budget !== undefined && fullMs > target;
+    if (budgeted) {
+      const { hits, fullRan } = this.layered(plan, plan.budget!, run, limit, { deadline, fullMs, ...options });
+      // A cheap pass that filled the request or skipped the full pass is not a cacheable
+      // substitute: a later warm read may run the full ranking instead.
+      options.onComplete?.(fullRan && Date.now() <= deadline);
+      return hits;
+    }
     const strict = run(plan.primary);
     // The three-term OR is allowed only when no term is rare and the AND matched nothing.
     // With rare terms present, common terms never enter an OR: the rare union is the only
     // recall pass, bounded to the rare postings and the request's 8 s worker timeout.
     if (plan.rare === 0 && strict.length === 0 && plan.fallback) {
-      return mergeHits(strict, run(plan.fallback), limit);
+      const startedFallback = Date.now();
+      const fallbackHits = run(plan.fallback);
+      options.onLayer?.("fallback", { ms: Date.now() - startedFallback, hits: fallbackHits.length });
+      options.onComplete?.(Date.now() <= deadline);
+      return mergeHits(strict, fallbackHits, limit);
     }
+    options.onComplete?.(Date.now() <= deadline);
     return strict;
+  }
+
+  /**
+   * Two layers for a query whose full ranking is estimated to be expensive: the cheap
+   * pass keeps the lowest-df terms (common ones exact) and fills the request when it can.
+   * The full pass runs only when the cheap one is short and its estimated cost still fits
+   * inside the worker budget; otherwise returning the cheap hits avoids discarding the
+   * worker and losing every match for the turn.
+   */
+  private layered(
+    plan: FtsPlan,
+    budget: FtsBudgetPlan,
+    run: (match: string) => { passageId: number; rank: number }[],
+    limit: number,
+    options: SearchLexicalOptions & { deadline: number; fullMs: number },
+  ): { hits: { passageId: number; rank: number }[]; fullRan: boolean } {
+    const startedCheap = Date.now();
+    const cheap = run(budget.primary);
+    options.onLayer?.("cheap", { ms: Date.now() - startedCheap, hits: cheap.length });
+    if (cheap.length >= limit) return { hits: cheap, fullRan: false };
+    if (options.fullMs > options.deadline - Date.now() - BUDGET_SAFETY_MARGIN_MS) {
+      options.onLayer?.("full-skipped", { ms: 0, hits: cheap.length });
+      if (cheap.length === 0 && plan.rare === 0 && budget.fallback) {
+        const startedFallback = Date.now();
+        const fallbackHits = run(budget.fallback);
+        options.onLayer?.("fallback", { ms: Date.now() - startedFallback, hits: fallbackHits.length });
+        return { hits: mergeHits(cheap, fallbackHits, limit), fullRan: false };
+      }
+      return { hits: cheap, fullRan: false };
+    }
+    const startedFull = Date.now();
+    const full = run(plan.primary);
+    options.onLayer?.("full", { ms: Date.now() - startedFull, hits: full.length });
+    if (full.length === 0 && plan.rare === 0 && plan.fallback) {
+      const startedFallback = Date.now();
+      const fallbackHits = run(plan.fallback);
+      options.onLayer?.("fallback", { ms: Date.now() - startedFallback, hits: fallbackHits.length });
+      return { hits: mergeHits(mergeHits(full, fallbackHits, limit), cheap, limit), fullRan: true };
+    }
+    // The full ranking is more selective; cheap-only matches follow it for recall.
+    return { hits: mergeHits(full, cheap, limit), fullRan: true };
   }
 
   /** df cache and total row count are invalidated together when the file epoch changes. */

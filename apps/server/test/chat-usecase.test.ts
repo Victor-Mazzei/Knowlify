@@ -42,7 +42,7 @@ describe("Chat status", () => {
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-3",
+      promptVersion: "feynman-4",
       scopes: { library: false, book: false },
     });
   });
@@ -53,7 +53,7 @@ describe("Chat status", () => {
       enabled: true,
       model: "fake-model",
       host: "llm.example",
-      promptVersion: "feynman-3",
+      promptVersion: "feynman-4",
       scopes: { library: true, book: true },
     });
 
@@ -88,7 +88,7 @@ describe("Chat turn", () => {
       id: done.messageId,
       content: "Hello there",
       citations: sources.citations,
-      promptVersion: "feynman-3",
+      promptVersion: "feynman-4",
     });
     expect(conversations.countAll()).toBe(1);
     expect(llm.requests).toHaveLength(1);
@@ -125,7 +125,7 @@ describe("Chat turn", () => {
     const first = await collect(chat.stream({ message: "First question", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
     expect(llm.requests[0].messages[0]).toEqual({ role: "system", content: composeSystemPrompt(null) });
-    expect(chat.status().promptVersion).toBe("feynman-3");
+    expect(chat.status().promptVersion).toBe("feynman-4");
 
     persona = "Answer as a pirate.";
     await collect(chat.stream({ conversationId, message: "Second question", scope: { kind: "library" } }, new AbortController().signal));
@@ -137,7 +137,7 @@ describe("Chat turn", () => {
     const messages = chat.get(conversationId)?.messages ?? [];
     expect(messages.map((message) => message.promptVersion)).toEqual([
       null,
-      "feynman-3",
+      "feynman-4",
       null,
       customVersion,
     ]);
@@ -242,7 +242,54 @@ describe("Chat turn", () => {
     const assistant = chat.get(conversationId)?.messages.at(-1);
     expect(assistant?.content).toBe("Start with one focused block.");
     expect(assistant?.content).not.toBe(NO_PASSAGES_ANSWER);
-    expect(assistant?.promptVersion).toBe("feynman-3");
+    expect(assistant?.promptVersion).toBe("feynman-4");
+  });
+
+  it("stamps a reply-as-feedback turn with feynman-4 and never logs the question", async () => {
+    class TutorQuestionLlm implements LlmClient {
+      readonly configured = true;
+      readonly model = "fake-model";
+      readonly host = "llm.example";
+      readonly requests: LlmRequest[] = [];
+      async *stream(request: LlmRequest): AsyncIterable<LlmEvent> {
+        this.requests.push(request);
+        yield {
+          type: "delta",
+          text: this.requests.length === 1
+            ? "What makes a declaration inside extern \"C\" different?"
+            : "No problem — let's go step by step.",
+        };
+        yield { type: "done", finishReason: "stop" };
+      }
+    }
+    const llm = new TutorQuestionLlm();
+    const retriever = new FakeRetriever();
+    const logs: string[] = [];
+    const log: Logger = {
+      info: (message) => logs.push(message),
+      error: (_error, message) => logs.push(message),
+      warn: (message) => logs.push(message),
+    };
+    const { chat } = fixture({ llm, retriever, log });
+    const sentinel = "zebraquantum-nao-sei";
+
+    const first = await collect(chat.stream({ message: "Explique extern C em C++", scope: { kind: "library" } }, new AbortController().signal));
+    const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
+    const second = await collect(chat.stream({
+      conversationId,
+      message: `nao sei ${sentinel}`,
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+
+    expect(second.at(-1)?.type).toBe("done");
+    expect(llm.requests).toHaveLength(2);
+    const prompt = llm.requests[1].messages;
+    expect(prompt[0]?.content).toContain("Turn rule");
+    expect(prompt.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(prompt[2]?.content).toBe("What makes a declaration inside extern \"C\" different?");
+    expect(prompt.at(-1)?.content).toContain(`Question: nao sei ${sentinel}`);
+    expect(chat.get(conversationId)?.messages.at(-1)?.promptVersion).toBe("feynman-4");
+    expect(logs.join("\n")).not.toContain(sentinel);
   });
 
   it("marks a timed-out search in the prompt and still streams the provider answer", async () => {
@@ -294,6 +341,70 @@ describe("Chat turn", () => {
     expect(retriever.queries).toEqual([]);
     expect(llm.requests[0].messages.at(-1)?.content).toContain(LIBRARY_NOT_USED_BLOCK);
     expect(llm.requests[0].messages.at(-1)?.content).not.toContain(NO_PASSAGES_BLOCK);
+  });
+
+  it("keeps the not-used marker when a book-only turn carries a reader excerpt", async () => {
+    const llm = new FakeLlmClient();
+    const retriever = new FakeRetriever();
+    const { chat } = fixture({ llm, retriever, limits: { libraryScope: false } });
+
+    await collect(chat.stream({
+      message: "Explain this passage",
+      scope: { kind: "book", bookId: BOOK.id, excerpt: "A highlighted sentence." },
+    }, new AbortController().signal));
+
+    expect(retriever.queries).toEqual([]);
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(prompt).toContain("A highlighted sentence.");
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+    expect(prompt).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+  });
+
+  it("answers 'nao sei' after its own question on a clean no-match without a library mention", async () => {
+    class TutorQuestionLlm implements LlmClient {
+      readonly configured = true;
+      readonly model = "fake-model";
+      readonly host = "llm.example";
+      readonly requests: LlmRequest[] = [];
+      async *stream(request: LlmRequest): AsyncIterable<LlmEvent> {
+        this.requests.push(request);
+        yield {
+          type: "delta",
+          text: this.requests.length === 1
+            ? "What does `extern \"C\"` change about linkage?"
+            : "No problem. Linkage controls how names are matched.",
+        };
+        yield { type: "done", finishReason: "stop" };
+      }
+    }
+    const llm = new TutorQuestionLlm();
+    const retriever = new FakeRetriever();
+    const { chat } = fixture({ llm, retriever });
+
+    const first = await collect(chat.stream({
+      message: "Explique `extern \"C\"` em C++.",
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+    const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
+    const second = await collect(chat.stream({
+      conversationId,
+      message: "nao sei",
+      scope: { kind: "library" },
+    }, new AbortController().signal));
+
+    expect(second.at(-1)?.type).toBe("done");
+    expect(llm.requests).toHaveLength(2);
+    const messages = llm.requests[1].messages;
+    const user = messages.at(-1)?.content ?? "";
+    expect(user).toContain(NO_PASSAGES_BLOCK);
+    expect(user).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(user).not.toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(messages.some((message) => message.role === "assistant" && message.content.includes("extern \"C\""))).toBe(true);
+    const system = messages[0]?.content ?? "";
+    expect(system).toContain("missing passages are not a reason to refuse");
+    expect(system).toContain("a conversational reply or Feynman feedback (rules 1b and 1c) needs no library mention");
+    expect(system).not.toContain("say that you could not find it in the library (rule 1) and mark any general-knowledge answer as such");
   });
 
   it("keeps a lexical result after the embedding fallback without a timeout note", async () => {

@@ -104,7 +104,7 @@ describe("chat HTTP routes", () => {
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-3",
+      promptVersion: "feynman-4",
       scopes: { library: false, book: false },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);

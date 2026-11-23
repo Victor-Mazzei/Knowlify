@@ -1,0 +1,45 @@
+/* Search index: one quiet line for warm-up and cache state. */
+.index-retrieval { margin-top: var(--space-3); }
+.index-retrieval-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.index-retrieval-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--ink-dim);
+  vertical-align: 1px;
+}
+.index-retrieval-dot[data-state="warm"],
+.index-retrieval-dot[data-state="warming"] { background: var(--accent); }
+.index-retrieval-dot[data-state="paused"] { background: var(--warning); }
+.index-retrieval-label { color: var(--ink-dim); }
+.index-retrieval-state { color: var(--ink); font-weight: 500; }
+.index-retrieval-percent { color: var(--ink); }
+.index-retrieval-sep { margin: 0 var(--space-1); color: var(--ink-dim); }
+.index-retrieval-meta,
+.index-retrieval-hint { color: var(--ink-dim); }
+.index-retrieval-meter {
+  height: 3px;
+  margin-top: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-chip);
+  background: var(--hairline);
+}
+.index-retrieval-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 300ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .index-retrieval-meter span { transition: none; }
+}

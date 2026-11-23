@@ -1,5 +1,6 @@
 import type {
   LexicalHit,
+  LexicalQueryResult,
   PassageQueryStore,
   PassageRepository,
   PassageView,
@@ -20,7 +21,11 @@ export class SqlitePassageQueryStore implements PassageQueryStore {
   ) {}
 
   async searchLexical(q: string, limit: number, bookId?: string): Promise<LexicalHit[]> {
-    return this.passages.searchLexical(q, limit, bookId);
+    return (await this.searchLexicalResult(q, limit, bookId)).hits;
+  }
+
+  async searchLexicalResult(q: string, limit: number, bookId?: string): Promise<LexicalQueryResult> {
+    return this.passages.searchLexicalResult(q, limit, bookId);
   }
 
   async hydrate(ids: number[]): Promise<PassageView[]> {

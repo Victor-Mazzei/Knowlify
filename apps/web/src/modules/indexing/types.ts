@@ -56,6 +56,58 @@ export type IndexVectorsStatus = {
   maxBooks: number;
 };
 
+/** Effective warm-up policy configured on the server. */
+export type IndexWarmupMode = "auto" | "on" | "off";
+
+export type IndexWarmupState = "off" | "idle" | "waiting" | "warming" | "warm" | "paused";
+
+export type IndexWarmupReason =
+  | "disabled"
+  | "small-index"
+  | "low-memory"
+  | "over-budget"
+  | "memory-pressure"
+  | "activity"
+  | "cooldown";
+
+export type IndexWarmupScope = "full" | "partial";
+
+export type IndexWarmupStatus = {
+  mode: IndexWarmupMode;
+  state: IndexWarmupState;
+  reason?: IndexWarmupReason;
+  scope?: IndexWarmupScope;
+  /** Megabytes read into the page cache so far. */
+  warmedMB: number;
+  /** Megabytes planned for this pass; 0 when the warm-up is off. */
+  targetMB: number;
+  /** Epoch milliseconds of the last complete pass. */
+  finishedAt?: number;
+};
+
+export type IndexRetrievalMemory = {
+  limitMB: number;
+  /** Memory available to the retrieval cache, already calculated. */
+  budgetMB: number;
+};
+
+export type IndexRetrievalCache = {
+  enabled: boolean;
+  entries: number;
+  maxEntries: number;
+  usedKB: number;
+  maxKB: number;
+  hits: number;
+  misses: number;
+};
+
+/** Additive `retrieval` field on `GET /api/index/status`; absent on older servers. */
+export type IndexRetrievalStatus = {
+  memory: IndexRetrievalMemory;
+  warmup: IndexWarmupStatus;
+  cache: IndexRetrievalCache;
+};
+
 /** `GET /api/index/status` */
 export type IndexStatusResponse = {
   enabled: boolean;
@@ -74,6 +126,8 @@ export type IndexStatusResponse = {
   workers?: number;
   /** Vector indexing policy; absent on older servers. */
   vectors?: IndexVectorsStatus;
+  /** Search warm-up and cache state; absent on older servers. */
+  retrieval?: IndexRetrievalStatus;
 };
 
 /** `POST /api/index/pause` and `POST /api/index/resume` (200, idempotent). */

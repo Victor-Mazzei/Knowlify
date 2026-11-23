@@ -42,7 +42,7 @@ function setup(options: { enabled?: boolean } = {}) {
   const passages = new SqlitePassageRepository(db);
   const vectors = new SqliteBlobVectorStore(db);
   const runner = new SearchRunner();
-  const log = { info: vi.fn(), error: vi.fn() };
+  const log = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
   const store = new SqlitePassageQueryStore(passages, vectors);
   const search = new PassageSearch(store, runner, books, indexes, { enabled: options.enabled ?? true }, log);
   return { db, books, indexes, passages, vectors, store, runner, log, search };
@@ -196,7 +196,10 @@ describe("PassageSearch", () => {
     expect(result.hits).toEqual([]);
     expect(result.mode).toBe("lexical");
     expect(result.unavailable).toBe(true);
-    expect(x.log.error).toHaveBeenCalled();
+    // Index-read failures are one short warning: no stack, no error object.
+    expect(x.log.warn).toHaveBeenCalledWith(expect.stringContaining("lexical search failed after"));
+    expect(x.log.error).not.toHaveBeenCalled();
+    expect(JSON.stringify(x.log.warn.mock.calls)).not.toContain("unreachable");
   });
 
   it("marks a vector read failure as unavailable", async () => {
@@ -212,7 +215,8 @@ describe("PassageSearch", () => {
 
     expect(result.hits).toEqual([]);
     expect(result.unavailable).toBe(true);
-    expect(x.log.error).toHaveBeenCalled();
+    expect(x.log.warn).toHaveBeenCalledWith(expect.stringContaining("vector search failed after"));
+    expect(x.log.error).not.toHaveBeenCalled();
   });
 
   it("keeps lexical hits and flags a partial vector failure", async () => {

@@ -18,7 +18,13 @@ export interface SqliteBlobVectorStoreOptions {
    * connection's own commits. Production uses this in the read-only search worker.
    */
   cacheCount?: boolean;
-  /** Test seam: index epoch used for the rotating sample offset; defaults to data_version. */
+  /**
+   * Rotating sample offset source. Pass the process `IndexEpoch`: it changes only when the
+   * passage index or its eligibility changes, so a commit from another connection that does
+   * not affect retrieval cannot rotate the sample behind a cached result. Defaults to zero,
+   * which keeps the sample stable; `data_version` is deliberately not used here because it
+   * changes on unrelated commits (notes, metadata) that do not invalidate the cache.
+   */
   epoch?: () => number;
 }
 
@@ -35,7 +41,7 @@ export class SqliteBlobVectorStore implements VectorStore {
 
   constructor(private db: Db, options: SqliteBlobVectorStoreOptions = {}) {
     this.cacheCount = options.cacheCount ?? false;
-    this.epoch = options.epoch ?? (() => this.db.pragma("data_version", { simple: true }) as number);
+    this.epoch = options.epoch ?? (() => 0);
   }
 
   count(): number {
@@ -54,12 +60,18 @@ export class SqliteBlobVectorStore implements VectorStore {
     return (this.db.prepare("SELECT COUNT(*) AS n FROM chunk_vectors").get() as { n: number }).n;
   }
 
+  /**
+   * `sampleEpoch` overrides the configured epoch for this call. The worker passes the value
+   * captured with the request, so concurrent scans keep their own rotating offset.
+   */
   async nearest(
     query: Float32Array,
     limit: number,
     filter: VectorFilter = {},
+    sampleEpoch?: number,
   ): Promise<{ passageId: number; score: number }[]> {
     if (!query.length || limit <= 0) return [];
+    const epoch = sampleEpoch ?? this.epoch();
     const top = new TopK(limit);
     const bytesPerVector = query.byteLength;
     const scratch = { bytes: new Uint8Array(0) };
@@ -81,7 +93,7 @@ export class SqliteBlobVectorStore implements VectorStore {
     if (bookIds) {
       const includeSample = filter.includeSample === true && filter.maxVectors !== undefined;
       const candidates = includeSample
-        ? this.withStrideSample(bookIds, filter.maxVectors!)
+        ? this.withStrideSample(bookIds, filter.maxVectors!, epoch)
         : bookIds;
       await this.scanBookVectors(candidates, includeSample ? filter.maxVectors : undefined, scan);
       return top.sortedDescending();
@@ -96,7 +108,7 @@ export class SqliteBlobVectorStore implements VectorStore {
     const budget = filter.maxVectors;
     if (budget !== undefined) {
       if (budget <= 0) return [];
-      const sample = this.sampleBooks(budget);
+      const sample = this.sampleBooks(budget, epoch);
       if (sample) {
         await this.scanBookVectors(sample, budget, scan);
         return top.sortedDescending();
@@ -136,29 +148,29 @@ export class SqliteBlobVectorStore implements VectorStore {
 
   /**
    * Picks books evenly across the **entire** eligible list, starting at an offset that
-   * rotates with the index epoch (data_version). The total uses the cached count and the
-   * book list comes from `book_index`, never from a full scan of `chunk_vectors`.
+   * rotates with the index epoch. The total uses the cached count and the book list comes
+   * from `book_index`, never from a full scan of `chunk_vectors`.
    */
-  private sampleBooks(maxVectors: number): string[] | null {
+  private sampleBooks(maxVectors: number, epoch: number): string[] | null {
     const vectors = this.count();
     if (vectors <= maxVectors) return null;
     const books = this.vectorBookIds();
     if (books.length === 0) return [];
-    return this.strideSample(books, maxVectors, vectors);
+    return this.strideSample(books, maxVectors, vectors, epoch);
   }
 
   /** Lexical candidates first, then a uniform stride sample of every eligible book. */
-  private withStrideSample(lexical: readonly string[], maxVectors: number): string[] {
+  private withStrideSample(lexical: readonly string[], maxVectors: number, epoch: number): string[] {
     const books = this.vectorBookIds();
-    const sampled = this.strideSample(books, maxVectors, this.count());
+    const sampled = this.strideSample(books, maxVectors, this.count(), epoch);
     return [...new Set([...lexical, ...sampled])].slice(0, MAX_FILTER_BOOKS);
   }
 
-  private strideSample(books: readonly string[], maxVectors: number, vectors: number): string[] {
+  private strideSample(books: readonly string[], maxVectors: number, vectors: number, epoch: number): string[] {
     if (books.length === 0) return [];
     const sampleSize = Math.max(1, vectors > 0 ? Math.floor((maxVectors * books.length) / vectors) : books.length);
     const stride = Math.max(1, Math.ceil(books.length / sampleSize));
-    const start = books.length > 0 ? ((this.epoch() % books.length) + books.length) % books.length : 0;
+    const start = ((epoch % books.length) + books.length) % books.length;
     const sampled: string[] = [];
     for (let step = 0; step < books.length; step += stride) {
       sampled.push(books[(start + step) % books.length]!);

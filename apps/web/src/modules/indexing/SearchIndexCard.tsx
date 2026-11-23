@@ -1,10 +1,11 @@
 import type { ApiFn } from "../../components/dialogs";
 import { useConfirm } from "../../components/dialogs";
 import { useIndexStatusContext } from "./IndexStatusContext";
-import { describeVectorPolicy, formatRate, formatTimeLeft, formatWorkers } from "./indexStatusText";
+import { describeRetrieval, describeVectorPolicy, formatRate, formatTimeLeft, formatWorkers } from "./indexStatusText";
 import { useIndexPause } from "./useIndexPause";
 import { useReindex } from "./useReindex";
-import type { IndexSearchStatus } from "./types";
+import type { IndexRetrievalStatus, IndexSearchStatus } from "./types";
+import "./indexing.css";
 
 /** Settings card: queue counts, runtime, vector policy and the bulk actions. */
 export function SearchIndexCard({ api }: { api: ApiFn }) {
@@ -76,6 +77,7 @@ export function SearchIndexCard({ api }: { api: ApiFn }) {
               {!paused && eta && <span className="index-eta">{eta}</span>}
             </p>
           )}
+          {status.retrieval && <RetrievalStatus retrieval={status.retrieval} />}
           <p className="muted">{embedderSummary(status.search)}</p>
           {status.vectors && (
             <p className="index-vectors">
@@ -132,4 +134,61 @@ function embedderSummary(search: IndexSearchStatus): string {
   if (search.state === "unavailable") return "Semantic search is unavailable right now. Word search still works.";
   if (search.state === "ready") return `Semantic search is on${search.model ? ` with ${search.model}` : ""}.`;
   return "Semantic search is off. Word search still works.";
+}
+
+/**
+ * One quiet line for the warm-up and the retrieval cache. The live region holds
+ * only the state text, so percentage updates are not announced every poll.
+ */
+function RetrievalStatus({ retrieval }: { retrieval: IndexRetrievalStatus }) {
+  const summary = describeRetrieval(retrieval);
+  if (!summary) return null;
+  return (
+    <div className="index-retrieval">
+      <p className="index-retrieval-line">
+        <span className="index-retrieval-dot" data-state={retrieval.warmup.state} aria-hidden="true" />
+        <span className="index-retrieval-label">Search speed:</span>{" "}
+        <span className="index-retrieval-state" role="status" aria-live="polite">
+          {summary.stateText}
+        </span>
+        {summary.percent !== null && (
+          <>
+            {" "}
+            <span
+              className="index-retrieval-percent"
+              role="progressbar"
+              aria-label="Search index warm-up"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={summary.percent}
+              aria-valuetext={`${summary.percent}%`}
+            >
+              {summary.percent}%
+            </span>
+          </>
+        )}
+        {summary.cacheText && (
+          <>
+            <span className="index-retrieval-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="index-retrieval-meta">{summary.cacheText}</span>
+          </>
+        )}
+        {summary.cacheHint && (
+          <>
+            <span className="index-retrieval-sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="index-retrieval-hint">{summary.cacheHint}</span>
+          </>
+        )}
+      </p>
+      {summary.percent !== null && (
+        <div className="index-retrieval-meter" aria-hidden="true">
+          <span style={{ width: `${summary.percent}%` }} />
+        </div>
+      )}
+    </div>
+  );
 }

@@ -1,6 +1,7 @@
 import { ValidationError } from "../domain/errors.js";
 import { ignoredReason, type IgnoredBook } from "../domain/library/IgnoredBook.js";
 import type { IgnoredBookRepository } from "../ports/library-ignore.js";
+import type { IndexEpoch } from "../ports/index-epoch.js";
 
 export interface IgnoredBookDto {
   id: string;
@@ -39,6 +40,7 @@ export class IgnoredBooks {
   constructor(
     private readonly ignored: IgnoredBookRepository,
     private readonly startScan: () => void,
+    private readonly epoch?: IndexEpoch,
   ) {}
 
   list(limit: number, offset: number): { items: IgnoredBookDto[]; total: number } {
@@ -53,6 +55,9 @@ export class IgnoredBooks {
     if (ids.length > MAX_RESTORE_IDS) throw new ValidationError(`ids accepts at most ${MAX_RESTORE_IDS} values`);
     const restored = this.ignored.deleteMany([...new Set(ids)]);
     this.startScan();
+    // A restored tombstone never restores the old index row; the scan re-adds the book and
+    // ingestion will fill it. Bumping now also covers the window before that happens.
+    this.epoch?.bump();
     return { restored, scanStarted: true };
   }
 }

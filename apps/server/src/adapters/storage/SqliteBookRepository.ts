@@ -1,6 +1,7 @@
 import type BetterSqlite3 from "better-sqlite3";
 import type { Db } from "./db.js";
 import type { Book, BookRepository, SourceBookSnapshot } from "../../ports/index.js";
+import type { IndexEpoch } from "../../ports/index-epoch.js";
 
 // Callers pass file-extracted values; the row keeps both the file snapshot and the
 // effective values materialized from the override (ADR-2). The override subquery reads
@@ -41,7 +42,7 @@ export class SqliteBookRepository implements BookRepository {
   private updateMetadata: ((rows: Book[]) => string[]) | null = null;
   private removeMany: ((ids: string[]) => void) | null = null;
 
-  constructor(private db: Db) {}
+  constructor(private db: Db, private readonly epoch?: IndexEpoch) {}
 
   private statement(sql: string): Prepared {
     let statement = this.prepared.get(sql);
@@ -90,6 +91,9 @@ export class SqliteBookRepository implements BookRepository {
       this.statement("DELETE FROM book_metadata_overrides WHERE book_id = ?").run(id);
       this.statement("DELETE FROM books WHERE id = ?").run(id);
     })();
+    // Foreign keys are enabled (better-sqlite3 default): deleting the row cascades the
+    // index rows, chunks and vectors, so every cached passage id for it is now stale.
+    this.epoch?.bump();
   }
   deleteMany(ids: string[]): void {
     if (ids.length === 0) return;
@@ -104,6 +108,7 @@ export class SqliteBookRepository implements BookRepository {
       }
     }));
     remove(ids);
+    this.epoch?.bump();
   }
   forSource(id: string): Book[] { return this.statement("SELECT * FROM books WHERE source_id = ?").all(id) as Book[]; }
   snapshotForSource(id: string): Map<string, SourceBookSnapshot> {
@@ -120,6 +125,7 @@ export class SqliteBookRepository implements BookRepository {
       this.statement("DELETE FROM book_metadata_overrides WHERE book_id IN (SELECT id FROM books WHERE source_id = ?)").run(id);
       this.statement("DELETE FROM books WHERE source_id = ?").run(id);
     })();
+    this.epoch?.bump();
   }
   pending(limit: number): Book[] { return this.statement("SELECT * FROM books WHERE status = 'pending' LIMIT ?").all(limit) as Book[]; }
   pendingCount(): number { return (this.statement("SELECT COUNT(*) AS n FROM books WHERE status = 'pending'").get() as { n: number }).n; }

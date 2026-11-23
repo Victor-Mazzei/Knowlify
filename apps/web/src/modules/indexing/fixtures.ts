@@ -1,4 +1,4 @@
-import type { BookIndexStatus, IndexStatusResponse } from "./types";
+import type { BookIndexStatus, IndexRetrievalStatus, IndexStatusResponse, IndexWarmupStatus } from "./types";
 
 export function indexStatus(overrides: Partial<IndexStatusResponse> = {}): IndexStatusResponse {
   return {
@@ -50,6 +50,46 @@ export const pausedIndexStatus = indexStatus({
   vectors: { mode: "auto", maxBooks: 1000 },
   revision: 13,
 });
+
+/** Warm-up and cache block for `GET /api/index/status`; absent on older servers. */
+export function retrievalStatus(
+  overrides: {
+    warmup?: Partial<IndexWarmupStatus>;
+    cache?: Partial<IndexRetrievalStatus["cache"]>;
+  } = {},
+): IndexRetrievalStatus {
+  return {
+    memory: { limitMB: 4096, budgetMB: 1536 },
+    warmup: {
+      mode: "auto",
+      state: "warm",
+      scope: "full",
+      warmedMB: 120,
+      targetMB: 120,
+      finishedAt: 1_764_000_000_000,
+      ...overrides.warmup,
+    },
+    cache: {
+      enabled: true,
+      entries: 42,
+      maxEntries: 512,
+      usedKB: 1536,
+      maxKB: 8192,
+      hits: 120,
+      misses: 8,
+      ...overrides.cache,
+    },
+  };
+}
+
+/** The poller keeps refreshing while the warm-up waits or reads the index. */
+export const waitingIndexStatus = indexStatus({
+  retrieval: retrievalStatus({ warmup: { state: "waiting", warmedMB: 0 } }),
+});
+export const warmingIndexStatus = indexStatus({
+  retrieval: retrievalStatus({ warmup: { state: "warming", warmedMB: 75.6 } }),
+});
+export const warmIndexStatus = indexStatus({ retrieval: retrievalStatus() });
 
 export function bookIndex(state: BookIndexStatus["state"], message = "The file could not be read."): BookIndexStatus {
   return { state, error: state === "error" ? { code: "unreadable", message } : null };
