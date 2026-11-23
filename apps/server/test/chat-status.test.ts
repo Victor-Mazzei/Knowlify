@@ -34,13 +34,23 @@ describe("GET /api/chat/status", () => {
     const response = await app.inject({ method: "GET", url: "/api/chat/status", headers: auth });
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(Object.keys(body).sort()).toEqual(["enabled", "host", "model", "promptVersion", "scopes"]);
+    expect(Object.keys(body).sort()).toEqual([
+      "enabled",
+      "host",
+      "model",
+      "modes",
+      "promptVersion",
+      "scopes",
+      "sessionLimits",
+    ]);
     expect(body).toEqual({
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-4",
+      promptVersion: "feynman-5",
       scopes: { library: false, book: false },
+      modes: ["ask", "session"],
+      sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);
   });

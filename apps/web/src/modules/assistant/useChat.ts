@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiFn } from "../../components/dialogs";
-import { formatError } from "../../services/api";
+import { ApiError, formatError } from "../../services/api";
 import { openChatStream } from "./chatStream";
 import type { ChatStream } from "./chatStream";
 import type { ChatExcerpt } from "./excerpt";
@@ -8,6 +8,7 @@ import { withExcerpt } from "./excerpt";
 import { createSseParser, parseChatEvent } from "./sse";
 import type {
   ChatMessage,
+  ChatMode,
   ChatRequest,
   ChatRequestScope,
   ChatScope,
@@ -24,8 +25,11 @@ const DELTA_FLUSH_MS = 100;
 const toChatScope = (scope: ChatRequestScope): ChatScope =>
   scope.kind === "book" ? { kind: "book", bookId: scope.bookId } : { kind: "library" };
 
+export type ChatLimitDetails = { limit?: number; count?: number; message?: string };
+
 /**
  * Owns one conversation: history, the live SSE turn, cancellation and retry.
+ * Ask turns never load or keep a conversation id; Session turns persist.
  * The API function comes from `services/api`, so this hook never fetches directly.
  */
 export function useChat({
@@ -33,20 +37,36 @@ export function useChat({
   scope,
   initialConversationId,
   onConversation,
+  mode = "session",
+  useLibrary = true,
+  modesSupported = false,
+  onLimit,
+  onFull,
 }: {
   api: ApiFn;
   scope: ChatRequestScope;
   initialConversationId?: string;
   onConversation?: (summary: ConversationSummary) => void;
+  mode?: ChatMode;
+  /** Ask only: whether the turn may search the library. */
+  useLibrary?: boolean;
+  /** False on servers without `status.modes`: no `mode` or `useLibrary` is sent. */
+  modesSupported?: boolean;
+  onLimit?: (details: ChatLimitDetails) => void;
+  onFull?: (message: string) => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
+  const [conversationId, setConversationId] = useState<string | undefined>(
+    mode === "session" ? initialConversationId : undefined,
+  );
   const [streaming, setStreaming] = useState(false);
-  const [loading, setLoading] = useState(Boolean(initialConversationId));
+  const [loading, setLoading] = useState(Boolean(mode === "session" && initialConversationId));
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState(false);
+  const [limitError, setLimitError] = useState<ChatLimitDetails | null>(null);
+  const [sessionFull, setSessionFull] = useState(false);
 
-  const conversationRef = useRef(initialConversationId);
+  const conversationRef = useRef(mode === "session" ? initialConversationId : undefined);
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const readerRef = useRef<ChatStream | undefined>(undefined);
   /** The empty assistant bubble the current run is streaming into. */
@@ -60,11 +80,19 @@ export function useChat({
   const alive = useRef(true);
   const scopeRef = useRef(scope);
   const apiRef = useRef(api);
+  const modeRef = useRef(mode);
+  const useLibraryRef = useRef(useLibrary);
   const onConversationRef = useRef(onConversation);
+  const onLimitRef = useRef(onLimit);
+  const onFullRef = useRef(onFull);
   const lastTurn = useRef<{ message: string; excerpt?: ChatExcerpt } | undefined>(undefined);
   scopeRef.current = scope;
   apiRef.current = api;
+  modeRef.current = mode;
+  useLibraryRef.current = useLibrary;
   onConversationRef.current = onConversation;
+  onLimitRef.current = onLimit;
+  onFullRef.current = onFull;
 
   useEffect(() => {
     alive.current = true;
@@ -79,11 +107,12 @@ export function useChat({
   }, []);
 
   useEffect(() => {
-    if (!initialConversationId) return;
+    if (!initialConversationId || mode !== "session") return;
     let cancelled = false;
     setLoading(true);
     setError("");
     setStopped(false);
+    setSessionFull(false);
     api(`/api/chat/conversations/${encodeURIComponent(initialConversationId)}`)
       .then((response) => response.json() as Promise<ConversationDetail>)
       .then((detail) => {
@@ -104,7 +133,7 @@ export function useChat({
     return () => {
       cancelled = true;
     };
-  }, [api, initialConversationId]);
+  }, [api, initialConversationId, mode]);
 
   const run = useCallback(
     async (text: string, excerpt: ChatExcerpt | undefined, appendUser: boolean, replaceDraftId?: string) => {
@@ -113,25 +142,39 @@ export function useChat({
 
       setError("");
       setStopped(false);
+      setLimitError(null);
+      setSessionFull(false);
       setStreaming(true);
       lastTurn.current = { message, excerpt };
       failedDraftRef.current = undefined;
       finishedRef.current = false;
 
       const draftId = localId();
+      const questionId = appendUser ? localId() : undefined;
       draftRef.current = draftId;
       setMessages((previous) => {
         const history = replaceDraftId ? previous.filter((item) => item.id !== replaceDraftId) : previous;
         const draft: ChatMessage = { id: draftId, role: "assistant", content: "", citations: null, createdAt: Date.now() };
         if (!appendUser) return [...history, draft];
-        const question: ChatMessage = { id: localId(), role: "user", content: message, citations: null, createdAt: Date.now() };
+        const question: ChatMessage = {
+          id: questionId!,
+          role: "user",
+          content: message,
+          citations: null,
+          createdAt: Date.now(),
+        };
         return [...history, question, draft];
       });
 
       const abort = new AbortController();
       controllerRef.current = abort;
+      const turnMode = modesSupported ? modeRef.current : "session";
       const body: ChatRequest = { message, scope: withExcerpt(scopeRef.current, excerpt) };
-      if (conversationRef.current) body.conversationId = conversationRef.current;
+      if (modesSupported) {
+        body.mode = turnMode;
+        if (turnMode === "ask") body.useLibrary = useLibraryRef.current;
+      }
+      if (turnMode === "session" && conversationRef.current) body.conversationId = conversationRef.current;
 
       let completed = false;
       let failed = false;
@@ -176,6 +219,12 @@ export function useChat({
         }
         setError(reason);
       };
+      /** The turn never reached the server: keep the question in the composer, not the transcript. */
+      const restoreQuestion = () => {
+        setMessages((current) =>
+          current.filter((item) => item.id !== draftId && item.id !== questionId),
+        );
+      };
       flushRef.current = flush;
       cancelFlushRef.current = cancelFlush;
 
@@ -193,11 +242,10 @@ export function useChat({
           const event = parseChatEvent(raw.data);
           if (!event) return;
           if (event.type === "sources") {
-            // `sources` carries a provisional conversation id: the server only persists a
-            // new conversation with `done`. Adopting it here would make Retry or the next
-            // question target a conversation that does not exist yet (404).
+            // Ask without the library never shows citations, even if a server sent them.
+            const citations = turnMode === "ask" && !useLibraryRef.current ? [] : event.citations;
             setMessages((current) =>
-              current.map((item) => (item.id === draftId ? { ...item, citations: event.citations } : item)),
+              current.map((item) => (item.id === draftId ? { ...item, citations } : item)),
             );
           } else if (event.type === "delta") {
             queueDelta(event.text);
@@ -205,19 +253,26 @@ export function useChat({
             flush();
             completed = true;
             finishedRef.current = true;
-            conversationRef.current = event.conversationId;
-            setConversationId(event.conversationId);
+            const persisted =
+              turnMode === "session" && event.persisted !== false && typeof event.conversationId === "string";
+            if (persisted) {
+              conversationRef.current = event.conversationId!;
+              setConversationId(event.conversationId!);
+            }
             setMessages((current) =>
               current.map((item) =>
                 item.id === draftId ? { ...item, id: event.messageId, incomplete: false } : item,
               ),
             );
-            onConversationRef.current?.({
-              id: event.conversationId,
-              title: event.title,
-              scope: toChatScope(scopeRef.current),
-              updatedAt: Date.now(),
-            });
+            if (persisted) {
+              onConversationRef.current?.({
+                id: event.conversationId!,
+                title: event.title,
+                scope: toChatScope(scopeRef.current),
+                updatedAt: Date.now(),
+                persisted: true,
+              });
+            }
           } else {
             failed = true;
             finishedRef.current = true;
@@ -244,6 +299,21 @@ export function useChat({
         if (!alive.current || abort.signal.aborted) return;
         finishedRef.current = true;
         flush();
+        if (value instanceof ApiError && value.code === "conversation_limit") {
+          restoreQuestion();
+          const limit = typeof value.details?.limit === "number" ? value.details.limit : undefined;
+          const count = typeof value.details?.count === "number" ? value.details.count : undefined;
+          const details = { limit, count, message: value.message };
+          setLimitError(details);
+          onLimitRef.current?.(details);
+          return;
+        }
+        if (value instanceof ApiError && value.code === "conversation_full") {
+          restoreQuestion();
+          setSessionFull(true);
+          onFullRef.current?.("This session is full. Start a new session.");
+          return;
+        }
         keepPartial(formatError(value));
       } finally {
         cancelFlush();
@@ -258,7 +328,7 @@ export function useChat({
         }
       }
     },
-    [],
+    [modesSupported],
   );
 
   const send = useCallback(
@@ -297,10 +367,24 @@ export function useChat({
     failedDraftRef.current = undefined;
     setError("");
     setStopped(false);
+    setSessionFull(false);
     void run(last.message, last.excerpt, false, replace);
   }, [run]);
 
-  const canRetry = Boolean(!streaming && (error || stopped) && lastTurn.current);
+  const canRetry = Boolean(!streaming && (error || stopped) && lastTurn.current && !sessionFull);
 
-  return { messages, conversationId, streaming, loading, error, stopped, canRetry, send, stop, retry };
+  return {
+    messages,
+    conversationId,
+    streaming,
+    loading,
+    error,
+    stopped,
+    canRetry,
+    limitError,
+    sessionFull,
+    send,
+    stop,
+    retry,
+  };
 }

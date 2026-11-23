@@ -76,7 +76,10 @@ import { IndexEpochCounter } from "./adapters/runtime/IndexEpochCounter.js";
 import { MemoryProfile, cacheLimits } from "./adapters/runtime/memoryProfile.js";
 import { knowledgeRoutes } from "./adapters/http/knowledge.js";
 import { chatRoutes } from "./adapters/http/chat.js";
+import { settingsChatRoutes } from "./adapters/http/settings-chat.js";
 import { Chat } from "./use-cases/Chat.js";
+import { ChatSessions } from "./use-cases/ChatSessions.js";
+import { ChatLimitsSettings } from "./use-cases/ChatLimitsSettings.js";
 import { createLlmClient } from "./adapters/llm/createLlmClient.js";
 import { SwitchableLlmClient } from "./adapters/llm/SwitchableLlmClient.js";
 import { createGuardedFetch } from "./adapters/llm/GuardedFetch.js";
@@ -86,7 +89,7 @@ import { AnthropicModelsProbe } from "./adapters/llm/AnthropicModelsProbe.js";
 import { NoLlmClient } from "./adapters/llm/NoLlmClient.js";
 import { LazySecretBox } from "./adapters/security/SecretBox.js";
 import { SecretFile } from "./adapters/security/SecretFile.js";
-import { SqliteLlmConfigStore, SqliteMetadataConfigStore, SqliteTutorPromptStore } from "./adapters/storage/SqliteSettingsRepository.js";
+import { SqliteChatLimitsStore, SqliteLlmConfigStore, SqliteMetadataConfigStore, SqliteTutorPromptStore } from "./adapters/storage/SqliteSettingsRepository.js";
 import { LlmSettings } from "./use-cases/LlmSettings.js";
 import { MetadataSettings } from "./use-cases/MetadataSettings.js";
 import { TutorPromptSettings } from "./use-cases/TutorPromptSettings.js";
@@ -358,6 +361,22 @@ export function createServices(
     locked: config.llmLocked,
   });
   tutorPromptSettings.bootstrap();
+  const chatLimitsSettings = new ChatLimitsSettings({
+    store: new SqliteChatLimitsStore(db),
+    env: { maxConversations: config.chat.maxConversations },
+    locked: config.llmLocked,
+    count: () => conversations.countAll(),
+    clock,
+    log,
+  });
+  chatLimitsSettings.bootstrap();
+  const chatSessions = new ChatSessions(
+    conversations,
+    books,
+    clock,
+    ids,
+    () => ({ maxConversations: chatLimitsSettings.current() }),
+  );
   const chat = new Chat(
     llmRuntime,
     passageSearch,
@@ -365,7 +384,11 @@ export function createServices(
     books,
     clock,
     ids,
-    () => ({ ...llmSettings.currentLimits(), libraryScope: indexing.enabled }),
+    () => ({
+      ...llmSettings.currentLimits(),
+      libraryScope: indexing.enabled,
+      maxConversations: chatLimitsSettings.current(),
+    }),
     () => tutorPromptSettings.current(),
     log,
   );
@@ -450,6 +473,8 @@ export function createServices(
     warmup,
     retrieval,
     chat,
+    chatSessions,
+    chatLimitsSettings,
     llmSettings,
     metadataSettings,
     tutorPromptSettings,
@@ -593,6 +618,10 @@ export async function buildApp(
   await app.register(aboutRoutes, { prefix: "/api", buildInfo });
   await app.register(accountRoutes, { prefix: "/api", ...services });
   await app.register(apiRoutes, { prefix: "/api", ...services });
+  await app.register(settingsChatRoutes, {
+    prefix: "/api",
+    chatLimitsSettings: services.chatLimitsSettings,
+  });
   await app.register(metadataRoutes, {
     prefix: "/api",
     bookMetadata: services.bookMetadata,
@@ -616,7 +645,11 @@ export async function buildApp(
   await app.register(ignoredRoutes, { prefix: "/api", ignoredBooks: services.ignoredBooks });
   await app.register(duplicateRoutes, { prefix: "/api", ...services });
   await app.register(knowledgeRoutes, { prefix: "/api", ...services });
-  await app.register(chatRoutes, { prefix: "/api", ...services });
+  await app.register(chatRoutes, {
+    prefix: "/api",
+    chat: services.chat,
+    sessions: services.chatSessions,
+  });
   await app.register(newsRoutes, { prefix: "/api/news", ...services });
   await app.register(noteRoutes, { prefix: "/api", ...services });
   await app.register(mcpTokenRoutes, {

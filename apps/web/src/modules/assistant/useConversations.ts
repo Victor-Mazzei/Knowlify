@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiFn } from "../../components/dialogs";
 import type { ConversationSummary } from "./types";
 
-const LIMIT = 20;
+/** The server caps a page at 200; the list is the place to see every saved session. */
+const LIMIT = 200;
 
 export type ConversationsState = {
   conversations: ConversationSummary[];
@@ -10,6 +11,7 @@ export type ConversationsState = {
   error: string;
   deletingIds: ReadonlySet<string>;
   remove: (id: string) => Promise<boolean>;
+  rename: (id: string, title: string) => Promise<boolean>;
   refresh: () => Promise<void>;
 };
 
@@ -112,5 +114,35 @@ export function useConversations({
     [api],
   );
 
-  return { conversations, loading, error, deletingIds, remove, refresh: load };
+  const rename = useCallback(
+    async (id: string, title: string) => {
+      setError("");
+      try {
+        const response = await api(`/api/chat/conversations/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        });
+        const updated = (await response.json()) as ConversationSummary;
+        setConversations((current) =>
+          current.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  ...updated,
+                  messageCount: updated.messageCount ?? item.messageCount,
+                }
+              : item,
+          ),
+        );
+        return true;
+      } catch (value) {
+        setError(value instanceof Error ? value.message : "The session could not be renamed.");
+        return false;
+      }
+    },
+    [api],
+  );
+
+  return { conversations, loading, error, deletingIds, remove, rename, refresh: load };
 }

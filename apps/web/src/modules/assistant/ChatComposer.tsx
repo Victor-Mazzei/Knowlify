@@ -1,6 +1,7 @@
 import { useId } from "react";
 import type { RefObject } from "react";
 import type { ChatExcerpt } from "./excerpt";
+import type { ChatMode } from "./types";
 
 export function ChatComposer({
   draft,
@@ -14,6 +15,9 @@ export function ChatComposer({
   onUseVisibleText,
   inputRef,
   disabled = false,
+  mode = "session",
+  useLibrary = true,
+  libraryAvailable = true,
 }: {
   draft: string;
   onDraft: (value: string) => void;
@@ -26,10 +30,16 @@ export function ChatComposer({
   onUseVisibleText?: () => void;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   disabled?: boolean;
+  mode?: ChatMode;
+  /** Ask only: when false, no passages are retrieved or sent. */
+  useLibrary?: boolean;
+  /** False when the server has no search index: no passages are retrieved in any mode. */
+  libraryAvailable?: boolean;
 }) {
   const inputId = useId();
   const privacyId = useId();
   const preview = excerpt && excerpt.text.length > 240 ? `${excerpt.text.slice(0, 240)}…` : excerpt?.text;
+  const searchesLibrary = libraryAvailable && (mode === "session" || useLibrary);
 
   const submit = () => {
     const question = draft.trim();
@@ -47,10 +57,15 @@ export function ChatComposer({
     >
       {excerpt && preview && (
         <div className="asst-excerpt">
-          <p>
-            <span className="asst-excerpt-kind">{excerpt.kind === "selection" ? "Selected text" : "Page text"}</span>
-            {preview}
-          </p>
+          <div>
+            <p>
+              <span className="asst-excerpt-kind">
+                {excerpt.kind === "selection" ? "Selected text" : "Page text"}
+              </span>
+              {preview}
+            </p>
+            <p className="asst-excerpt-sent">Attached text is sent to the model.</p>
+          </div>
           {onClearExcerpt && (
             <button type="button" className="ghost" onClick={onClearExcerpt}>
               Remove
@@ -67,7 +82,7 @@ export function ChatComposer({
         className="asst-input"
         rows={2}
         maxLength={2000}
-        placeholder="Ask about your books…"
+        placeholder={mode === "ask" && !useLibrary ? "Ask a question…" : "Ask about your books…"}
         aria-describedby={privacyId}
         value={draft}
         disabled={disabled}
@@ -81,7 +96,10 @@ export function ChatComposer({
       />
       <div className="asst-composer-actions">
         <p className="asst-privacy" id={privacyId}>
-          Your question and the retrieved passages are sent to <span className="asst-host">{host ?? "the configured model provider"}</span>.
+          {searchesLibrary
+            ? "Your question and the retrieved passages are sent to "
+            : "Your question and any attached text are sent to "}
+          <span className="asst-host">{host ?? "the configured model provider"}</span>.
         </p>
         <div className="asst-composer-buttons">
           {onUseVisibleText && !excerpt && (

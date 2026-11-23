@@ -208,7 +208,7 @@ describe("TutorDock", () => {
     expect(await screen.findByText("The answer survived.")).toBeInTheDocument();
   });
 
-  it("starts a new chat by deleting the saved conversation", async () => {
+  it("starts a new session without deleting the saved one", async () => {
     const chat = createMockChatApi({ seed: false, chunkDelayMs: 0 });
     const deleted: string[] = [];
     renderApp(async (path, init) => {
@@ -221,59 +221,50 @@ describe("TutorDock", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New chat" })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toBeEnabled());
 
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Start a new chat?" });
-    expect(dialog).toHaveTextContent("Your conversation about your library will be deleted.");
-    fireEvent.click(within(dialog).getByRole("button", { name: "New chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
 
     expect(await screen.findByRole("heading", { name: "Start with a question" })).toBeInTheDocument();
     expect(screen.queryByText(/Spaced repetition works/)).not.toBeInTheDocument();
-    await waitFor(() => expect(deleted).toEqual(["/api/chat/conversations/mock-conv-1"]));
+    expect(deleted).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    expect(
+      await screen.findByRole("button", { name: "Resume session: First question" }),
+    ).toBeInTheDocument();
   });
 
-  it("keeps the chat, the draft and focus when New chat cannot delete", async () => {
-    const chat = createMockChatApi({ seed: false, chunkDelayMs: 0 });
-    renderApp(async (path, init) => {
-      if (init?.method === "DELETE") throw new Error("The conversation could not be deleted.");
-      return chat(path, init);
-    });
+  it("disables New session while the answer is still streaming", async () => {
+    const chat = createMockChatApi({ seed: false, chunkDelayMs: 30 });
+    renderApp(chat);
     fireEvent.click(await screen.findByRole("button", { name: "Open tutor" }));
-    const textbox = await screen.findByRole("textbox", { name: "Your question" });
-    fireEvent.change(textbox, { target: { value: "First question" } });
+    fireEvent.change(await screen.findByRole("textbox", { name: "Your question" }), {
+      target: { value: "A slow question" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New chat" })).toBeEnabled());
-    fireEvent.change(textbox, { target: { value: "An unfinished draft" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
-    fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Start a new chat?" })).getByRole("button", {
-        name: "New chat",
-      }),
-    );
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("The conversation could not be deleted.");
-    expect(screen.getByText(/Spaced repetition works/)).toBeInTheDocument();
-    expect(textbox).toHaveValue("An unfinished draft");
-    await waitFor(() => expect(screen.getByRole("button", { name: "New chat" })).toHaveFocus());
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toBeDisabled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toBeEnabled());
   });
 
-  it("shows the 20 most recent conversations for the active scope and opens one", async () => {
+  it("lists saved sessions by scope and resumes one", async () => {
     renderApp(createMockChatApi({ chunkDelayMs: 0 }));
     fireEvent.click(await screen.findByRole("button", { name: "Open tutor" }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "History" }));
-    expect(screen.getByRole("button", { name: "History" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Recent conversations")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
+    expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { name: "Whole library", level: 3 })).toBeInTheDocument();
     // The list is filled by GET /api/chat/conversations, a different request than
-    // the panel render that exposes the History tab.
+    // the panel render that exposes the Sessions tab.
     expect(
       await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /^How does spaced repetition work\?/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Resume session: How does spaced repetition work?" }),
+    );
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
   });
@@ -316,21 +307,21 @@ describe("TutorDock", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Open tutor" })).toHaveFocus());
   });
 
-  it("deletes a conversation from the dock history with confirmation", async () => {
+  it("deletes a session from the dock sessions view with confirmation", async () => {
     renderApp(createMockChatApi({ chunkDelayMs: 0 }));
     fireEvent.click(await screen.findByRole("button", { name: "Open tutor" }));
-    fireEvent.click(await screen.findByRole("button", { name: "History" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sessions" }));
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     );
     fireEvent.click(
-      within(screen.getByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(screen.getByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Delete",
       }),
     );
 
-    await waitFor(() => expect(screen.getByText(/No conversations yet/)).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "New chat" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByText(/No sessions yet/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveFocus());
   });
 });

@@ -18,6 +18,11 @@ function Harness({ api }: { api: ApiFn }) {
   return <output data-testid="ask">{String(enabled)}</output>;
 }
 
+function StatusHarness({ api }: { api: ApiFn }) {
+  const { status } = useChatStatus(api);
+  return <output data-testid="status">{JSON.stringify(status)}</output>;
+}
+
 beforeEach(() => sessionStorage.clear());
 
 describe("useChatStatus", () => {
@@ -49,6 +54,27 @@ describe("useChatStatus", () => {
     await waitFor(() => expect(screen.getByTestId("ask")).toHaveTextContent("false"));
     // The failed probe is not stored: the next load starts from the last confirmed answer.
     expect(sessionStorage.getItem(CACHE_KEY)).toBe("1");
+  });
+
+  it("reads the additive modes and session limits without dropping an older status", async () => {
+    const withModes = {
+      ...enabledStatus,
+      modes: ["ask", "session"],
+      sessionLimits: { maxSessions: 80, count: 3, maxMessages: 100 },
+    };
+    const api = vi.fn(async () => new Response(JSON.stringify(withModes)));
+    const { unmount } = render(<StatusHarness api={api} />);
+    await waitFor(() =>
+      expect(screen.getByTestId("status")).toHaveTextContent('"modes":["ask","session"]'),
+    );
+    expect(screen.getByTestId("status")).toHaveTextContent('"maxSessions":80');
+    unmount();
+
+    const older = vi.fn(async () => new Response(JSON.stringify(enabledStatus)));
+    render(<StatusHarness api={older} />);
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent('"promptVersion"'));
+    expect(screen.getByTestId("status")).not.toHaveTextContent('"modes"');
+    expect(screen.getByTestId("status")).not.toHaveTextContent('"sessionLimits"');
   });
 
   it("keeps a confirmed enabled status through a refresh", async () => {

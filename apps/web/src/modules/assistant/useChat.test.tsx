@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
+import { ApiError } from "../../services/api";
 import { useChat } from "./useChat";
 
 const encoder = new TextEncoder();
@@ -385,5 +386,131 @@ describe("useChat", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.messages.map((message) => message.content)).toEqual(["Old question", "Old answer"]);
     expect(result.current.conversationId).toBe("c9");
+  });
+
+  it("sends Ask turns without a conversation id and drops citations when the library is off", async () => {
+    const requests: RequestInit[] = [];
+    const onConversation = vi.fn();
+    const api: ApiFn = async (_path, init) => {
+      requests.push(init ?? {});
+      return eventResponse([
+        {
+          type: "sources",
+          conversationId: null,
+          retrieval: "hybrid",
+          citations: [{ n: 1, passageId: 1, bookId: "b1", bookTitle: "Book", page: 1, section: null }],
+          mode: "ask",
+          persisted: false,
+          useLibrary: false,
+        },
+        { type: "delta", text: "No citations here." },
+        {
+          type: "done",
+          conversationId: null,
+          messageId: "m-ask",
+          title: "",
+          finishReason: "stop",
+          mode: "ask",
+          persisted: false,
+        },
+      ]);
+    };
+    const { result } = renderHook(() =>
+      useChat({
+        api,
+        scope: { kind: "library" },
+        mode: "ask",
+        useLibrary: false,
+        modesSupported: true,
+        onConversation,
+      }),
+    );
+
+    act(() => result.current.send("Quick question"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+
+    const body = JSON.parse(String(requests[0]?.body)) as {
+      conversationId?: string;
+      mode?: string;
+      useLibrary?: boolean;
+    };
+    expect(body).toEqual({ message: "Quick question", scope: { kind: "library" }, mode: "ask", useLibrary: false });
+    expect(result.current.conversationId).toBeUndefined();
+    expect(onConversation).not.toHaveBeenCalled();
+    expect(result.current.messages[1]?.citations).toEqual([]);
+    expect(result.current.messages[1]?.id).toBe("m-ask");
+  });
+
+  it("sends Session mode only when the server advertises modes", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const api: ApiFn = async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return eventResponse([
+        { type: "sources", conversationId: "c1", retrieval: "none", citations: [], mode: "session", persisted: true },
+        { type: "delta", text: "Saved answer." },
+        {
+          type: "done",
+          conversationId: "c1",
+          messageId: "m1",
+          title: "Saved",
+          finishReason: "stop",
+          mode: "session",
+          persisted: true,
+        },
+      ]);
+    };
+    const { result, rerender } = renderHook(
+      ({ supported }: { supported: boolean }) =>
+        useChat({ api, scope: { kind: "library" }, modesSupported: supported }),
+      { initialProps: { supported: true } },
+    );
+
+    act(() => result.current.send("First"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[0]).toMatchObject({ mode: "session" });
+    expect(bodies[0]).not.toHaveProperty("useLibrary");
+    expect(result.current.conversationId).toBe("c1");
+
+    rerender({ supported: false });
+    act(() => result.current.send("Second"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[1]).not.toHaveProperty("mode");
+    expect(bodies[1]).not.toHaveProperty("useLibrary");
+    expect(bodies[1]).toMatchObject({ conversationId: "c1" });
+  });
+
+  it("keeps the question in the composer on a conversation_limit 409", async () => {
+    const onLimit = vi.fn();
+    const api: ApiFn = async () => {
+      throw new ApiError(409, "The session limit is 2.", "conversation_limit", { limit: 2, count: 2 });
+    };
+    const { result } = renderHook(() =>
+      useChat({ api, scope: { kind: "library" }, onLimit }),
+    );
+
+    act(() => result.current.send("Blocked question"));
+    await waitFor(() => expect(result.current.limitError).not.toBeNull());
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.error).toBe("");
+    expect(result.current.canRetry).toBe(false);
+    expect(result.current.limitError).toMatchObject({ limit: 2, count: 2 });
+    expect(onLimit).toHaveBeenCalledWith(expect.objectContaining({ limit: 2, count: 2 }));
+  });
+
+  it("reports a full session without keeping the unsent question", async () => {
+    const onFull = vi.fn();
+    const api: ApiFn = async () => {
+      throw new ApiError(409, "This session is full.", "conversation_full");
+    };
+    const { result } = renderHook(() =>
+      useChat({ api, scope: { kind: "library" }, onFull }),
+    );
+
+    act(() => result.current.send("One more"));
+    await waitFor(() => expect(result.current.sessionFull).toBe(true));
+
+    expect(result.current.messages).toEqual([]);
+    expect(onFull).toHaveBeenCalledWith("This session is full. Start a new session.");
   });
 });

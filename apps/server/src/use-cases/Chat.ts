@@ -1,11 +1,12 @@
 import {
   assertSameScope,
   conversationTitle,
-  MAX_CONVERSATIONS,
+  CHAT_MODES,
   MAX_MESSAGES_PER_CONVERSATION,
   normalizeExcerpt,
   normalizeQuestion,
   type ChatMessage,
+  type ChatMode,
   type ChatScope,
   type Citation,
   type Conversation,
@@ -14,6 +15,8 @@ import {
   ChatDisabledError,
   ChatRateLimitedError,
   ConversationFullError,
+  ConversationLimitError,
+  InvalidModeError,
   LibraryChatUnavailableError,
 } from "../domain/assistant/errors.js";
 import { NotFoundError } from "../domain/errors.js";
@@ -48,10 +51,36 @@ export type ChatErrorCode =
   | "aborted";
 
 export type ChatEvent =
-  | { type: "sources"; conversationId: string; retrieval: ChatRetrieval; citations: Citation[] }
+  | {
+      type: "sources";
+      /** `null` in Ask mode: the turn is ephemeral and has no saved conversation. */
+      conversationId: string | null;
+      retrieval: ChatRetrieval;
+      citations: Citation[];
+      mode: ChatMode;
+      persisted: boolean;
+      /** Ask only: whether this turn used the library. */
+      useLibrary?: boolean;
+    }
   | { type: "delta"; text: string }
-  | { type: "done"; conversationId: string; messageId: string; title: string; finishReason: "stop" | "length" }
+  | {
+      type: "done";
+      conversationId: string | null;
+      messageId: string;
+      title: string;
+      finishReason: "stop" | "length";
+      mode: ChatMode;
+      persisted: boolean;
+      /** Ask only: whether this turn used the library. */
+      useLibrary?: boolean;
+    }
   | { type: "error"; code: ChatErrorCode; message: string; detail?: string };
+
+export interface ChatSessionLimits {
+  maxSessions: number;
+  count: number;
+  maxMessages: number;
+}
 
 export interface ChatStatus {
   enabled: boolean;
@@ -59,6 +88,9 @@ export interface ChatStatus {
   host: string | null;
   promptVersion: string;
   scopes: { library: boolean; book: boolean };
+  /** Additive capability marker so a new client never sends `mode` to an old server. */
+  modes: ChatMode[];
+  sessionLimits: ChatSessionLimits;
 }
 
 export interface ChatLimits {
@@ -67,6 +99,8 @@ export interface ChatLimits {
   ratePerMin: number;
   /** Library retrieval needs the index; book scope can still use the reader excerpt. */
   libraryScope: boolean;
+  /** Blocking cap on saved sessions; reaching it never deletes an existing session. */
+  maxConversations: number;
 }
 
 export const MAX_CONCURRENT_STREAMS = 2;
@@ -86,6 +120,10 @@ export interface ChatTurnInput {
   conversationId?: string;
   message: string;
   scope: ChatRequestScope;
+  /** Omitted keeps the legacy behaviour: a saved Session. */
+  mode?: ChatMode;
+  /** Ask only; defaults to `true`. A Session always uses the library. */
+  useLibrary?: boolean;
 }
 
 const PUBLIC_ERRORS: Record<ChatErrorCode, string> = {
@@ -127,6 +165,8 @@ export class Chat {
   private readonly recentRequests: number[] = [];
   private readonly turns = new ConversationMutex();
   private activeStreams = 0;
+  /** New Sessions already admitted by the in-process cap check but not yet committed. */
+  private pendingNewSessions = 0;
 
   constructor(
     private readonly llm: LlmClient,
@@ -151,6 +191,12 @@ export class Chat {
       host: enabled ? this.llm.host : null,
       promptVersion: promptVersionFor(this.systemPrompt()),
       scopes: { library: enabled && limits.libraryScope, book: enabled },
+      modes: [...CHAT_MODES],
+      sessionLimits: {
+        maxSessions: limits.maxConversations,
+        count: this.conversations.countAll(),
+        maxMessages: MAX_MESSAGES_PER_CONVERSATION,
+      },
     };
   }
 
@@ -162,19 +208,23 @@ export class Chat {
   async *stream(input: ChatTurnInput, signal: AbortSignal): AsyncIterable<ChatEvent> {
     if (!this.llm.configured) throw new ChatDisabledError();
     const question = normalizeQuestion(input.message);
+    const mode = resolveMode(input);
+    const useLibrary = mode === "ask" ? input.useLibrary ?? true : true;
     const excerpt = input.scope.kind === "book" ? normalizeExcerpt(input.scope.excerpt) : undefined;
     const book = input.scope.kind === "book" ? this.books.get(input.scope.bookId) : undefined;
     if (input.scope.kind === "book" && !book) throw new NotFoundError("Book not found");
-    if (input.scope.kind === "library" && !this.limits().libraryScope) {
+    // Ask without the library needs neither the index nor a searchable scope (ADR-3).
+    if (useLibrary && input.scope.kind === "library" && !this.limits().libraryScope) {
       throw new LibraryChatUnavailableError("Library chat needs the search index");
     }
 
-    const conversationId = input.conversationId ?? this.ids.next();
+    const persisted = mode === "session";
+    const conversationId = persisted ? input.conversationId ?? this.ids.next() : this.ids.next();
 
     // A continued conversation is serialized end to end: the next turn must read the
     // history and the message cap after this one commits. Abandoned waiters give up.
     let releaseTurn: (() => void) | undefined;
-    if (input.conversationId) {
+    if (persisted && input.conversationId) {
       try {
         releaseTurn = await this.turns.acquire(conversationId, signal);
       } catch (error) {
@@ -184,7 +234,11 @@ export class Chat {
       }
     }
     try {
-      yield* this.streamTurn(input, { conversationId, question, excerpt, book }, signal);
+      yield* this.streamTurn(
+        input,
+        { conversationId, question, excerpt, book, mode, useLibrary, persisted },
+        signal,
+      );
     } finally {
       releaseTurn?.();
     }
@@ -192,10 +246,18 @@ export class Chat {
 
   private async *streamTurn(
     input: ChatTurnInput,
-    resolved: { conversationId: string; question: string; excerpt: string | undefined; book: Book | undefined },
+    resolved: {
+      conversationId: string;
+      question: string;
+      excerpt: string | undefined;
+      book: Book | undefined;
+      mode: ChatMode;
+      useLibrary: boolean;
+      persisted: boolean;
+    },
     signal: AbortSignal,
   ): AsyncIterable<ChatEvent> {
-    const { conversationId, question, excerpt, book } = resolved;
+    const { conversationId, question, excerpt, book, mode, useLibrary, persisted } = resolved;
     // Snapshot once per turn: the answer keeps consistent limits and prompt version even
     // if the user saves new settings while it streams.
     const limits = this.limits();
@@ -206,9 +268,17 @@ export class Chat {
       return;
     }
 
-    const existing = input.conversationId ? this.loadConversation(conversationId) : undefined;
-    const existingMessages = existing ? this.conversations.messages(existing.id) : [];
-    if (existing) {
+    // A new Session is checked before the rate limit, retrieval and provider call, so a
+    // turn that cannot be saved never spends a response. The reservation covers turns
+    // already in flight in this process; the repository re-checks inside its transaction.
+    const startsSession = persisted && input.conversationId === undefined;
+    if (startsSession) this.reserveNewSession(limits);
+
+    let existing: Conversation | undefined;
+    let existingMessages: ChatMessage[] = [];
+    if (persisted && input.conversationId) {
+      existing = this.loadConversation(conversationId);
+      existingMessages = this.conversations.messages(existing.id);
       assertSameScope(existing.scope, input.scope);
       if (existingMessages.length + 2 > MAX_MESSAGES_PER_CONVERSATION) {
         throw new ConversationFullError();
@@ -216,9 +286,17 @@ export class Chat {
     }
 
     const now = this.clock.now();
-    this.consumeRateLimit(now, limits.ratePerMin);
-    const history = cleanHistory(existingMessages);
-    const title = existing?.title ?? conversationTitle(question);
+    try {
+      this.consumeRateLimit(now, limits.ratePerMin);
+    } catch (error) {
+      // The reservation was taken before the rate limit so a 409 never consumes quota;
+      // release it when the turn stops before the streaming block owns the counter.
+      if (startsSession) this.pendingNewSessions -= 1;
+      throw error;
+    }
+    // Ask has no memory of earlier questions (ADR-3), so the provider receives no history.
+    const history = persisted ? cleanHistory(existingMessages) : [];
+    const title = persisted ? existing?.title ?? conversationTitle(question) : "";
     const turn: TurnContext = {
       conversation: existing,
       conversationId,
@@ -239,7 +317,7 @@ export class Chat {
       let retrieval: RetrievalOutcome = { mode: "none", hits: [], search: "not_used" };
       let searchFailed = false;
       try {
-        retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope, signal);
+        retrieval = await this.retrieve(input.scope, question, history, limits.libraryScope, useLibrary, signal);
       } catch (error) {
         // Cancellation is not a search failure: release the turn (and the conversation
         // mutex) without logging or waiting for the in-flight search to settle.
@@ -263,7 +341,15 @@ export class Chat {
         page: hit.location.page,
         section: hit.location.section,
       }));
-      yield { type: "sources", conversationId, retrieval: citations.length > 0 ? retrieval.mode : "none", citations };
+      yield {
+        type: "sources",
+        conversationId: persisted ? conversationId : null,
+        retrieval: citations.length > 0 ? retrieval.mode : "none",
+        citations,
+        mode,
+        persisted,
+        ...(mode === "ask" ? { useLibrary } : {}),
+      };
       if (searchFailed) {
         yield this.errorEvent("search_failed");
         return;
@@ -352,25 +438,31 @@ export class Chat {
         promptVersion,
         createdAt: this.clock.now(),
       };
-      this.persistTurn(turn, question, title, assistant, now);
-      yield { type: "done", conversationId, messageId: assistantId, title, finishReason };
+      // Ask is ephemeral: no conversation row, no messages, nothing to delete.
+      if (persisted) this.persistTurn(turn, question, title, assistant, now, limits.maxConversations);
+      yield {
+        type: "done",
+        conversationId: persisted ? conversationId : null,
+        messageId: assistantId,
+        title,
+        finishReason,
+        mode,
+        persisted,
+        ...(mode === "ask" ? { useLibrary } : {}),
+      };
     } finally {
       this.activeStreams -= 1;
+      if (startsSession) this.pendingNewSessions -= 1;
     }
   }
 
-  list(input: { bookId?: string; limit?: number } = {}): Conversation[] {
-    const limit = Math.min(Math.max(Math.trunc(input.limit ?? 20) || 20, 1), 50);
-    return this.conversations.list(input.bookId ? { kind: "book", bookId: input.bookId } : { kind: "library" }, limit);
-  }
-
-  get(id: string): { conversation: Conversation; messages: ChatMessage[] } | undefined {
-    const conversation = this.conversations.get(id);
-    return conversation ? { conversation, messages: this.conversations.messages(id) } : undefined;
-  }
-
-  remove(id: string): boolean {
-    return this.conversations.delete(id);
+  /** Synchronous check-and-reserve, so concurrent turns cannot both pass the cap. */
+  private reserveNewSession(limits: ChatLimits): void {
+    const count = this.conversations.countAll();
+    if (count + this.pendingNewSessions >= limits.maxConversations) {
+      throw new ConversationLimitError(limits.maxConversations, count);
+    }
+    this.pendingNewSessions += 1;
   }
 
   private loadConversation(id: string): Conversation {
@@ -396,8 +488,12 @@ export class Chat {
     question: string,
     history: TutorMessage[],
     libraryScope: boolean,
+    useLibrary: boolean,
     signal: AbortSignal,
   ): Promise<RetrievalOutcome> {
+    // Ask with the library off must not touch the retriever at all (ADR-3); the prompt
+    // receives "Library: not used for this question." and the excerpt stays allowed.
+    if (!useLibrary) return { mode: "none", hits: [], search: "not_used" };
     const searchable = scope.kind === "library" || libraryScope;
     if (!searchable) return { mode: "none", hits: [], search: "not_used" };
     let attempted = false;
@@ -435,6 +531,7 @@ export class Chat {
     title: string,
     assistant: ChatMessage,
     now: number,
+    maxConversations: number,
   ): void {
     const user: ChatMessage = {
       id: this.ids.next(),
@@ -453,7 +550,7 @@ export class Chat {
         user,
         assistant,
       },
-      { maxConversations: MAX_CONVERSATIONS, maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION },
+      { maxConversations, maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION },
       now,
     );
   }
@@ -461,6 +558,20 @@ export class Chat {
   private errorEvent(code: ChatErrorCode, detail?: string): ChatEvent {
     return { type: "error", code, message: PUBLIC_ERRORS[code], ...(detail ? { detail } : {}) };
   }
+}
+
+function resolveMode(input: ChatTurnInput): ChatMode {
+  const mode = input.mode ?? "session";
+  if (!(CHAT_MODES as readonly string[]).includes(mode)) {
+    throw new InvalidModeError("mode must be ask or session");
+  }
+  if (mode === "ask" && input.conversationId !== undefined) {
+    throw new InvalidModeError("Ask mode does not keep a conversation");
+  }
+  if (input.useLibrary !== undefined && mode !== "ask") {
+    throw new InvalidModeError("useLibrary is only valid in ask mode");
+  }
+  return mode;
 }
 
 function cleanHistory(messages: readonly ChatMessage[]): TutorMessage[] {

@@ -1,4 +1,4 @@
-import type { ChatErrorCode, ChatEvent, ChatRetrieval, Citation } from "./types";
+import type { ChatErrorCode, ChatEvent, ChatMode, ChatRetrieval, Citation } from "./types";
 
 type SseMessage = { event: string; data: string };
 
@@ -88,6 +88,14 @@ function parseCitation(value: unknown): Citation | null {
 }
 
 const RETRIEVALS: readonly ChatRetrieval[] = ["hybrid", "semantic", "lexical", "none"];
+const MODES: readonly ChatMode[] = ["ask", "session"];
+
+const parseMode = (value: unknown): ChatMode | undefined =>
+  MODES.find((mode) => mode === value);
+
+/** `null` is valid for Ask; `undefined` means the payload did not carry the field. */
+const parseConversationId = (value: unknown): string | null | undefined =>
+  value === null || typeof value === "string" ? value : undefined;
 
 /**
  * Validates one `data` payload and narrows it to a `ChatEvent`. Unknown or malformed
@@ -103,30 +111,47 @@ export function parseChatEvent(data: string): ChatEvent | null {
   if (!isRecord(value) || typeof value.type !== "string") return null;
 
   if (value.type === "sources") {
-    if (typeof value.conversationId !== "string" || !Array.isArray(value.citations)) return null;
+    const conversationId = parseConversationId(value.conversationId);
+    if (conversationId === undefined || !Array.isArray(value.citations)) return null;
     const citations = value.citations
       .map(parseCitation)
       .filter((citation): citation is Citation => citation !== null);
     const retrieval = RETRIEVALS.find((item) => item === value.retrieval) ?? "none";
-    return { type: "sources", conversationId: value.conversationId, retrieval, citations };
+    const mode = parseMode(value.mode);
+    const persisted = typeof value.persisted === "boolean" ? value.persisted : undefined;
+    const useLibrary = typeof value.useLibrary === "boolean" ? value.useLibrary : undefined;
+    return {
+      type: "sources",
+      conversationId,
+      retrieval,
+      citations,
+      ...(mode ? { mode } : {}),
+      ...(persisted === undefined ? {} : { persisted }),
+      ...(useLibrary === undefined ? {} : { useLibrary }),
+    };
   }
   if (value.type === "delta") {
     return typeof value.text === "string" ? { type: "delta", text: value.text } : null;
   }
   if (value.type === "done") {
+    const conversationId = parseConversationId(value.conversationId);
     if (
-      typeof value.conversationId !== "string" ||
+      conversationId === undefined ||
       typeof value.messageId !== "string" ||
       typeof value.title !== "string"
     )
       return null;
     const finishReason = value.finishReason === "length" ? "length" : "stop";
+    const mode = parseMode(value.mode);
+    const persisted = typeof value.persisted === "boolean" ? value.persisted : undefined;
     return {
       type: "done",
-      conversationId: value.conversationId,
+      conversationId,
       messageId: value.messageId,
       title: value.title,
       finishReason,
+      ...(mode ? { mode } : {}),
+      ...(persisted === undefined ? {} : { persisted }),
     };
   }
   if (value.type === "error") {

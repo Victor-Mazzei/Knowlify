@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
+import type { ApiFn } from "../../components/dialogs";
+import { ApiError } from "../../services/api";
 import { ChatPanel } from "./ChatPanel";
 import { createMockChatApi } from "./mockChat";
 import type { ChatStatus } from "./types";
@@ -98,6 +100,51 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Too many messages. Try again in a minute.");
     expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+  });
+
+  it("blocks a full session and offers a new one without losing the question", async () => {
+    const detail = {
+      id: "c1",
+      title: "Full",
+      scope: { kind: "library" },
+      messages: [
+        { id: "m1", role: "user", content: "Old question", citations: null, createdAt: 1 },
+        { id: "m2", role: "assistant", content: "Old answer", citations: null, createdAt: 2 },
+      ],
+    };
+    const api: ApiFn = async (_path, init) => {
+      if (init?.method === "POST") {
+        throw new ApiError(409, "This session is full. Start a new one.", "conversation_full");
+      }
+      return new Response(JSON.stringify(detail), { headers: { "Content-Type": "application/json" } });
+    };
+    const onStartNewSession = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatPanel
+          api={api}
+          status={status}
+          scope={{ kind: "library" }}
+          conversationId="c1"
+          label="Chat with your library"
+          examples={[]}
+          emptyTitle="Start"
+          onStartNewSession={onStartNewSession}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Old answer")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), {
+      target: { value: "One more" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("This session is full. Start a new session.")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Your question" })).toHaveValue("One more");
+    expect(screen.queryByText("One more", { selector: ".asst-question" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
+    expect(onStartNewSession).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the fixed answer when retrieval found no passages", async () => {

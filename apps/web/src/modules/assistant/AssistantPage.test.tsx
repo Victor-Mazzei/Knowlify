@@ -40,26 +40,32 @@ function renderAssistant(api: ApiFn, status = tutorChatStatus()) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AssistantPage", () => {
-  it("shows the workspace, streams an answer and lists the conversation", async () => {
+  it("streams an answer, starts a new session and keeps the saved one", async () => {
     renderAssistant(createMockChatApi({ seed: false, chunkDelayMs: 0 }));
 
     expect(await screen.findByRole("heading", { name: "Ask your library" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Start with a question" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "What do my books say about habit formation?" }));
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: /^What do my books say about habit formation\?/ }),
+      await screen.findByRole("button", {
+        name: "Resume session: What do my books say about habit formation?",
+      }),
     ).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "New" }));
-    const dialog = await screen.findByRole("alertdialog", { name: "Start a new chat?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "New chat" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "New session" }));
     expect(await screen.findByRole("heading", { name: "Start with a question" })).toBeInTheDocument();
-    expect(await screen.findByText(/No conversations yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/Spaced repetition works/)).not.toBeInTheDocument();
+    // Starting a new session never deletes the previous one.
+    expect(
+      screen.getByRole("button", {
+        name: "Resume session: What do my books say about habit formation?",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("stays quiet when the server has no model configured", async () => {
@@ -68,7 +74,7 @@ describe("AssistantPage", () => {
 
     expect(await screen.findByText("Chat isn't available.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Your question" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "New" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New session" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /tutor/i })).not.toBeInTheDocument();
     expect(api).not.toHaveBeenCalled();
   });
@@ -93,7 +99,7 @@ describe("AssistantPage", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     );
-    const dialog = await screen.findByRole("alertdialog", { name: "Delete conversation?" });
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete session?" });
     expect(dialog).toHaveTextContent("How does spaced repetition work? will be deleted.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
 
@@ -102,8 +108,8 @@ describe("AssistantPage", () => {
         screen.queryByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByText(/No conversations yet/)).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toHaveFocus());
+    expect(screen.getByText(/No sessions yet/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveFocus());
     expect(deleted).toEqual(["/api/chat/conversations/mock-1"]);
   });
 
@@ -119,7 +125,7 @@ describe("AssistantPage", () => {
       await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     );
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Cancel",
       }),
     );
@@ -142,7 +148,7 @@ describe("AssistantPage", () => {
       await screen.findByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     );
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Delete",
       }),
     );
@@ -156,19 +162,19 @@ describe("AssistantPage", () => {
   it("returns to a new conversation when the open conversation is deleted", async () => {
     renderAssistant(createMockChatApi({ chunkDelayMs: 0 }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /^How does spaced repetition work\?/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume session: How does spaced repetition work?" }));
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete conversation: How does spaced repetition work?" }));
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Delete",
       }),
     );
 
     expect(await screen.findByRole("heading", { name: "Start with a question" })).toBeInTheDocument();
     expect(screen.queryByText(/Spaced repetition works by revisiting/)).not.toBeInTheDocument();
-    expect(screen.getByText(/No conversations yet/)).toBeInTheDocument();
+    expect(screen.getByText(/No sessions yet/)).toBeInTheDocument();
   });
 
   it("keeps a live conversation undeletable until its answer settles", async () => {
@@ -181,7 +187,7 @@ describe("AssistantPage", () => {
       return chat(path, init);
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /^How does spaced repetition work\?/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume session: How does spaced repetition work?" }));
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), { target: { value: "Follow up" } });
@@ -214,7 +220,7 @@ describe("AssistantPage", () => {
 
     fireEvent.click(deleteButton);
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Delete",
       }),
     );
@@ -237,12 +243,12 @@ describe("AssistantPage", () => {
       return chat(path, init);
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /^How does spaced repetition work\?/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume session: How does spaced repetition work?" }));
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete conversation: How does spaced repetition work?" }));
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Delete",
       }),
     );
@@ -252,7 +258,7 @@ describe("AssistantPage", () => {
       screen.queryByRole("button", { name: "Delete conversation: How does spaced repetition work?" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Your question" })).toBeDisabled();
-    await waitFor(() => expect(screen.getByRole("button", { name: "New" })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole("button", { name: "New session" })).toHaveFocus());
 
     await act(async () => deletion.reject(new Error("The server could not delete it.")));
 
@@ -281,7 +287,7 @@ describe("AssistantPage", () => {
       return chat(path, init);
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /^A second question/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume session: A second question" }));
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), { target: { value: "Follow up" } });
@@ -290,7 +296,7 @@ describe("AssistantPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Delete conversation: How does spaced repetition work?" }));
     fireEvent.click(
-      within(await screen.findByRole("alertdialog", { name: "Delete conversation?" })).getByRole("button", {
+      within(await screen.findByRole("alertdialog", { name: "Delete session?" })).getByRole("button", {
         name: "Cancel",
       }),
     );
@@ -317,7 +323,7 @@ describe("AssistantPage", () => {
   it("keeps the conversation and the draft when navigating away and back", async () => {
     renderAssistant(createMockChatApi({ chunkDelayMs: 0 }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /^How does spaced repetition work\?/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Resume session: How does spaced repetition work?" }));
     expect(await screen.findByText(/Spaced repetition works by revisiting/)).toBeInTheDocument();
     const textbox = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(textbox, { target: { value: "An unfinished draft" } });

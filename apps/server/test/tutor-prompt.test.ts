@@ -3,6 +3,7 @@ import { openDb } from "../src/adapters/storage/db.js";
 import { SqliteTutorPromptStore } from "../src/adapters/storage/SqliteSettingsRepository.js";
 import {
   MAX_SYSTEM_PROMPT_CHARS,
+  REPLY_TO_CHECK_QUESTION_BLOCK,
   TUTOR_PERSONA_DEFAULT,
   TUTOR_SAFETY_RULES,
   TutorPromptError,
@@ -34,6 +35,47 @@ describe("tutor prompt composition", () => {
     expect(prompt).toContain("[n]");
     expect(prompt).toContain("could not find it in the library");
     expect(prompt).toContain("untrusted data");
+  });
+
+  it("keeps check questions optional, rate-limited and controlled by the user", () => {
+    expect(TUTOR_PERSONA_DEFAULT).toContain("check-for-understanding question is optional");
+    expect(TUTOR_SAFETY_RULES).toContain("Check questions are optional");
+    expect(TUTOR_SAFETY_RULES).toContain("never make it the default closing");
+    expect(TUTOR_SAFETY_RULES).toContain("at most one check question every three assistant turns");
+    expect(TUTOR_SAFETY_RULES).toContain("never in two consecutive assistant turns");
+    expect(TUTOR_SAFETY_RULES).toContain("Read your last assistant replies in the history");
+    expect(TUTOR_SAFETY_RULES).toContain("if your previous reply ended with a check question and the user answered it");
+    expect(TUTOR_SAFETY_RULES).toContain("do not ask another check question");
+    expect(TUTOR_SAFETY_RULES).toContain("When the user asks to be tested or for questions");
+    expect(TUTOR_SAFETY_RULES).toContain("never ask a check question again in that conversation");
+    expect(TUTOR_SAFETY_RULES).toContain("When there is no earlier conversation");
+    expect(TUTOR_SAFETY_RULES).toContain("do not end with a check question unless the user asks for one");
+  });
+
+  it("adds the reply-to-question note only when the last assistant turn asked something", () => {
+    const question = buildTutorMessages({
+      question: "nao sei",
+      passages: [],
+      history: [
+        { role: "user", content: "Explain linkage." },
+        { role: "assistant", content: "What does `extern \"C\"` change?" },
+      ],
+    });
+    expect(question.at(-1)?.content).toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
+
+    const statement = buildTutorMessages({
+      question: "ok",
+      passages: [],
+      history: [
+        { role: "user", content: "Explain linkage." },
+        { role: "assistant", content: "It keeps the C symbol names." },
+      ],
+    });
+    expect(statement.at(-1)?.content).not.toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
+
+    // Ask has no history, so the conditional note never appears there.
+    const ask = buildTutorMessages({ question: "What is linkage?", passages: [], history: [] });
+    expect(ask.at(-1)?.content).not.toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
   });
 
   it("appends the envelope after any custom persona, even an adversarial one", () => {
@@ -115,9 +157,9 @@ describe("custom persona normalization", () => {
 
 describe("prompt version", () => {
   it("uses the default version for the default persona", () => {
-    expect(promptVersionFor(null)).toBe("feynman-4");
-    expect(promptVersionFor(TUTOR_PERSONA_DEFAULT)).toBe("feynman-4");
-    expect(promptVersionFor(`\r\n${TUTOR_PERSONA_DEFAULT}\r\n`)).toBe("feynman-4");
+    expect(promptVersionFor(null)).toBe("feynman-5");
+    expect(promptVersionFor(TUTOR_PERSONA_DEFAULT)).toBe("feynman-5");
+    expect(promptVersionFor(`\r\n${TUTOR_PERSONA_DEFAULT}\r\n`)).toBe("feynman-5");
   });
 
   it("derives a stable custom hash from the normalized text", () => {
@@ -155,7 +197,7 @@ describe("TutorPromptSettings", () => {
     expect(settings.get()).toEqual({
       custom: null,
       default: TUTOR_PERSONA_DEFAULT,
-      version: "feynman-4",
+      version: "feynman-5",
       maxChars: MAX_SYSTEM_PROMPT_CHARS,
       locked: false,
     });
@@ -205,7 +247,7 @@ describe("TutorPromptSettings", () => {
     expect(settings.get()).toEqual({
       custom: null,
       default: TUTOR_PERSONA_DEFAULT,
-      version: "feynman-4",
+      version: "feynman-5",
       maxChars: MAX_SYSTEM_PROMPT_CHARS,
       locked: true,
     });

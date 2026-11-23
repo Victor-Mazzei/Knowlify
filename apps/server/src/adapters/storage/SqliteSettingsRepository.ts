@@ -1,5 +1,5 @@
 import type { SettingsRepository } from "../../ports/account.js";
-import type { LlmConfigStore, StoredLlmSettings, TutorPromptStore } from "../../ports/llm-settings.js";
+import type { ChatLimitsStore, LlmConfigStore, StoredLlmSettings, TutorPromptStore } from "../../ports/llm-settings.js";
 import type { MetadataConfigStore, StoredMetadataSettings } from "../../ports/metadata-settings.js";
 import type { Db } from "./db.js";
 
@@ -9,6 +9,7 @@ const LLM_HEADERS_KEY = "llm_headers";
 const LLM_SYSTEM_PROMPT_KEY = "llm_system_prompt";
 const METADATA_LOOKUP_KEY = "metadata_lookup_enabled";
 const METADATA_API_KEY_KEY = "metadata_google_books_key";
+const CHAT_MAX_CONVERSATIONS_KEY = "chat_max_conversations";
 
 export class SqliteSettingsRepository implements SettingsRepository {
   constructor(private db: Db) {}
@@ -97,6 +98,28 @@ export class SqliteMetadataConfigStore implements MetadataConfigStore {
       if (settings.sealedKey === null) remove.run(METADATA_API_KEY_KEY);
       else put.run(METADATA_API_KEY_KEY, settings.sealedKey);
     })();
+  }
+}
+
+/** Separate key from `llm_config`: resetting the provider must not erase the session limit. */
+export class SqliteChatLimitsStore implements ChatLimitsStore {
+  constructor(private db: Db) {}
+
+  load(): string | null {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(CHAT_MAX_CONVERSATIONS_KEY) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  save(value: number | null): void {
+    if (value === null) {
+      this.db.prepare("DELETE FROM settings WHERE key = ?").run(CHAT_MAX_CONVERSATIONS_KEY);
+      return;
+    }
+    this.db
+      .prepare("INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(CHAT_MAX_CONVERSATIONS_KEY, String(value));
   }
 }
 

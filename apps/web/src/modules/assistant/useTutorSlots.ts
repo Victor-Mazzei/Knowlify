@@ -1,38 +1,56 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { readAskUseLibrary, readTutorMode } from "../../services/storage";
 import type { ChatExcerpt } from "./excerpt";
 import { LIBRARY_SLOT_KEY, bookSlotKey, moveToEnd, newSlot, pruneSlots } from "./tutorTypes";
 import type { TutorSlot } from "./tutorTypes";
-import type { ConversationSummary } from "./types";
+import type { ChatMode, ConversationSummary } from "./types";
 
 /**
  * Slot descriptors for the tutor. Components own their conversation state; this
- * hook only decides which slots exist, which one is visible and their LRU order.
+ * hook only decides which slots exist, which one is visible, their mode and their
+ * LRU order.
  */
-export function useTutorSlots() {
+export function useTutorSlots({ modesSupported }: { modesSupported: boolean }) {
   const [slots, setSlots] = useState<TutorSlot[]>([]);
   const [activeKey, setActiveKey] = useState(LIBRARY_SLOT_KEY);
   const [revision, setRevision] = useState(0);
   const slotsRef = useRef(slots);
   const activeKeyRef = useRef(activeKey);
+  const modesRef = useRef(modesSupported);
   slotsRef.current = slots;
   activeKeyRef.current = activeKey;
+  modesRef.current = modesSupported;
+
+  const defaults = useCallback(
+    () => ({
+      mode: modesRef.current ? readTutorMode() : ("session" as const),
+      useLibrary: readAskUseLibrary(),
+    }),
+    [],
+  );
 
   const ensureLibrarySlot = useCallback(() => {
     setSlots((current) =>
-      current.some((slot) => slot.key === LIBRARY_SLOT_KEY) ? current : [...current, newSlot("library")],
+      current.some((slot) => slot.key === LIBRARY_SLOT_KEY)
+        ? current
+        : [...current, newSlot("library", undefined, defaults())],
     );
-  }, []);
+  }, [defaults]);
 
-  const ensureBookSlot = useCallback((book: { id: string; title: string }) => {
-    const key = bookSlotKey(book.id);
-    setSlots((current) => {
-      const index = current.findIndex((slot) => slot.key === key);
-      if (index < 0) return pruneSlots([...current, newSlot("book", book)], activeKeyRef.current, key);
-      const next = current.map((slot) => (slot.key === key ? { ...slot, bookTitle: book.title } : slot));
-      return moveToEnd(next, key);
-    });
-    return key;
-  }, []);
+  const ensureBookSlot = useCallback(
+    (book: { id: string; title: string }) => {
+      const key = bookSlotKey(book.id);
+      setSlots((current) => {
+        const index = current.findIndex((slot) => slot.key === key);
+        if (index < 0)
+          return pruneSlots([...current, newSlot("book", book, defaults())], activeKeyRef.current, key);
+        const next = current.map((slot) => (slot.key === key ? { ...slot, bookTitle: book.title } : slot));
+        return moveToEnd(next, key);
+      });
+      return key;
+    },
+    [defaults],
+  );
 
   const touch = useCallback((key: string) => {
     setSlots((current) => moveToEnd(current, key));
@@ -69,13 +87,34 @@ export function useTutorSlots() {
     );
   }, []);
 
-  const rememberConversation = useCallback((key: string, summary: ConversationSummary) => {
+  const setSlotMode = useCallback((key: string, mode: ChatMode) => {
     setSlots((current) =>
       current.map((slot) =>
-        slot.key === key
-          ? { ...slot, conversationId: summary.id, conversationTitle: summary.title }
+        slot.key === key && slot.mode !== mode
+          ? { ...slot, mode, resumedTitle: undefined, session: slot.session + 1 }
           : slot,
       ),
+    );
+  }, []);
+
+  const setSlotUseLibrary = useCallback((key: string, useLibrary: boolean) => {
+    setSlots((current) =>
+      current.map((slot) => (slot.key === key ? { ...slot, useLibrary } : slot)),
+    );
+  }, []);
+
+  const rememberConversation = useCallback((key: string, summary: ConversationSummary) => {
+    setSlots((current) =>
+      current.map((slot) => {
+        if (slot.key !== key) return slot;
+        // A rename during the stream wins over the stale `done.title` of an existing session.
+        const keepTitle = slot.conversationId === summary.id && Boolean(slot.conversationTitle);
+        return {
+          ...slot,
+          conversationId: summary.id,
+          conversationTitle: keepTitle && slot.conversationTitle ? slot.conversationTitle : summary.title,
+        };
+      }),
     );
     setRevision((value) => value + 1);
   }, []);
@@ -96,6 +135,7 @@ export function useTutorSlots() {
                 conversation.scope.kind === "book"
                   ? { id: conversation.scope.bookId, title: "" }
                   : undefined,
+                defaults(),
               ),
             ],
             activeKeyRef.current,
@@ -106,9 +146,12 @@ export function useTutorSlots() {
           slot.key === key
             ? {
                 ...slot,
+                mode: "session",
                 initialId: conversation.id,
                 conversationId: conversation.id,
                 conversationTitle: conversation.title,
+                resumedTitle: undefined,
+                resumeChecked: true,
                 session: slot.session + 1,
                 excerpt: undefined,
                 excerptError: undefined,
@@ -120,6 +163,48 @@ export function useTutorSlots() {
     });
     setActiveKey(key);
     return true;
+  }, [defaults]);
+
+  const resumeSession = useCallback((key: string, summary: ConversationSummary) => {
+    setSlots((current) =>
+      current.map((slot) => {
+        if (slot.key !== key) return slot;
+        // A late lookup must not pull a person out of Ask or replace a session they opened.
+        if (slot.mode !== "session" || slot.conversationId || slot.initialId) {
+          return { ...slot, resumeChecked: true };
+        }
+        return {
+          ...slot,
+          mode: "session",
+          initialId: summary.id,
+          conversationId: summary.id,
+          conversationTitle: summary.title,
+          resumedTitle: summary.title,
+          resumeChecked: true,
+          session: slot.session + 1,
+        };
+      }),
+    );
+  }, []);
+
+  const markResumeChecked = useCallback((key: string) => {
+    setSlots((current) =>
+      current.map((slot) => (slot.key === key ? { ...slot, resumeChecked: true } : slot)),
+    );
+  }, []);
+
+  const renameConversation = useCallback((id: string, title: string) => {
+    setSlots((current) =>
+      current.map((slot) =>
+        slot.conversationId === id || slot.initialId === id
+          ? {
+              ...slot,
+              conversationTitle: title,
+              ...(slot.resumedTitle ? { resumedTitle: title } : {}),
+            }
+          : slot,
+      ),
+    );
   }, []);
 
   const resetSlot = useCallback((key: string) => {
@@ -131,6 +216,8 @@ export function useTutorSlots() {
               initialId: undefined,
               conversationId: undefined,
               conversationTitle: undefined,
+              resumedTitle: undefined,
+              resumeChecked: true,
               excerpt: undefined,
               excerptError: undefined,
               session: slot.session + 1,
@@ -149,6 +236,8 @@ export function useTutorSlots() {
               initialId: undefined,
               conversationId: undefined,
               conversationTitle: undefined,
+              resumedTitle: undefined,
+              resumeChecked: true,
               session: slot.session + 1,
             }
           : slot,
@@ -180,8 +269,13 @@ export function useTutorSlots() {
       setSlotStreaming,
       setExcerpt,
       clearExcerpt,
+      setSlotMode,
+      setSlotUseLibrary,
       rememberConversation,
       selectConversation,
+      resumeSession,
+      markResumeChecked,
+      renameConversation,
       resetSlot,
       forgetConversation,
       isConversationStreaming,
@@ -198,8 +292,13 @@ export function useTutorSlots() {
       setSlotStreaming,
       setExcerpt,
       clearExcerpt,
+      setSlotMode,
+      setSlotUseLibrary,
       rememberConversation,
       selectConversation,
+      resumeSession,
+      markResumeChecked,
+      renameConversation,
       resetSlot,
       forgetConversation,
       isConversationStreaming,

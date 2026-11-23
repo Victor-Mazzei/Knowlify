@@ -26,6 +26,14 @@ export interface TutorPromptStore {
   save(text: string | null): void;
 }
 
+/** Session limit saved by the user; separate from the LLM config so a reset keeps it. */
+export interface ChatLimitsStore {
+  /** Raw text of the stored integer, or `null` when the user never saved one. */
+  load(): string | null;
+  /** `null` removes the stored value and restores the environment/default seed. */
+  save(value: number | null): void;
+}
+
 export interface SecretBox {
   seal(plaintext: string): string;
   open(sealed: string): string;

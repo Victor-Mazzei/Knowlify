@@ -7,12 +7,18 @@ export type { Citation } from "./Citation.js";
 /** A conversation belongs either to the whole library or to one book, never both. */
 export type ChatScope = { kind: "library" } | { kind: "book"; bookId: string };
 
+/** Ask turns are ephemeral; Session turns are persisted conversations. */
+export type ChatMode = "ask" | "session";
+export const CHAT_MODES: readonly ChatMode[] = ["ask", "session"];
+
 export interface Conversation {
   id: string;
   scope: ChatScope;
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** Read model only: filled by list queries, never persisted on the entity. */
+  messageCount?: number;
 }
 
 export interface ChatMessage {
@@ -29,8 +35,15 @@ export const MAX_TITLE_CHARS = 80;
 export const MAX_EXCERPT_CHARS = 2_000;
 export const MAX_SECTION_CHARS = 200;
 export const MAX_MESSAGES_PER_CONVERSATION = 100;
-export const MAX_CONVERSATIONS = 200;
+export const DEFAULT_MAX_CONVERSATIONS = 200;
+export const MIN_MAX_CONVERSATIONS = 20;
+export const MAX_MAX_CONVERSATIONS = 5_000;
 export const MAX_CONVERSATION_ID_CHARS = 200;
+/** Import ("Save as session") bounds; messages must alternate user/assistant. */
+export const MAX_IMPORTED_MESSAGES = 20;
+export const MAX_IMPORTED_USER_CHARS = 2_000;
+export const MAX_IMPORTED_ASSISTANT_CHARS = 8_000;
+export const MAX_IMPORTED_CITATIONS = 6;
 
 /** Trims the question and enforces the documented size, so every layer sees the same value. */
 export function normalizeQuestion(raw: string): string {
@@ -55,6 +68,149 @@ export function normalizeExcerpt(raw: string | undefined): string | undefined {
 /** The first question names the conversation; later turns keep the original title. */
 export function conversationTitle(question: string): string {
   return question.slice(0, MAX_TITLE_CHARS).trim();
+}
+
+const TITLE_CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/** Rename title: trimmed, 1–80 characters, no control characters other than a space. */
+export function normalizeTitle(raw: unknown): string {
+  if (typeof raw !== "string") throw new ValidationError("The title must be a string");
+  const title = raw.trim();
+  if (!title) throw new ValidationError("The title must not be empty");
+  if (title.length > MAX_TITLE_CHARS) {
+    throw new ValidationError(`The title must have at most ${MAX_TITLE_CHARS} characters`);
+  }
+  if (TITLE_CONTROL_CHARS.test(title)) {
+    throw new ValidationError("The title contains unsupported control characters");
+  }
+  return title;
+}
+
+/**
+ * Effective session limit. The message lists the range and never echoes the rejected
+ * value: it may be a mistyped secret or user text.
+ */
+export function normalizeMaxConversations(value: unknown): number {
+  if (
+    typeof value !== "number"
+    || !Number.isInteger(value)
+    || value < MIN_MAX_CONVERSATIONS
+    || value > MAX_MAX_CONVERSATIONS
+  ) {
+    throw new ValidationError(
+      `maxConversations must be an integer between ${MIN_MAX_CONVERSATIONS} and ${MAX_MAX_CONVERSATIONS}`,
+    );
+  }
+  return value;
+}
+
+/** One validated message of an imported Ask transcript. */
+export interface ImportedChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  citations: Citation[] | null;
+}
+
+/**
+ * Strict validation for "Save as session": alternating user/assistant turns starting
+ * with the user and ending with the assistant. Citation titles are re-derived from the
+ * library; citations whose book no longer exists are dropped instead of failing the
+ * whole import (the transcript itself stays valid).
+ */
+export function normalizeImportedMessages(
+  input: unknown,
+  bookTitleFor: (bookId: string) => string | undefined,
+): ImportedChatMessage[] {
+  if (!Array.isArray(input)) throw new ValidationError("messages must be an array");
+  if (input.length < 2 || input.length > MAX_IMPORTED_MESSAGES || input.length % 2 !== 0) {
+    throw new ValidationError(
+      `messages must contain an even number of turns between 2 and ${MAX_IMPORTED_MESSAGES}, starting with the user`,
+    );
+  }
+  return input.map((entry, index) => {
+    const role = index % 2 === 0 ? "user" : "assistant";
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new ValidationError(`Message ${index + 1} must be an object`);
+    }
+    const record = entry as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (key !== "role" && key !== "content" && key !== "citations") {
+        throw new ValidationError(`Message ${index + 1} has an unknown field`);
+      }
+    }
+    if (record.role !== role) {
+      throw new ValidationError(`Message ${index + 1} must be a ${role} message`);
+    }
+    if (typeof record.content !== "string") {
+      throw new ValidationError(`Message ${index + 1} content must be a string`);
+    }
+    const content = record.content.trim();
+    if (!content) throw new ValidationError(`Message ${index + 1} content must not be empty`);
+    const maxChars = role === "user" ? MAX_IMPORTED_USER_CHARS : MAX_IMPORTED_ASSISTANT_CHARS;
+    if (content.length > maxChars) {
+      throw new ValidationError(`Message ${index + 1} must have at most ${maxChars} characters`);
+    }
+    const citations = normalizeImportedCitations(record.citations, role, index, bookTitleFor);
+    return { role, content, citations };
+  });
+}
+
+function normalizeImportedCitations(
+  input: unknown,
+  role: "user" | "assistant",
+  messageIndex: number,
+  bookTitleFor: (bookId: string) => string | undefined,
+): Citation[] | null {
+  if (input === undefined || input === null) return null;
+  if (role !== "assistant") {
+    throw new ValidationError(`Message ${messageIndex + 1} cannot carry citations`);
+  }
+  if (!Array.isArray(input)) {
+    throw new ValidationError(`Message ${messageIndex + 1} citations must be an array`);
+  }
+  if (input.length > MAX_IMPORTED_CITATIONS) {
+    throw new ValidationError(`Message ${messageIndex + 1} has too many citations`);
+  }
+  const citations: Citation[] = [];
+  for (const entry of input) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new ValidationError(`Message ${messageIndex + 1} has an invalid citation`);
+    }
+    const record = entry as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (!["n", "passageId", "bookId", "bookTitle", "page", "section"].includes(key)) {
+        throw new ValidationError(`Message ${messageIndex + 1} has an invalid citation`);
+      }
+    }
+    const n = record.n;
+    const passageId = record.passageId;
+    const bookId = record.bookId;
+    if (
+      typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 999
+      || typeof passageId !== "number" || !Number.isInteger(passageId) || passageId < 1
+      || typeof bookId !== "string" || !bookId || bookId.length > MAX_CONVERSATION_ID_CHARS
+    ) {
+      throw new ValidationError(`Message ${messageIndex + 1} has an invalid citation`);
+    }
+    const page = normalizeCitationPage(record.page, messageIndex);
+    const section = normalizeCitationSection(record.section, messageIndex);
+    const bookTitle = bookTitleFor(bookId);
+    if (!bookTitle) continue;
+    citations.push({ n, passageId, bookId, bookTitle, page, section });
+  }
+  return citations.length > 0 ? citations : null;
+}
+
+function normalizeCitationPage(value: unknown, messageIndex: number): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  throw new ValidationError(`Message ${messageIndex + 1} has an invalid citation`);
+}
+
+function normalizeCitationSection(value: unknown, messageIndex: number): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" && value.length <= MAX_SECTION_CHARS) return value;
+  throw new ValidationError(`Message ${messageIndex + 1} has an invalid citation`);
 }
 
 export function sameScope(a: ChatScope, b: ChatScope): boolean {

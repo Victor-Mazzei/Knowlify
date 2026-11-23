@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { NoLlmClient } from "../src/adapters/llm/NoLlmClient.js";
 import { MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
-import { ChatDisabledError, ChatRateLimitedError, ConversationFullError, ConversationScopeMismatchError, LibraryChatUnavailableError } from "../src/domain/assistant/errors.js";
+import { ChatDisabledError, ChatRateLimitedError, ConversationFullError, ConversationLimitError, ConversationScopeMismatchError, InvalidModeError, LibraryChatUnavailableError } from "../src/domain/assistant/errors.js";
 import { composeSystemPrompt, promptVersionFor } from "../src/domain/assistant/tutorPrompt.js";
 import { NO_PASSAGES_ANSWER } from "../src/domain/assistant/sessionContext.js";
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
-import { LIBRARY_NOT_USED_BLOCK, SEARCH_PARTIAL_BLOCK, SEARCH_TIMED_OUT_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
+import { LIBRARY_NOT_USED_BLOCK, REPLY_TO_CHECK_QUESTION_BLOCK, SEARCH_PARTIAL_BLOCK, SEARCH_TIMED_OUT_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { NotFoundError } from "../src/domain/errors.js";
 import { LlmError } from "../src/ports/assistant.js";
 import type { LlmClient, LlmEvent, LlmRequest, PassageRetriever } from "../src/ports/assistant.js";
@@ -37,24 +37,28 @@ afterEach(() => {
 
 describe("Chat status", () => {
   it("stays silent without a provider", () => {
-    const { chat } = fixture({ llm: new NoLlmClient(), limits: { libraryScope: true } });
+    const { chat, sessions } = fixture({ llm: new NoLlmClient(), limits: { libraryScope: true } });
     expect(chat.status()).toEqual({
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-4",
+      promptVersion: "feynman-5",
       scopes: { library: false, book: false },
+      modes: ["ask", "session"],
+      sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
   });
 
   it("exposes the model host without the URL path or key and follows the index state", () => {
-    const { chat } = fixture();
+    const { chat, sessions } = fixture();
     expect(chat.status()).toEqual({
       enabled: true,
       model: "fake-model",
       host: "llm.example",
-      promptVersion: "feynman-4",
+      promptVersion: "feynman-5",
       scopes: { library: true, book: true },
+      modes: ["ask", "session"],
+      sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
 
     const withoutIndex = fixture({ limits: { libraryScope: false } });
@@ -67,7 +71,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "What is deep work?", scope: { kind: "library" } }, new AbortController().signal));
     expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
@@ -81,14 +85,14 @@ describe("Chat turn", () => {
     expect(done.title).toBe("What is deep work?");
     expect(done.finishReason).toBe("stop");
 
-    const detail = chat.get(sources.conversationId);
+    const detail = sessions.get(sources.conversationId);
     expect(detail?.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(detail?.messages[0].content).toBe("What is deep work?");
     expect(detail?.messages[1]).toMatchObject({
       id: done.messageId,
       content: "Hello there",
       citations: sources.citations,
-      promptVersion: "feynman-4",
+      promptVersion: "feynman-5",
     });
     expect(conversations.countAll()).toBe(1);
     expect(llm.requests).toHaveLength(1);
@@ -120,12 +124,12 @@ describe("Chat turn", () => {
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
     let persona: string | null = null;
-    const { chat } = fixture({ llm, retriever, systemPrompt: () => persona });
+    const { chat, sessions } = fixture({ llm, retriever, systemPrompt: () => persona });
 
     const first = await collect(chat.stream({ message: "First question", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
     expect(llm.requests[0].messages[0]).toEqual({ role: "system", content: composeSystemPrompt(null) });
-    expect(chat.status().promptVersion).toBe("feynman-4");
+    expect(chat.status().promptVersion).toBe("feynman-5");
 
     persona = "Answer as a pirate.";
     await collect(chat.stream({ conversationId, message: "Second question", scope: { kind: "library" } }, new AbortController().signal));
@@ -134,10 +138,10 @@ describe("Chat turn", () => {
     expect(llm.requests[1].messages[0]).toEqual({ role: "system", content: composeSystemPrompt(persona) });
     expect(chat.status().promptVersion).toBe(customVersion);
 
-    const messages = chat.get(conversationId)?.messages ?? [];
+    const messages = sessions.get(conversationId)?.messages ?? [];
     expect(messages.map((message) => message.promptVersion)).toEqual([
       null,
-      "feynman-4",
+      "feynman-5",
       null,
       customVersion,
     ]);
@@ -147,7 +151,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const first = await collect(chat.stream({ message: "What is deep work?", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
@@ -158,7 +162,7 @@ describe("Chat turn", () => {
       scope: { kind: "library" },
     }, new AbortController().signal));
     expect((second[0] as Extract<ChatEvent, { type: "sources" }>).conversationId).toBe(conversationId);
-    expect(chat.get(conversationId)?.messages).toHaveLength(4);
+    expect(sessions.get(conversationId)?.messages).toHaveLength(4);
 
     const history = llm.requests[1].messages;
     expect(history.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
@@ -174,7 +178,7 @@ describe("Chat turn", () => {
   it("uses the previous question as context for very short follow-ups", async () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat } = fixture({ retriever });
+    const { chat, sessions } = fixture({ retriever });
     const first = await collect(chat.stream({ message: "Explain the concept of deep work in this book", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
 
@@ -185,7 +189,7 @@ describe("Chat turn", () => {
   it("answers from the reader excerpt when the index is off", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever, limits: { libraryScope: false } });
+    const { chat, sessions } = fixture({ llm, retriever, limits: { libraryScope: false } });
 
     const events = await collect(chat.stream({
       message: "Explain this excerpt",
@@ -214,7 +218,7 @@ describe("Chat turn", () => {
     }
     const llm = new TutorQuestionLlm();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const first = await collect(chat.stream({ message: "Explain deep work", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
@@ -239,13 +243,13 @@ describe("Chat turn", () => {
     expect(followUpQueries[0]).toContain("The focus part.");
     expect(followUpQueries[1]).toBe("The focus part.");
 
-    const assistant = chat.get(conversationId)?.messages.at(-1);
+    const assistant = sessions.get(conversationId)?.messages.at(-1);
     expect(assistant?.content).toBe("Start with one focused block.");
     expect(assistant?.content).not.toBe(NO_PASSAGES_ANSWER);
-    expect(assistant?.promptVersion).toBe("feynman-4");
+    expect(assistant?.promptVersion).toBe("feynman-5");
   });
 
-  it("stamps a reply-as-feedback turn with feynman-4 and never logs the question", async () => {
+  it("stamps a reply-as-feedback turn with feynman-5 and never logs the question", async () => {
     class TutorQuestionLlm implements LlmClient {
       readonly configured = true;
       readonly model = "fake-model";
@@ -270,7 +274,7 @@ describe("Chat turn", () => {
       error: (_error, message) => logs.push(message),
       warn: (message) => logs.push(message),
     };
-    const { chat } = fixture({ llm, retriever, log });
+    const { chat, sessions } = fixture({ llm, retriever, log });
     const sentinel = "zebraquantum-nao-sei";
 
     const first = await collect(chat.stream({ message: "Explique extern C em C++", scope: { kind: "library" } }, new AbortController().signal));
@@ -287,8 +291,10 @@ describe("Chat turn", () => {
     expect(prompt[0]?.content).toContain("Turn rule");
     expect(prompt.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
     expect(prompt[2]?.content).toBe("What makes a declaration inside extern \"C\" different?");
+    expect(prompt[0]?.content).toContain("Check questions are optional");
+    expect(prompt.at(-1)?.content).toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
     expect(prompt.at(-1)?.content).toContain(`Question: nao sei ${sentinel}`);
-    expect(chat.get(conversationId)?.messages.at(-1)?.promptVersion).toBe("feynman-4");
+    expect(sessions.get(conversationId)?.messages.at(-1)?.promptVersion).toBe("feynman-5");
     expect(logs.join("\n")).not.toContain(sentinel);
   });
 
@@ -303,7 +309,7 @@ describe("Chat turn", () => {
       error: (_error, message) => logs.push(message),
       warn: (message) => logs.push(message),
     };
-    const { chat } = fixture({ llm, retriever, log });
+    const { chat, sessions } = fixture({ llm, retriever, log });
     const sentinel = "zebraquantum-question";
 
     const events = await collect(chat.stream({
@@ -321,8 +327,8 @@ describe("Chat turn", () => {
 
     const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
     expect(sources).toMatchObject({ type: "sources", retrieval: "none", citations: [] });
-    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations"]);
-    const assistant = chat.get(sources.conversationId)?.messages.at(-1);
+    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations", "mode", "persisted"]);
+    const assistant = sessions.get(sources.conversationId)?.messages.at(-1);
     expect(assistant?.content).toBe("The library search was slow. A general-knowledge answer.");
     expect(logs.join("\n")).not.toContain(sentinel);
   });
@@ -330,7 +336,7 @@ describe("Chat turn", () => {
   it("distinguishes a book-only turn where the library was not used", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever, limits: { libraryScope: false } });
+    const { chat, sessions } = fixture({ llm, retriever, limits: { libraryScope: false } });
 
     const events = await collect(chat.stream({
       message: "Explain this book",
@@ -346,7 +352,7 @@ describe("Chat turn", () => {
   it("keeps the not-used marker when a book-only turn carries a reader excerpt", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever, limits: { libraryScope: false } });
+    const { chat, sessions } = fixture({ llm, retriever, limits: { libraryScope: false } });
 
     await collect(chat.stream({
       message: "Explain this passage",
@@ -380,7 +386,7 @@ describe("Chat turn", () => {
     }
     const llm = new TutorQuestionLlm();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const first = await collect(chat.stream({
       message: "Explique `extern \"C\"` em C++.",
@@ -412,7 +418,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.mode = "lexical";
     retriever.hits = [passage({ text: "A lexical passage survives." })];
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     await collect(chat.stream({ message: "Find this in my library", scope: { kind: "library" } }, new AbortController().signal));
 
@@ -427,7 +433,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.unavailable = true;
     retriever.hits = [passage({ text: "Grounding survives a partial timeout." })];
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "Find grounding", scope: { kind: "library" } }, new AbortController().signal));
 
@@ -468,7 +474,7 @@ describe("Chat turn", () => {
     }
     const llm = new FollowUpLlm();
     const retriever = new TwoAttemptRetriever();
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const first = await collect(chat.stream({ message: "Explain deep work", scope: { kind: "library" } }, new AbortController().signal));
     const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId;
@@ -492,7 +498,7 @@ describe("Chat turn", () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
     retriever.hits = [passage({ text: "The R language for statistics." })];
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     await collect(chat.stream({ message: "R", scope: { kind: "library" } }, new AbortController().signal));
 
@@ -507,21 +513,153 @@ describe("Chat turn", () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
     retriever.hits = [passage({ text: "A recipe for bread." })];
-    const { chat } = fixture({ llm, retriever });
+    const { chat, sessions } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "What is deep work?", scope: { kind: "library" } }, new AbortController().signal));
     expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
     expect(llm.requests).toHaveLength(1);
     expect(llm.requests[0].messages.at(-1)?.content).toContain("A recipe for bread.");
     expect(llm.requests[0].messages.at(-1)?.content).not.toContain(NO_PASSAGES_BLOCK);
-    expect(chat.get((events[0] as Extract<ChatEvent, { type: "sources" }>).conversationId)?.messages.at(-1)?.content)
+    expect(sessions.get((events[0] as Extract<ChatEvent, { type: "sources" }>).conversationId)?.messages.at(-1)?.content)
       .toBe("Hello there");
+  });
+
+  it("answers an Ask turn without a conversation row and without history", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const llm = new FakeLlmClient();
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
+
+    const first = await collect(chat.stream({ message: "First saved question", scope: { kind: "library" } }, new AbortController().signal));
+    const conversationId = (first[0] as Extract<ChatEvent, { type: "sources" }>).conversationId as string;
+    expect(conversations.countAll()).toBe(1);
+
+    const events = await collect(chat.stream({
+      message: "Quick ephemeral question",
+      scope: { kind: "library" },
+      mode: "ask",
+    }, new AbortController().signal));
+
+    const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
+    const done = events.at(-1) as Extract<ChatEvent, { type: "done" }>;
+    expect(sources).toMatchObject({
+      type: "sources",
+      conversationId: null,
+      mode: "ask",
+      persisted: false,
+      useLibrary: true,
+    });
+    expect(done).toMatchObject({
+      type: "done",
+      conversationId: null,
+      mode: "ask",
+      persisted: false,
+      useLibrary: true,
+      title: "",
+    });
+    expect(conversations.countAll()).toBe(1);
+    expect(sessions.get(conversationId)?.messages).toHaveLength(2);
+
+    const askPrompt = llm.requests[1].messages;
+    expect(askPrompt.map((message) => message.role)).toEqual(["system", "user"]);
+    expect(askPrompt[0]?.content).toContain("When there is no earlier conversation");
+    expect(askPrompt.at(-1)?.content).not.toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
+    expect(askPrompt.at(-1)?.content).toContain("Question: Quick ephemeral question");
+  });
+
+  it("Ask without the library never calls the retriever and keeps the reader excerpt", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const llm = new FakeLlmClient();
+    const { chat, conversations } = fixture({ llm, retriever });
+
+    const events = await collect(chat.stream({
+      message: "What does this mean?",
+      scope: {
+        kind: "book",
+        bookId: BOOK.id,
+        excerpt: "Attached reader text.",
+        excerptKind: "selection",
+      },
+      mode: "ask",
+      useLibrary: false,
+    }, new AbortController().signal));
+
+    expect(retriever.queries).toEqual([]);
+    expect(conversations.countAll()).toBe(0);
+    const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
+    expect(sources).toMatchObject({ retrieval: "none", citations: [], useLibrary: false, persisted: false });
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(prompt).toContain("<excerpt");
+    expect(prompt).toContain("Attached reader text.");
+    expect(prompt).not.toContain("<passage");
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+  });
+
+  it("Ask without the library works in library scope even when the index is off", async () => {
+    const retriever = new FakeRetriever();
+    const llm = new FakeLlmClient();
+    const { chat, conversations } = fixture({ llm, retriever, limits: { libraryScope: false } });
+
+    const events = await collect(chat.stream({
+      message: "General question",
+      scope: { kind: "library" },
+      mode: "ask",
+      useLibrary: false,
+    }, new AbortController().signal));
+
+    expect(events.at(-1)).toMatchObject({ type: "done", persisted: false, useLibrary: false });
+    expect(retriever.queries).toEqual([]);
+    expect(conversations.countAll()).toBe(0);
+    expect(llm.requests[0].messages.at(-1)?.content).toContain(LIBRARY_NOT_USED_BLOCK);
+
+    await expect(collect(chat.stream({
+      message: "Library question",
+      scope: { kind: "library" },
+      mode: "ask",
+    }, new AbortController().signal))).rejects.toBeInstanceOf(LibraryChatUnavailableError);
+  });
+
+  it("rejects invalid mode combinations", async () => {
+    const { chat } = fixture();
+    await expect(collect(chat.stream({
+      conversationId: "some-conversation",
+      message: "q",
+      scope: { kind: "library" },
+      mode: "ask",
+    }, new AbortController().signal))).rejects.toBeInstanceOf(InvalidModeError);
+
+    for (const mode of [undefined, "session"] as const) {
+      await expect(collect(chat.stream({
+        message: "q",
+        scope: { kind: "library" },
+        ...(mode === undefined ? {} : { mode }),
+        useLibrary: false,
+      }, new AbortController().signal))).rejects.toBeInstanceOf(InvalidModeError);
+    }
+  });
+
+  it("leaves no row when an Ask turn fails", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const llm = new FakeLlmClient();
+    llm.error = new LlmError("timeout", "slow provider");
+    const { chat, conversations } = fixture({ llm, retriever });
+
+    const events = await collect(chat.stream({
+      message: "Failing question",
+      scope: { kind: "library" },
+      mode: "ask",
+    }, new AbortController().signal));
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "llm_timeout" });
+    expect(conversations.countAll()).toBe(0);
   });
 
   it("sends cleaned history: no [n] markers and no legacy canned pairs", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     conversations.create({ id: "clean", scope: { kind: "library" }, title: "Clean", createdAt: 1, updatedAt: 1 });
     const saveTurn = (question: string, answer: string) => conversations.saveTurn({
       conversationId: "clean",
@@ -551,7 +689,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.error = new Error("index exploded");
     const llm = new FakeLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "grounded question", scope: { kind: "library" } }, new AbortController().signal));
     expect(events.map((event) => event.type)).toEqual(["sources", "error"]);
@@ -565,7 +703,7 @@ describe("Chat turn", () => {
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
     llm.error = new LlmError("unavailable", "provider down");
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "grounded question", scope: { kind: "library" } }, new AbortController().signal));
     expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "error"]);
@@ -582,7 +720,7 @@ describe("Chat turn", () => {
       providerStatus: 400,
       providerDetail: "missing_session",
     });
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
 
     const events = await collect(chat.stream({ message: "grounded question", scope: { kind: "library" } }, new AbortController().signal));
     const sources = events[0] as Extract<ChatEvent, { type: "sources" }>;
@@ -605,7 +743,7 @@ describe("Chat turn", () => {
       providerDetail: "missing_session",
     });
     const logged: unknown[] = [];
-    const { chat } = fixture({
+    const { chat, sessions } = fixture({
       llm,
       retriever,
       log: { info: () => {}, error: (error) => logged.push(error) },
@@ -627,7 +765,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new WaitingLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     const controller = new AbortController();
     const iterator = chat.stream({ message: "grounded question", scope: { kind: "library" } }, controller.signal)[Symbol.asyncIterator]();
 
@@ -642,7 +780,7 @@ describe("Chat turn", () => {
   });
 
   it("rejects an unknown book, an unknown conversation, a disabled library and a full conversation", async () => {
-    const { chat, conversations } = fixture();
+    const { chat, sessions, conversations } = fixture();
     await expect(collect(chat.stream({ message: "q", scope: { kind: "book", bookId: "missing" } }, new AbortController().signal)))
       .rejects.toBeInstanceOf(NotFoundError);
     await expect(collect(chat.stream({ conversationId: "missing", message: "q", scope: { kind: "library" } }, new AbortController().signal)))
@@ -665,23 +803,26 @@ describe("Chat turn", () => {
       .rejects.toBeInstanceOf(ConversationFullError);
   });
 
-  it("caps the number of conversations, dropping the oldest", async () => {
+  it("blocks a new conversation at the cap instead of dropping the oldest", async () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat, conversations } = fixture({ retriever });
+    const llm = new FakeLlmClient();
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     for (let index = 0; index < 200; index += 1) {
       conversations.create({ id: `old-${index}`, scope: { kind: "library" }, title: "old", createdAt: index, updatedAt: index });
     }
-    await collect(chat.stream({ message: "new conversation", scope: { kind: "library" } }, new AbortController().signal));
+    await expect(collect(chat.stream({ message: "new conversation", scope: { kind: "library" } }, new AbortController().signal)))
+      .rejects.toBeInstanceOf(ConversationLimitError);
     expect(conversations.countAll()).toBe(200);
-    expect(conversations.get("old-0")).toBeUndefined();
-    expect(conversations.get("old-1")).toBeDefined();
+    expect(conversations.get("old-0")).toBeDefined();
+    expect(retriever.queries).toEqual([]);
+    expect(llm.requests).toEqual([]);
   });
 
   it("serializes concurrent turns so only one passes the message cap", async () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat, conversations } = fixture({ retriever });
+    const { chat, sessions, conversations } = fixture({ retriever });
     conversations.create({ id: "almost-full", scope: { kind: "library" }, title: "almost-full", createdAt: 1, updatedAt: 1 });
     for (let turn = 0; turn < 49; turn += 1) {
       conversations.saveTurn({
@@ -707,7 +848,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new WaitingLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     conversations.create({ id: "busy", scope: { kind: "library" }, title: "busy", createdAt: 1, updatedAt: 1 });
 
     const firstController = new AbortController();
@@ -733,7 +874,7 @@ describe("Chat turn", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new WaitingLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     conversations.create({ id: "busy", scope: { kind: "library" }, title: "busy", createdAt: 1, updatedAt: 1 });
 
     const firstController = new AbortController();
@@ -771,7 +912,7 @@ describe("Chat turn", () => {
   it("releases a cancelled turn while retrieval is still running", async () => {
     const retriever = new BlockingRetriever();
     const llm = new FakeLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     const controller = new AbortController();
     const iterator = chat.stream({ message: "grounded question", scope: { kind: "library" } }, controller.signal)[Symbol.asyncIterator]();
     const next = iterator.next();
@@ -806,7 +947,7 @@ describe("Chat turn", () => {
     }
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat, conversations } = fixture({ llm: new ReasoningOnlyLlm(), retriever });
+    const { chat, sessions, conversations } = fixture({ llm: new ReasoningOnlyLlm(), retriever });
 
     const events = await collect(chat.stream({ message: "grounded question", scope: { kind: "library" } }, new AbortController().signal));
     expect(events.map((event) => event.type)).toEqual(["sources", "error"]);
@@ -845,7 +986,7 @@ describe("Chat turn", () => {
   });
 
   it("rejects turns before any stream when chat is disabled", async () => {
-    const { chat } = fixture({ llm: new NoLlmClient() });
+    const { chat, sessions } = fixture({ llm: new NoLlmClient() });
     await expect(collect(chat.stream({ message: "q", scope: { kind: "library" } }, new AbortController().signal)))
       .rejects.toBeInstanceOf(ChatDisabledError);
   });
