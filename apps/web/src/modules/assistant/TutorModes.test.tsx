@@ -208,11 +208,11 @@ describe("Tutor modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
     const dialog = await screen.findByRole("alertdialog", { name: "This Ask chat is not saved." });
     expect(within(dialog).getByRole("alert")).toHaveTextContent(
-      "This chat has 22 messages. A session can save at most 20 messages",
+      "This chat has 22 messages. A session can hold at most 20, so Save as session is not available.",
     );
-    expect(within(dialog).getByRole("alert")).toHaveTextContent("nothing was saved");
+    expect(within(dialog).getByRole("alert")).not.toHaveTextContent("nothing was saved");
     expect(within(dialog).getByRole("alert")).toHaveTextContent(
-      "The 2 oldest messages will not be saved.",
+      "the 2 oldest messages will not be saved.",
     );
     expect(within(dialog).getByRole("button", { name: "Save as session" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Save last 20 messages" })).toBeEnabled();
@@ -247,7 +247,7 @@ describe("Tutor modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
     const dialog = await screen.findByRole("alertdialog", { name: "This Ask chat is not saved." });
     expect(within(dialog).getByRole("alert")).toHaveTextContent(
-      "The 2 oldest messages will not be saved.",
+      "the 2 oldest messages will not be saved.",
     );
     fireEvent.click(within(dialog).getByRole("button", { name: "Save last 20 messages" }));
 
@@ -278,7 +278,7 @@ describe("Tutor modes", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
     const dialog = await screen.findByRole("alertdialog", { name: "This Ask chat is not saved." });
     expect(within(dialog).getByRole("alert")).toHaveTextContent(
-      "This chat is not a question-and-answer sequence, so you cannot save it as a session.",
+      "This chat is not a question-and-answer sequence, so it cannot be saved as a session.",
     );
     expect(within(dialog).getByRole("button", { name: "Save as session" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();

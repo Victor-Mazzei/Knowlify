@@ -11,5 +11,6 @@ export {
 } from "./SqliteBookDuplicateRepository.js";
 export { SqliteTagRepository } from "./SqliteTagRepository.js";
 export { SqliteBookMetadataRepository } from "./SqliteBookMetadataRepository.js";
+export { SqliteBookCandidateSource } from "./SqliteBookCandidateSource.js";
 export { SqliteIgnoredBookRepository } from "./SqliteIgnoredBookRepository.js";
 export { SqliteMcpTokenRepository } from "./SqliteMcpTokenRepository.js";

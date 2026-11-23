@@ -114,6 +114,7 @@ describe("chat HTTP routes", () => {
       promptVersion: "feynman-5",
       scopes: { library: false, book: false },
       modes: ["ask", "session"],
+      features: { recommendations: true },
       sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);
@@ -723,6 +724,40 @@ describe("chat HTTP routes", () => {
         messages: [{ role: "user", content: "q" }, { role: "assistant", content: "x".repeat(9_000) }],
       },
     })).statusCode).toBe(400);
+  });
+
+  it("keeps user text and removes only assistant book markers on import", async () => {
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: {
+        scope: { kind: "library" },
+        messages: [
+          { role: "user", content: "Explain [book:1] in this spec" },
+          { role: "assistant", content: "Use list[1] to read second value." },
+          { role: "user", content: "Explain list[0] and [1, 2]" },
+          { role: "assistant", content: "Claim [book:3]." },
+          { role: "user", content: "  if x:\n    print(items[0])  " },
+          { role: "assistant", content: "  if x:\n    print(items[0])  " },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    const detail = (await app.inject({
+      method: "GET",
+      url: `/api/chat/conversations/${response.json().id as string}`,
+    })).json();
+    expect(detail.messages.map((message: { content: string }) => message.content)).toEqual([
+      "Explain [book:1] in this spec",
+      "Use list[1] to read second value.",
+      "Explain list[0] and [1, 2]",
+      "Claim.",
+      "  if x:\n    print(items[0])  ",
+      "  if x:\n    print(items[0])  ",
+    ]);
   });
 
   it("blocks a new session at the limit with 409 conversation_limit", async () => {

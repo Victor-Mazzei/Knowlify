@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
 import { ApiError } from "../../services/api";
 import { useChat } from "./useChat";
+import type { ChatMode, ChatRequestScope } from "./types";
 
 const encoder = new TextEncoder();
 
@@ -479,8 +480,224 @@ describe("useChat", () => {
     expect(bodies[1]).toMatchObject({ conversationId: "c1" });
   });
 
-  it("keeps the question in the composer on a conversation_limit 409", async () => {
-    const onLimit = vi.fn();
+  it("sends recommend only for Ask with the whole library and the feature", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const api: ApiFn = async (_path, init) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return eventResponse([
+        { type: "sources", conversationId: null, retrieval: "none", citations: [], mode: "ask", persisted: false },
+        { type: "delta", text: "An answer." },
+        {
+          type: "done",
+          conversationId: null,
+          messageId: `m-${bodies.length}`,
+          title: "",
+          finishReason: "stop",
+          mode: "ask",
+          persisted: false,
+        },
+      ]);
+    };
+    type RecommendProps = {
+      scope: ChatRequestScope;
+      mode: ChatMode;
+      useLibrary: boolean;
+      supported: boolean;
+    };
+    const { result, rerender } = renderHook<ReturnType<typeof useChat>, RecommendProps>(
+      (props) =>
+        useChat({
+          api,
+          scope: props.scope,
+          mode: props.mode,
+          useLibrary: props.useLibrary,
+          modesSupported: true,
+          recommend: "auto",
+          recommendationsSupported: props.supported,
+        }),
+      {
+        initialProps: {
+          scope: { kind: "library" },
+          mode: "ask",
+          useLibrary: true,
+          supported: true,
+        },
+      },
+    );
+
+    act(() => result.current.send("First"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[0]).toMatchObject({ mode: "ask", useLibrary: true, recommend: "auto" });
+
+    act(() => result.current.send("Second", undefined, "on"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[1]).toMatchObject({ recommend: "on" });
+
+    rerender({ scope: { kind: "library" }, mode: "ask", useLibrary: false, supported: true });
+    act(() => result.current.send("Private"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[2]).not.toHaveProperty("recommend");
+
+    rerender({ scope: { kind: "library" }, mode: "session", useLibrary: true, supported: true });
+    act(() => result.current.send("Saved"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[3]).not.toHaveProperty("recommend");
+
+    rerender({ scope: { kind: "library" }, mode: "ask", useLibrary: true, supported: false });
+    act(() => result.current.send("Old server"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[4]).not.toHaveProperty("recommend");
+
+    rerender({
+      scope: { kind: "book", bookId: "b1" },
+      mode: "ask",
+      useLibrary: true,
+      supported: true,
+    });
+    act(() => result.current.send("This book"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+    expect(bodies[5]).not.toHaveProperty("recommend");
+  });
+
+  it("attaches the recommendation payload and the validated markers at done", async () => {
+    const api: ApiFn = async () =>
+      eventResponse([
+        { type: "sources", conversationId: null, retrieval: "hybrid", citations: [], mode: "ask", persisted: false },
+        {
+          type: "recommendations",
+          status: "ready",
+          intent: "detected",
+          focus: "recommend",
+          books: [
+            {
+              n: 2,
+              bookId: "b2",
+              title: "Programming Rust",
+              author: "Lena Ortiz",
+              format: "pdf",
+              language: null,
+              hasCover: false,
+              coverRev: null,
+              progress: { status: "reading", percentage: 0.34 },
+              matched: ["rust"],
+              evidence: [],
+              source: "passages",
+            },
+          ],
+        },
+        { type: "delta", text: "Try Programming Rust [book:2]." },
+        {
+          type: "done",
+          conversationId: null,
+          messageId: "m1",
+          title: "",
+          finishReason: "stop",
+          mode: "ask",
+          persisted: false,
+          recommended: [2],
+        },
+      ]);
+    const { result } = renderHook(() =>
+      useChat({
+        api,
+        scope: { kind: "library" },
+        mode: "ask",
+        modesSupported: true,
+        recommend: "auto",
+        recommendationsSupported: true,
+      }),
+    );
+
+    act(() => result.current.send("Which books teach Rust?"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+
+    expect(result.current.messages[1]?.recommendations).toMatchObject({
+      status: "ready",
+      intent: "detected",
+      books: [{ n: 2, bookId: "b2" }],
+    });
+    expect(result.current.messages[1]?.recommended).toEqual([2]);
+  });
+
+  it("keeps no recommendation payload when the turn fails after the event", async () => {
+    const api: ApiFn = async () =>
+      eventResponse([
+        { type: "sources", conversationId: null, retrieval: "hybrid", citations: [], mode: "ask", persisted: false },
+        { type: "recommendations", status: "ready", intent: "explicit", focus: "recommend", books: [] },
+        { type: "delta", text: "Partial" },
+        { type: "error", code: "llm_timeout", message: "The model took too long." },
+      ]);
+    const { result } = renderHook(() =>
+      useChat({
+        api,
+        scope: { kind: "library" },
+        mode: "ask",
+        modesSupported: true,
+        recommend: "auto",
+        recommendationsSupported: true,
+      }),
+    );
+
+    act(() => result.current.send("Recommend books"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+
+    expect(result.current.messages[1]?.content).toBe("Partial");
+    expect(result.current.messages[1]?.incomplete).toBe(true);
+    expect(result.current.messages[1]?.recommendations).toBeUndefined();
+    expect(result.current.messages[1]?.recommended).toBeUndefined();
+  });
+
+  it("ignores a recommendations event outside Ask with the whole library", async () => {
+    const api: ApiFn = async () =>
+      eventResponse([
+        { type: "sources", conversationId: "c1", retrieval: "none", citations: [] },
+        { type: "recommendations", status: "ready", intent: "detected", focus: "recommend", books: [] },
+        { type: "delta", text: "Saved answer." },
+        {
+          type: "done",
+          conversationId: "c1",
+          messageId: "m1",
+          title: "Saved",
+          finishReason: "stop",
+          recommended: [1],
+        },
+      ]);
+    const { result } = renderHook(() =>
+      useChat({ api, scope: { kind: "library" }, recommendationsSupported: true }),
+    );
+
+    act(() => result.current.send("A saved turn"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+
+    expect(result.current.messages[1]?.content).toBe("Saved answer.");
+    expect(result.current.messages[1]?.recommendations).toBeUndefined();
+    expect(result.current.messages[1]?.recommended).toBeUndefined();
+  });
+
+  it("keeps the partial answer and shows the limit when conversation_limit arrives mid-stream", async () => {
+    const api: ApiFn = async () =>
+      eventResponse([
+        { type: "sources", conversationId: "c1", retrieval: "none", citations: [] },
+        { type: "delta", text: "Saved half" },
+        {
+          type: "error",
+          code: "conversation_limit",
+          message: "You reached the session limit. Delete a session or raise the limit in Settings → AI.",
+        },
+      ]);
+    const { result } = renderHook(() => useChat({ api, scope: { kind: "library" } }));
+
+    act(() => result.current.send("One more"));
+    await waitFor(() => expect(result.current.streaming).toBe(false));
+
+    expect(result.current.messages.map((message) => message.content)).toEqual(["One more", "Saved half"]);
+    expect(result.current.messages[1]?.incomplete).toBe(true);
+    expect(result.current.limitNotice).toContain("You reached the session limit.");
+    expect(result.current.error).toBe("");
+    expect(result.current.canRetry).toBe(false);
+  });
+
+  it("keeps the question in the composer on a conversation_limit 409", async () => {    const onLimit = vi.fn();
     const api: ApiFn = async () => {
       throw new ApiError(409, "The session limit is 2.", "conversation_limit", { limit: 2, count: 2 });
     };

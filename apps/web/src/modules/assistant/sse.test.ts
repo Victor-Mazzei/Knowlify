@@ -154,6 +154,78 @@ describe("parseChatEvent", () => {
       citations: [{ n: 2, passageId: 3, bookId: "b1", bookTitle: "Book", page: null, section: null }],
     });
   });
+
+  it("parses the additive recommendations event and the done marker list", () => {
+    const event = parseChatEvent(
+      JSON.stringify({
+        type: "recommendations",
+        status: "ready",
+        intent: "explicit",
+        focus: "recommend",
+        books: [
+          {
+            n: 1,
+            bookId: "b1",
+            title: "Rust for Web Developers",
+            author: "Mara Klein",
+            format: "epub",
+            language: "en",
+            hasCover: true,
+            coverRev: 4,
+            progress: { status: "reading", percentage: 0.34 },
+            matched: ["rust", "web"],
+            evidence: [{ passageId: 9, page: 12, section: "Requests" }],
+            source: "both",
+          },
+          { n: 2, bookId: "b2" },
+        ],
+      }),
+    );
+    expect(event).toEqual({
+      type: "recommendations",
+      status: "ready",
+      intent: "explicit",
+      focus: "recommend",
+      books: [
+        {
+          n: 1,
+          bookId: "b1",
+          title: "Rust for Web Developers",
+          author: "Mara Klein",
+          format: "epub",
+          language: "en",
+          hasCover: true,
+          coverRev: 4,
+          progress: { status: "reading", percentage: 0.34 },
+          matched: ["rust", "web"],
+          evidence: [{ passageId: 9, page: 12, section: "Requests" }],
+          source: "both",
+        },
+      ],
+    });
+    expect(
+      parseChatEvent(
+        '{"type":"done","conversationId":null,"messageId":"m1","title":"","finishReason":"stop","recommended":[2,1,2]}',
+      ),
+    ).toMatchObject({ type: "done", recommended: [2, 1, 2] });
+    expect(parseChatEvent('{"type":"recommendations","status":"future"}')).toBeNull();
+  });
+
+  it("keeps an unknown event type from a newer server out of the transcript", () => {
+    expect(parseChatEvent('{"type":"book_cards","books":[]}')).toBeNull();
+  });
+
+  it("maps the post-stream conversation_limit error to its own code", () => {
+    expect(
+      parseChatEvent(
+        '{"type":"error","code":"conversation_limit","message":"You reached the session limit."}',
+      ),
+    ).toEqual({
+      type: "error",
+      code: "conversation_limit",
+      message: "You reached the session limit.",
+    });
+  });
 });
 
 // Keep a handle so the callback signature is exercised with a spy as well.

@@ -1,7 +1,9 @@
 /**
- * Pure context helpers for the tutor: citation cleanup, removal of legacy canned turns,
- * token estimation and the deterministic retrieval queries of ADR-5/ADR-6.
+ * Pure context helpers for the tutor: card-marker cleanup for derived retrieval anchors,
+ * removal of legacy canned turns, token estimation and the deterministic retrieval
+ * queries of ADR-5/ADR-6. Stored history is never rewritten here.
  */
+import { stripBookMarkers } from "./bookMarkers.js";
 
 /** Legacy turn text persisted by older builds, before the tutor always called the model. */
 export const NO_PASSAGES_ANSWER = "I couldn't find passages about this in your library yet.";
@@ -17,17 +19,6 @@ const FOLLOW_UP_MAX_CHARS = 80;
 export interface ContextMessage {
   role: "system" | "user" | "assistant";
   content: string;
-}
-
-const CITATION_MARKER = /\[\d{1,3}\]/g;
-
-/** Drops stored `[n]` markers: their passages are not part of the current turn. */
-export function stripCitationMarkers(text: string): string {
-  return text
-    .replace(CITATION_MARKER, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+([.,;:!?])/g, "$1")
-    .trim();
 }
 
 /** Conservative estimate; the provider already reports `context_length_exceeded`. */
@@ -103,7 +94,7 @@ function retrievalAnchor(history: readonly ContextMessage[]): string | undefined
 
   const user = findLast(history, (message) => message.role === "user" && message.content.trim() !== "");
   if (!user) return undefined;
-  const previousQuestion = stripCitationMarkers(user.content);
+  const previousQuestion = stripBookMarkers(user.content);
   return previousQuestion ? previousQuestion.slice(0, MAX_ANCHOR_CHARS) : undefined;
 }
 
@@ -114,7 +105,7 @@ function retrievalAnchor(history: readonly ContextMessage[]): string | undefined
  * O(n²) in the request path.
  */
 function lastQuestionSentence(text: string): string | undefined {
-  const flattened = stripCitationMarkers(text).replace(/\s+/g, " ").trim();
+  const flattened = stripBookMarkers(text).replace(/\s+/g, " ").trim();
   const questionMark = flattened.lastIndexOf("?");
   if (questionMark < 0) return undefined;
   const previous = Math.max(

@@ -13,6 +13,7 @@ const examplesFor = (slot: TutorSlot) =>
         "Give me an example that tests my understanding.",
       ]
     : [
+        ...(slot.mode === "ask" ? ["Which books in my library teach Rust for the web?"] : []),
         "What do my books say about habit formation?",
         "Explain the main argument of a book I am reading.",
         "Compare how two authors define attention.",
@@ -101,6 +102,11 @@ function SlotView({
         mode={slot.mode}
         modeSupported={tutor.modesSupported}
         useLibrary={slot.useLibrary}
+        recommend={slot.recommend}
+        recommendSupported={Boolean(status.features?.recommendations)}
+        onRecommendChange={(value) => tutor.setSlotRecommend(slot.key, value)}
+        onEnableLibrary={() => tutor.setSlotUseLibrary(slot.key, true)}
+        onOpenBook={tutor.dismissOnNarrowNavigation}
         scopeLabel={slot.kind === "book" ? "This book" : "Whole library"}
         sessionTitle={slot.conversationTitle}
         sessionLimit={tutor.sessionLimit}

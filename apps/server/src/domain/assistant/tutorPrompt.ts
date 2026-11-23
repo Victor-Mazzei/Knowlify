@@ -67,6 +67,11 @@ export interface TutorPromptInput {
   passages: TutorPassage[];
   history: TutorMessage[];
   excerpt?: TutorExcerpt;
+  /**
+   * Pre-rendered recommendation context (instructions plus `<candidates>`); when present
+   * it replaces the common `<passage>` list and the no-passages note.
+   */
+  recommendationContext?: string;
   /** Effective custom persona; `null`/absent means the built-in default. */
   systemPrompt?: string | null;
   /**
@@ -216,11 +221,11 @@ function lastAssistantIndex(messages: readonly TutorMessage[]): number {
 }
 
 /** Escapes the delimiter itself so a passage cannot close its own block. */
-export function escapeDelimiter(text: string, tag: "passage" | "excerpt"): string {
+export function escapeDelimiter(text: string, tag: "passage" | "excerpt" | "book" | "candidates"): string {
   return text.replace(new RegExp(`<(/?)${tag}`, "gi"), (match) => `&lt;${match.slice(1)}`);
 }
 
-function escapeAttribute(value: string): string {
+export function escapeAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -261,7 +266,11 @@ function renderContext(input: TutorPromptInput): string {
     // tell that rule 1e applies and may infer a search that never ran.
     blocks.push(LIBRARY_NOT_USED_BLOCK);
   }
-  if (input.passages.length > 0) {
+  if (input.recommendationContext !== undefined) {
+    // The candidate block already carries the evidence passages; adding the common list
+    // would duplicate tokens and send books outside the shortlist to the model.
+    blocks.push(input.recommendationContext);
+  } else if (input.passages.length > 0) {
     blocks.push(`Passages retrieved from the user's library:\n${renderPassages(input.passages)}`);
   }
   if (input.excerpt) blocks.push(`Excerpt the reader is looking at:\n${renderExcerpt(input.excerpt)}`);

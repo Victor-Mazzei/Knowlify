@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from "react";
-import { readAskUseLibrary, readTutorMode } from "../../services/storage";
+import { readAskUseLibrary, readTutorMode, readTutorRecommend } from "../../services/storage";
 import type { ChatExcerpt } from "./excerpt";
 import { LIBRARY_SLOT_KEY, bookSlotKey, moveToEnd, newSlot, pruneSlots } from "./tutorTypes";
 import type { TutorSlot } from "./tutorTypes";
-import type { ChatMode, ConversationSummary } from "./types";
+import type { ChatMode, ConversationSummary, RecommendPreference } from "./types";
 
 /**
  * Slot descriptors for the tutor. Components own their conversation state; this
@@ -25,6 +25,7 @@ export function useTutorSlots({ modesSupported }: { modesSupported: boolean }) {
     () => ({
       mode: modesRef.current ? readTutorMode() : ("session" as const),
       useLibrary: readAskUseLibrary(),
+      recommend: readTutorRecommend(),
     }),
     [],
   );
@@ -100,6 +101,12 @@ export function useTutorSlots({ modesSupported }: { modesSupported: boolean }) {
   const setSlotUseLibrary = useCallback((key: string, useLibrary: boolean) => {
     setSlots((current) =>
       current.map((slot) => (slot.key === key ? { ...slot, useLibrary } : slot)),
+    );
+  }, []);
+
+  const setSlotRecommend = useCallback((key: string, recommend: RecommendPreference) => {
+    setSlots((current) =>
+      current.map((slot) => (slot.key === key ? { ...slot, recommend } : slot)),
     );
   }, []);
 
@@ -271,6 +278,7 @@ export function useTutorSlots({ modesSupported }: { modesSupported: boolean }) {
       clearExcerpt,
       setSlotMode,
       setSlotUseLibrary,
+      setSlotRecommend,
       rememberConversation,
       selectConversation,
       resumeSession,
@@ -294,6 +302,7 @@ export function useTutorSlots({ modesSupported }: { modesSupported: boolean }) {
       clearExcerpt,
       setSlotMode,
       setSlotUseLibrary,
+      setSlotRecommend,
       rememberConversation,
       selectConversation,
       resumeSession,

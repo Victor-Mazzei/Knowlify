@@ -15,6 +15,18 @@ const status: ChatStatus = {
   scopes: { library: true, book: true },
 };
 
+const encoder = new TextEncoder();
+const sseResponse = (events: unknown[]) =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+
 const renderPanel = (api = createMockChatApi({ seed: false, chunkDelayMs: 0 }), onConversation = vi.fn()) =>
   render(
     <MemoryRouter>
@@ -145,6 +157,42 @@ describe("ChatPanel", () => {
     expect(screen.queryByText("One more", { selector: ".asst-question" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
     expect(onStartNewSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the partial answer and points to Settings when the limit arrives mid-stream", async () => {
+    const api: ApiFn = async () =>
+      sseResponse([
+        { type: "sources", conversationId: "c1", retrieval: "none", citations: [] },
+        { type: "delta", text: "Saved half" },
+        {
+          type: "error",
+          code: "conversation_limit",
+          message: "You reached the session limit. Delete a session or raise the limit in Settings → AI.",
+        },
+      ]);
+    render(
+      <MemoryRouter>
+        <ChatPanel
+          api={api}
+          status={status}
+          scope={{ kind: "library" }}
+          label="Chat with your library"
+          examples={[]}
+          emptyTitle="Start"
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Your question" }), {
+      target: { value: "One more" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("You reached the session limit.");
+    expect(screen.getByRole("link", { name: "Settings → AI" })).toHaveAttribute("href", "/settings/ai");
+    expect(screen.getByText("Saved half")).toBeInTheDocument();
+    expect(screen.getByText("Answer incomplete.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
   it("keeps the fixed answer when retrieval found no passages", async () => {

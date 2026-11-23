@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { ChatExcerpt } from "./excerpt";
 import type { ChatMode } from "./types";
 
@@ -18,6 +18,7 @@ export function ChatComposer({
   mode = "session",
   useLibrary = true,
   libraryAvailable = true,
+  recommendControl,
 }: {
   draft: string;
   onDraft: (value: string) => void;
@@ -35,6 +36,8 @@ export function ChatComposer({
   useLibrary?: boolean;
   /** False when the server has no search index: no passages are retrieved in any mode. */
   libraryAvailable?: boolean;
+  /** Ask + whole library: the book suggestion controls, rendered with the question field. */
+  recommendControl?: ReactNode;
 }) {
   const inputId = useId();
   const privacyId = useId();
@@ -94,6 +97,7 @@ export function ChatComposer({
           }
         }}
       />
+      {recommendControl}
       <div className="asst-composer-actions">
         <p className="asst-privacy" id={privacyId}>
           {searchesLibrary

@@ -59,11 +59,12 @@ describe("SaveAskDialog", () => {
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "This chat has 22 messages. A session can save at most 20 messages",
+      "This chat has 22 messages. A session can hold at most 20, so Save as session is not available.",
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("nothing was saved");
-    expect(screen.getByRole("alert")).toHaveTextContent("You can save the newest 20 messages.");
-    expect(screen.getByRole("alert")).toHaveTextContent("The 2 oldest messages will not be saved.");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("nothing was saved");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "You can save the newest 20 messages instead; the 2 oldest messages will not be saved.",
+    );
     expect(screen.getByRole("alert")).toHaveTextContent("Cancel keeps this chat. Discard deletes it.");
     expect(screen.getByText(/not saved, and this chat cannot be saved as one session/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save as session" })).toBeDisabled();
@@ -82,14 +83,14 @@ describe("SaveAskDialog", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "An answer in this chat is longer than 8,000 characters.",
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("Nothing was saved.");
+    expect(screen.getByRole("alert")).toHaveTextContent("This chat cannot be saved as a session.");
     expect(screen.getByRole("button", { name: "Save as session" })).toBeDisabled();
   });
 
   it("explains a transcript that is not a question-and-answer sequence", () => {
     render(<SaveAskDialog {...base} malformed canSave={false} />);
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "This chat is not a question-and-answer sequence, so you cannot save it as a session.",
+      "This chat is not a question-and-answer sequence, so it cannot be saved as a session.",
     );
     expect(screen.getByRole("button", { name: "Save as session" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();

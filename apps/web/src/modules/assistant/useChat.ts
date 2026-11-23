@@ -9,11 +9,13 @@ import { createSseParser, parseChatEvent } from "./sse";
 import type {
   ChatMessage,
   ChatMode,
+  ChatRecommendations,
   ChatRequest,
   ChatRequestScope,
   ChatScope,
   ConversationDetail,
   ConversationSummary,
+  RecommendMode,
 } from "./types";
 
 let nextLocalId = 0;
@@ -40,6 +42,8 @@ export function useChat({
   mode = "session",
   useLibrary = true,
   modesSupported = false,
+  recommend = "auto",
+  recommendationsSupported = false,
   onLimit,
   onFull,
 }: {
@@ -52,6 +56,10 @@ export function useChat({
   useLibrary?: boolean;
   /** False on servers without `status.modes`: no `mode` or `useLibrary` is sent. */
   modesSupported?: boolean;
+  /** Ask + library scope: stored preference for the next turn. */
+  recommend?: RecommendMode;
+  /** False on servers without `status.features.recommendations`: no `recommend` is sent. */
+  recommendationsSupported?: boolean;
   onLimit?: (details: ChatLimitDetails) => void;
   onFull?: (message: string) => void;
 }) {
@@ -64,6 +72,8 @@ export function useChat({
   const [error, setError] = useState("");
   const [stopped, setStopped] = useState(false);
   const [limitError, setLimitError] = useState<ChatLimitDetails | null>(null);
+  /** A `conversation_limit` that arrived after the stream started (limit race). */
+  const [limitNotice, setLimitNotice] = useState("");
   const [sessionFull, setSessionFull] = useState(false);
 
   const conversationRef = useRef(mode === "session" ? initialConversationId : undefined);
@@ -82,14 +92,18 @@ export function useChat({
   const apiRef = useRef(api);
   const modeRef = useRef(mode);
   const useLibraryRef = useRef(useLibrary);
+  const recommendRef = useRef(recommend);
   const onConversationRef = useRef(onConversation);
   const onLimitRef = useRef(onLimit);
   const onFullRef = useRef(onFull);
-  const lastTurn = useRef<{ message: string; excerpt?: ChatExcerpt } | undefined>(undefined);
+  const lastTurn = useRef<
+    { message: string; excerpt?: ChatExcerpt; recommend?: RecommendMode } | undefined
+  >(undefined);
   scopeRef.current = scope;
   apiRef.current = api;
   modeRef.current = mode;
   useLibraryRef.current = useLibrary;
+  recommendRef.current = recommend;
   onConversationRef.current = onConversation;
   onLimitRef.current = onLimit;
   onFullRef.current = onFull;
@@ -136,16 +150,23 @@ export function useChat({
   }, [api, initialConversationId, mode]);
 
   const run = useCallback(
-    async (text: string, excerpt: ChatExcerpt | undefined, appendUser: boolean, replaceDraftId?: string) => {
+    async (
+      text: string,
+      excerpt: ChatExcerpt | undefined,
+      appendUser: boolean,
+      replaceDraftId?: string,
+      recommendOverride?: RecommendMode,
+    ) => {
       const message = text.trim().slice(0, 2000);
       if (!message || controllerRef.current) return;
 
       setError("");
       setStopped(false);
       setLimitError(null);
+      setLimitNotice("");
       setSessionFull(false);
       setStreaming(true);
-      lastTurn.current = { message, excerpt };
+      lastTurn.current = { message, excerpt, ...(recommendOverride ? { recommend: recommendOverride } : {}) };
       failedDraftRef.current = undefined;
       finishedRef.current = false;
 
@@ -169,17 +190,27 @@ export function useChat({
       const abort = new AbortController();
       controllerRef.current = abort;
       const turnMode = modesSupported ? modeRef.current : "session";
+      const turnUseLibrary = useLibraryRef.current;
       const body: ChatRequest = { message, scope: withExcerpt(scopeRef.current, excerpt) };
       if (modesSupported) {
         body.mode = turnMode;
-        if (turnMode === "ask") body.useLibrary = useLibraryRef.current;
+        if (turnMode === "ask") body.useLibrary = turnUseLibrary;
       }
       if (turnMode === "session" && conversationRef.current) body.conversationId = conversationRef.current;
+      if (
+        recommendationsSupported &&
+        turnMode === "ask" &&
+        scopeRef.current.kind === "library" &&
+        turnUseLibrary
+      ) {
+        body.recommend = recommendOverride ?? recommendRef.current;
+      }
 
       let completed = false;
       let failed = false;
       let streamed = "";
       let pending = "";
+      let recommendations: ChatRecommendations | undefined;
       let flushTimer: ReturnType<typeof setTimeout> | undefined;
       let lastFlush = 0;
 
@@ -219,6 +250,21 @@ export function useChat({
         }
         setError(reason);
       };
+      /**
+       * The limit was hit after the turn started: keep what the person already sees
+       * as an incomplete answer and point to the setting instead of offering Retry.
+       */
+      const keepLimitPartial = (reason: string) => {
+        if (streamed.trim()) {
+          failedDraftRef.current = draftId;
+          setMessages((current) =>
+            current.map((item) => (item.id === draftId ? { ...item, incomplete: true } : item)),
+          );
+        } else {
+          setMessages((current) => current.filter((item) => item.id !== draftId));
+        }
+        setLimitNotice(reason);
+      };
       /** The turn never reached the server: keep the question in the composer, not the transcript. */
       const restoreQuestion = () => {
         setMessages((current) =>
@@ -247,6 +293,22 @@ export function useChat({
             setMessages((current) =>
               current.map((item) => (item.id === draftId ? { ...item, citations } : item)),
             );
+          } else if (event.type === "recommendations") {
+            // Only Ask with the whole library can show suggestions. With the library
+            // switch off, only the "turn it on" notice is meaningful.
+            if (
+              recommendationsSupported &&
+              turnMode === "ask" &&
+              scopeRef.current.kind === "library" &&
+              (turnUseLibrary || event.status === "library_off")
+            ) {
+              recommendations = {
+                status: event.status,
+                intent: event.intent,
+                focus: event.focus,
+                books: event.books,
+              };
+            }
           } else if (event.type === "delta") {
             queueDelta(event.text);
           } else if (event.type === "done") {
@@ -259,9 +321,22 @@ export function useChat({
               conversationRef.current = event.conversationId!;
               setConversationId(event.conversationId!);
             }
+            const turnRecommendations = recommendations;
             setMessages((current) =>
               current.map((item) =>
-                item.id === draftId ? { ...item, id: event.messageId, incomplete: false } : item,
+                item.id === draftId
+                  ? {
+                      ...item,
+                      id: event.messageId,
+                      incomplete: false,
+                      ...(turnRecommendations
+                        ? {
+                            recommendations: turnRecommendations,
+                            recommended: event.recommended ?? [],
+                          }
+                        : {}),
+                    }
+                  : item,
               ),
             );
             if (persisted) {
@@ -277,7 +352,14 @@ export function useChat({
             failed = true;
             finishedRef.current = true;
             flush();
-            keepPartial(event.message || "The answer could not be completed.");
+            if (event.code === "conversation_limit") {
+              keepLimitPartial(
+                event.message ||
+                  "You reached the session limit. Delete a session or raise the limit in Settings → AI.",
+              );
+            } else {
+              keepPartial(event.message || "The answer could not be completed.");
+            }
           }
         });
 
@@ -328,13 +410,13 @@ export function useChat({
         }
       }
     },
-    [modesSupported],
+    [modesSupported, recommendationsSupported],
   );
 
   const send = useCallback(
-    (message: string, excerpt?: ChatExcerpt) => {
+    (message: string, excerpt?: ChatExcerpt, recommend?: RecommendMode) => {
       if (controllerRef.current) return;
-      void run(message, excerpt, true);
+      void run(message, excerpt, true, undefined, recommend);
     },
     [run],
   );
@@ -367,8 +449,9 @@ export function useChat({
     failedDraftRef.current = undefined;
     setError("");
     setStopped(false);
+    setLimitNotice("");
     setSessionFull(false);
-    void run(last.message, last.excerpt, false, replace);
+    void run(last.message, last.excerpt, false, replace, last.recommend);
   }, [run]);
 
   const canRetry = Boolean(!streaming && (error || stopped) && lastTurn.current && !sessionFull);
@@ -382,6 +465,7 @@ export function useChat({
     stopped,
     canRetry,
     limitError,
+    limitNotice,
     sessionFull,
     send,
     stop,

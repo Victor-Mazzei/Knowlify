@@ -68,6 +68,10 @@ const isSessionLimits = (value: unknown) =>
   typeof value.maxMessages === "number" &&
   Number.isFinite(value.maxMessages);
 
+const isFeatures = (value: unknown) =>
+  isRecord(value) &&
+  (value.recommendations === undefined || typeof value.recommendations === "boolean");
+
 function isChatStatus(value: unknown): value is ChatStatus {
   if (!isRecord(value)) return false;
   if (typeof value.enabled !== "boolean" || typeof value.promptVersion !== "string") return false;
@@ -77,6 +81,7 @@ function isChatStatus(value: unknown): value is ChatStatus {
   // Both blocks are additive: an older server simply omits them and stays Session only.
   if (value.modes !== undefined && (!Array.isArray(value.modes) || !value.modes.every(isMode))) return false;
   if (value.sessionLimits !== undefined && !isSessionLimits(value.sessionLimits)) return false;
+  if (value.features !== undefined && !isFeatures(value.features)) return false;
   return true;
 }
 

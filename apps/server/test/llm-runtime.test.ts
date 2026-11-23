@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { openDb } from "../src/adapters/storage/db.js";
-import { SqliteBookRepository } from "../src/adapters/storage/repositories.js";
+import { SqliteBookCandidateSource, SqliteBookRepository, SqliteProgressRepository } from "../src/adapters/storage/repositories.js";
 import { SqliteConversationRepository } from "../src/adapters/storage/SqliteConversationRepository.js";
 import { NoLlmClient } from "../src/adapters/llm/NoLlmClient.js";
 import { SwitchableLlmClient } from "../src/adapters/llm/SwitchableLlmClient.js";
+import { BookRecommendations } from "../src/use-cases/BookRecommendations.js";
 import { Chat, type ChatLimits } from "../src/use-cases/Chat.js";
 import type { LlmClient, LlmEvent, LlmRequest } from "../src/ports/assistant.js";
 import { BOOK, FakeLlmClient, FakeRetriever, passage } from "./chat-helpers.js";
@@ -100,6 +101,7 @@ describe("Chat limits function", () => {
       { next: () => `id-${++sequence}` },
       () => limits,
       () => null,
+      new BookRecommendations(new SqliteBookCandidateSource(db), new SqliteProgressRepository(db)),
     );
     try {
       const first = [];

@@ -71,6 +71,7 @@ export const tutorChatStatus = (overrides: Partial<ChatStatus> = {}): ChatStatus
   scopes: { library: true, book: true },
   modes: ["ask", "session"],
   sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
+  features: { recommendations: true },
   ...overrides,
 });
 

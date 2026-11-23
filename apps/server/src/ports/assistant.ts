@@ -64,6 +64,35 @@ export interface ConversationCaps {
   maxMessagesPerConversation: number;
 }
 
+/**
+ * Metadata of one book that may be recommended. Only rows with `status = 'ready'` are
+ * returned, so a pending, failed or deleted book never reaches the shortlist.
+ */
+export interface BookCandidateDetails {
+  bookId: string;
+  title: string;
+  author: string;
+  format: "pdf" | "epub";
+  language: string | null;
+  series: string | null;
+  /** Override description, used only to score metadata matches; never sent to the model. */
+  description: string | null;
+  tags: string[];
+  hasCover: boolean;
+  coverRev: number | null;
+}
+
+/**
+ * Read side of the Library context used by book recommendations (ADR-15). Both methods
+ * are synchronous: they are bounded SQLite reads with a measured ceiling (BE-3.0).
+ */
+export interface BookCandidateSource {
+  /** Book ids whose title, author, series, tags or override description match a term. */
+  metadataMatches(terms: readonly string[], limit: number): string[];
+  /** Details for the given ids; unknown, pending and failed books are omitted. */
+  details(ids: readonly string[]): BookCandidateDetails[];
+}
+
 export interface ConversationTurn {
   /** Existing conversation id, or the id of `newConversation` when the turn starts one. */
   conversationId: string;

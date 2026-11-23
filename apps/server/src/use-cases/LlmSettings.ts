@@ -179,8 +179,8 @@ export class LlmSettings {
     this.stored = undefined;
     if (this.options.env.legacySessionHeader) {
       this.options.log.warn?.(
-        "KNOWLIFY_LLM_HEADERS is not set; the environment configuration uses the legacy session header temporarily. "
-        + "Set KNOWLIFY_LLM_HEADERS to an empty value or {} to disable it. The seed is removed in 2.0.",
+        "KNOWLIFY_LLM_HEADERS is not set; the environment configuration uses the legacy session header "
+        + "(a configuration saved in Settings takes precedence). Set KNOWLIFY_LLM_HEADERS to an empty value or {} to disable it.",
       );
     }
     if (this.options.locked) {

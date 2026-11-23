@@ -674,6 +674,10 @@ describe("LlmSettings use case", () => {
       headers: [{ name: "X-Session-Id", value: "env-{{conversationId}}" }],
     });
     expect(shim.log.entries.join("\n")).toContain("KNOWLIFY_LLM_HEADERS");
+    // The boot warning describes the current seed; it must not promise a removal that
+    // already happened (the 2.x releases kept the compatibility seed).
+    expect(shim.log.entries.join("\n")).not.toContain("removed in 2.0");
+    expect(shim.log.entries.join("\n")).toContain("legacy session header");
 
     const disabled = fixture({
       env: {

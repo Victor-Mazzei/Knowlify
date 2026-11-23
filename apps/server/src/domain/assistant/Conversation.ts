@@ -1,5 +1,6 @@
 import { ValidationError } from "../errors.js";
 import { ConversationScopeMismatchError } from "./errors.js";
+import { stripBookMarkers } from "./bookMarkers.js";
 import type { Citation } from "./Citation.js";
 
 export type { Citation } from "./Citation.js";
@@ -116,6 +117,10 @@ export interface ImportedChatMessage {
  * with the user and ending with the assistant. Citation titles are re-derived from the
  * library; citations whose book no longer exists are dropped instead of failing the
  * whole import (the transcript itself stays valid).
+ *
+ * The text is user data: a question is stored exactly as typed, and an answer keeps its
+ * text, indentation and numeric `[n]` markers. Only the assistant's `[book:n]` card
+ * markers are removed, because cards are not persisted and would render as dead chips.
  */
 export function normalizeImportedMessages(
   input: unknown,
@@ -144,14 +149,24 @@ export function normalizeImportedMessages(
     if (typeof record.content !== "string") {
       throw new ValidationError(`Message ${index + 1} content must be a string`);
     }
-    const content = record.content.trim();
-    if (!content) throw new ValidationError(`Message ${index + 1} content must not be empty`);
+    const raw = record.content;
+    if (!raw.trim()) throw new ValidationError(`Message ${index + 1} content must not be empty`);
     const maxChars = role === "user" ? MAX_IMPORTED_USER_CHARS : MAX_IMPORTED_ASSISTANT_CHARS;
-    if (content.length > maxChars) {
+    if (raw.trim().length > maxChars) {
       throw new ValidationError(`Message ${index + 1} must have at most ${maxChars} characters`);
     }
     const citations = normalizeImportedCitations(record.citations, role, index, bookTitleFor);
-    return { role, content, citations };
+    if (role === "user") {
+      // A question is user text: never rewrite its spaces, indentation or markers. A
+      // question carries no citations, so `[1]` and `[book:1]` are ordinary characters.
+      return { role, content: raw, citations };
+    }
+    // An answer keeps its text and indentation too; only card markers are removed.
+    const cleaned = stripBookMarkers(raw);
+    if (!cleaned.trim()) {
+      throw new ValidationError(`Message ${index + 1} has no text after removing book markers`);
+    }
+    return { role, content: cleaned, citations };
   });
 }
 

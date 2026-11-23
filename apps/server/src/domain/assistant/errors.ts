@@ -25,6 +25,15 @@ export class InvalidModeError extends Error {
   }
 }
 
+/** The user asked for recommendations while "Use my library" is off. */
+export class LibraryRequiredError extends Error {
+  readonly code = "library_required";
+
+  constructor(message = "Book recommendations need Use my library") {
+    super(message);
+  }
+}
+
 /** The server reached the configured number of saved sessions; nothing is deleted. */
 export class ConversationLimitError extends Error {
   readonly code = "conversation_limit";

@@ -62,7 +62,11 @@ export interface PassageSearchOptions {
 /** Reciprocal rank fusion constant from the IR literature; scores are relative. */
 const RRF_K = 60;
 const MAX_TEXT_CHARS = 1_200;
-const MAX_LIMIT = 20;
+/**
+ * Internal ceiling. The HTTP and MCP routes validate a smaller limit; the tutor's
+ * recommendation turn asks for `RECOMMEND_PASSAGES = 40` in one retrieval.
+ */
+const MAX_LIMIT = 40;
 const MAX_QUERY_CHARS = 500;
 const CANDIDATES_PER_SOURCE = 4;
 const DEFAULT_VECTOR_SCAN_MAX = 300_000;
