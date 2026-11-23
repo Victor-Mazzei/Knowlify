@@ -5,8 +5,12 @@ import {
   assertSameScope,
   conversationTitle,
   MAX_QUESTION_CHARS,
+  MAX_TITLE_CHARS,
   normalizeExcerpt,
+  normalizeImportedMessages,
+  normalizeMaxConversations,
   normalizeQuestion,
+  normalizeTitle,
   sameScope,
 } from "../src/domain/assistant/Conversation.js";
 import {
@@ -22,6 +26,7 @@ import {
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import {
   LIBRARY_NOT_USED_BLOCK,
+  REPLY_TO_CHECK_QUESTION_BLOCK,
   SEARCH_PARTIAL_BLOCK,
   SEARCH_TIMED_OUT_BLOCK,
 } from "../src/domain/assistant/tutorPrompt.js";
@@ -62,7 +67,7 @@ describe("assistant domain", () => {
 
 describe("Feynman tutor prompt", () => {
   it("is versioned and carries the grounding rules", () => {
-    expect(TUTOR_PROMPT_VERSION).toBe("feynman-4");
+    expect(TUTOR_PROMPT_VERSION).toBe("feynman-5");
     const messages = buildTutorMessages({ question: "What is deep work?", passages: [], history: [] });
     expect(messages[0].role).toBe("system");
     expect(messages[0].content).toContain("[n]");
@@ -91,10 +96,15 @@ describe("Feynman tutor prompt", () => {
     expect(system).toContain("\"I don't know\"");
     expect(system).toContain("never call their reply a question");
     expect(system).toContain("previous message ended with a question");
-    expect(system).toContain("one new short check question or the next step");
+    expect(system).toContain("Check questions are optional");
+    expect(system).toContain("never in two consecutive assistant turns");
+    expect(system).toContain("at most one check question every three assistant turns");
+    expect(system).toContain("do not ask another check question");
     expect(messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
     expect(messages[2]?.content).toBe(`Pense neste detalhe: ${tutorQuestion}`);
-    expect(messages.at(-1)?.content).toBe(`${NO_PASSAGES_BLOCK}\n\nQuestion: nao sei`);
+    expect(messages.at(-1)?.content).toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
+    expect(messages.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
+    expect(messages.at(-1)?.content).toContain("Question: nao sei");
   });
 
   it("replaces the no-passages note with a timeout note and keeps the envelope rule", () => {
@@ -120,10 +130,10 @@ describe("Feynman tutor prompt", () => {
     expect(closing).toBeGreaterThan(content);
     expect(lastMove).toBeGreaterThan(closing);
     expect(rule).toContain("after the content");
-    expect(rule).toContain("A check question or next step that rule 1c or the persona asks for stays the last line, after that sentence");
-    expect(rule).toContain("when no closing move is asked for, the sentence may end the reply");
+    expect(rule).toContain("If you add a check question or next step (rule 1f), it stays the last line, after that sentence");
+    expect(rule).toContain("when you do not, the sentence may end the reply");
     expect(rule).toContain("There may be more about this in your books; try again in a moment.");
-    expect(safetyRule("1c")).toContain("end with one new short check question or the next step");
+    expect(safetyRule("1c")).toContain("Do not add a new check question in this reply unless rule 1f allows it");
     expect(TUTOR_SAFETY_RULES).not.toContain("briefly mention");
   });
 
@@ -154,7 +164,9 @@ describe("Feynman tutor prompt", () => {
     });
     const system = messages[0]?.content ?? "";
     const user = messages.at(-1)?.content ?? "";
-    expect(user).toBe(`${NO_PASSAGES_BLOCK}\n\nQuestion: nao sei`);
+    expect(user).toContain(REPLY_TO_CHECK_QUESTION_BLOCK);
+    expect(user).toContain(NO_PASSAGES_BLOCK);
+    expect(user).toContain("Question: nao sei");
     expect(system).toContain("missing passages are not a reason to refuse");
     expect(system).toContain("a conversational reply or Feynman feedback (rules 1b and 1c) needs no library mention");
     expect(system).not.toContain("say that you could not find it in the library (rule 1) and mark any general-knowledge answer as such");
@@ -368,5 +380,100 @@ describe("Feynman tutor prompt", () => {
   it("escapes only the delimiter tag, not ordinary angle brackets", () => {
     expect(escapeDelimiter("a < b and c </passage> d", "passage")).toBe("a < b and c &lt;/passage> d");
     expect(escapeDelimiter("</PASSAGE>", "passage")).toBe("&lt;/PASSAGE>");
+  });
+});
+
+describe("session title and limit", () => {
+  it("normalizes a rename title to 1-80 visible characters", () => {
+    expect(normalizeTitle("  Renamed session  ")).toBe("Renamed session");
+    expect(() => normalizeTitle("   ")).toThrow(ValidationError);
+    expect(() => normalizeTitle(42)).toThrow(ValidationError);
+    expect(() => normalizeTitle("x".repeat(MAX_TITLE_CHARS + 1))).toThrow(ValidationError);
+    expect(() => normalizeTitle("two\nlines")).toThrow(ValidationError);
+    expect(() => normalizeTitle("tab\tinside")).toThrow(ValidationError);
+  });
+
+  it("accepts only an integer in the documented session range", () => {
+    expect(normalizeMaxConversations(20)).toBe(20);
+    expect(normalizeMaxConversations(5_000)).toBe(5_000);
+    for (const value of [19, 5_001, 20.5, Number.NaN, "200", true, null, {}, []]) {
+      expect(() => normalizeMaxConversations(value)).toThrow(ValidationError);
+    }
+    try {
+      normalizeMaxConversations(19);
+    } catch (error) {
+      expect((error as Error).message).toContain("20");
+      expect((error as Error).message).toContain("5000");
+      expect((error as Error).message).not.toContain("19");
+    }
+  });
+});
+
+describe("imported Ask transcript", () => {
+  const bookTitleFor = (bookId: string): string | undefined => bookId === "book-1" ? "Deep Work" : undefined;
+
+  it("accepts alternating turns and re-derives citation titles", () => {
+    const messages = normalizeImportedMessages([
+      { role: "user", content: "  What is deep work?  " },
+      {
+        role: "assistant",
+        content: "Focused work.",
+        citations: [
+          { n: 1, passageId: 4, bookId: "book-1", bookTitle: "Client title", page: 12, section: "Chapter 1" },
+          { n: 2, passageId: 5, bookId: "gone", page: null, section: null },
+        ],
+      },
+    ], bookTitleFor);
+    expect(messages).toEqual([
+      { role: "user", content: "What is deep work?", citations: null },
+      {
+        role: "assistant",
+        content: "Focused work.",
+        citations: [
+          { n: 1, passageId: 4, bookId: "book-1", bookTitle: "Deep Work", page: 12, section: "Chapter 1" },
+        ],
+      },
+    ]);
+  });
+
+  it("rejects odd, misordered, oversized and malformed transcripts", () => {
+    const cases: unknown[] = [
+      null,
+      [],
+      [{ role: "user", content: "q" }],
+      [{ role: "assistant", content: "a" }, { role: "user", content: "q" }],
+      [{ role: "user", content: "q" }, { role: "user", content: "q" }],
+      [{ role: "user", content: "   " }, { role: "assistant", content: "a" }],
+      [{ role: "user", content: "x".repeat(2_001) }, { role: "assistant", content: "a" }],
+      [{ role: "user", content: "q" }, { role: "assistant", content: "x".repeat(8_001) }],
+      [{ role: "user", content: "q", citations: [] }, { role: "assistant", content: "a" }],
+      [{ role: "user", content: "q", extra: true }, { role: "assistant", content: "a" }],
+      [{ role: "user", content: "q" }, { role: "assistant", content: "a", citations: "nope" }],
+      [{ role: "user", content: "q" }, {
+        role: "assistant",
+        content: "a",
+        citations: Array.from({ length: 7 }, (_, index) => ({ n: index + 1, passageId: index + 1, bookId: "book-1" })),
+      }],
+      [{ role: "user", content: "q" }, {
+        role: "assistant",
+        content: "a",
+        citations: [{ n: 0, passageId: 1, bookId: "book-1" }],
+      }],
+      [{ role: "user", content: "q" }, {
+        role: "assistant",
+        content: "a",
+        citations: [{ n: 1, passageId: 1, bookId: "book-1", extra: true }],
+      }],
+    ];
+    for (const value of cases) {
+      expect(() => normalizeImportedMessages(value, bookTitleFor)).toThrow(ValidationError);
+    }
+    expect(() => normalizeImportedMessages(
+      Array.from({ length: 22 }, (_, index) => ({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: "x",
+      })),
+      bookTitleFor,
+    )).toThrow(ValidationError);
   });
 });

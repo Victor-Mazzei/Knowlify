@@ -57,12 +57,27 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const isNullableString = (value: unknown) => value === null || typeof value === "string";
 
+const isMode = (value: unknown) => value === "ask" || value === "session";
+
+const isSessionLimits = (value: unknown) =>
+  isRecord(value) &&
+  typeof value.maxSessions === "number" &&
+  Number.isFinite(value.maxSessions) &&
+  typeof value.count === "number" &&
+  Number.isFinite(value.count) &&
+  typeof value.maxMessages === "number" &&
+  Number.isFinite(value.maxMessages);
+
 function isChatStatus(value: unknown): value is ChatStatus {
   if (!isRecord(value)) return false;
   if (typeof value.enabled !== "boolean" || typeof value.promptVersion !== "string") return false;
   if (!isNullableString(value.model) || !isNullableString(value.host)) return false;
   if (!isRecord(value.scopes)) return false;
-  return typeof value.scopes.library === "boolean" && typeof value.scopes.book === "boolean";
+  if (typeof value.scopes.library !== "boolean" || typeof value.scopes.book !== "boolean") return false;
+  // Both blocks are additive: an older server simply omits them and stays Session only.
+  if (value.modes !== undefined && (!Array.isArray(value.modes) || !value.modes.every(isMode))) return false;
+  if (value.sessionLimits !== undefined && !isSessionLimits(value.sessionLimits)) return false;
+  return true;
 }
 
 /** Reads `/api/chat/status`; any failure (including an older server) leaves chat hidden. */

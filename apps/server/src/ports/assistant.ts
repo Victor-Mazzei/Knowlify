@@ -78,12 +78,26 @@ export interface ConversationRepository {
   messages(id: string): ChatMessage[];
   /**
    * Writes the whole turn in one transaction: creates the conversation when new,
-   * evicts the least recently updated conversation beyond `maxConversations`, then
-   * inserts the user and assistant messages. The message cap is re-checked inside
-   * the transaction and rejects with `ConversationFullError`; any failure rolls
-   * back every change of this call (nothing is written and nothing is deleted).
+   * then inserts the user and assistant messages. When the turn starts a conversation
+   * and `countAll() >= maxConversations` it rejects with `ConversationLimitError`
+   * (nothing is written and nothing is deleted; the oldest session is never evicted).
+   * The message cap is re-checked inside the transaction and rejects with
+   * `ConversationFullError`; any failure rolls back every change of this call.
    */
   saveTurn(turn: ConversationTurn, caps: ConversationCaps, now: number): void;
+  /**
+   * Inserts a whole imported session (conversation plus its alternating messages) in
+   * one transaction. Applies the same blocking conversation and message caps.
+   */
+  importSession(
+    conversation: Conversation,
+    messages: readonly ChatMessage[],
+    caps: ConversationCaps,
+    now: number,
+  ): void;
+  /** Updates only the title; `updatedAt` (and therefore the activity order) is unchanged. */
+  rename(id: string, title: string): Conversation | undefined;
+  /** Newest first, with `messageCount` filled by the read model. */
   list(scope: { kind: "library" } | { kind: "book"; bookId: string }, limit: number): Conversation[];
   delete(id: string): boolean; deleteForBook(bookId: string): void; countAll(): number;
   /**

@@ -16,6 +16,28 @@ export class ConversationFullError extends Error {
   }
 }
 
+/** `mode`/`useLibrary`/`conversationId` form an unsupported combination. */
+export class InvalidModeError extends Error {
+  readonly code = "invalid_mode";
+
+  constructor(message = "Invalid chat mode for this request") {
+    super(message);
+  }
+}
+
+/** The server reached the configured number of saved sessions; nothing is deleted. */
+export class ConversationLimitError extends Error {
+  readonly code = "conversation_limit";
+
+  constructor(
+    readonly limit: number,
+    readonly count: number,
+    message = `You have ${count} sessions; the limit is ${limit}. Delete a session or raise the limit to start a new one.`,
+  ) {
+    super(message);
+  }
+}
+
 /** A continued conversation cannot change its scope (library vs. book). */
 export class ConversationScopeMismatchError extends Error {}
 

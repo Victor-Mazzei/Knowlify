@@ -1,8 +1,18 @@
 /**
  * HTTP contract types for the Assistant chat (`/api/chat/*`).
- * Mirrors docs/planner/2026-11-06-chat-llm-folder-picker-cleanup.md.
+ * Mirrors docs/planner/2026-11-22-tutor-sessions-ask-mode.md.
  * Keep this module free of server imports and runtime logic.
  */
+
+/** Ask answers are ephemeral; Session answers are saved with their history. */
+export type ChatMode = "ask" | "session";
+
+/** Effective limits reported by `GET /api/chat/status` (absent on older servers). */
+export type SessionLimits = {
+  maxSessions: number;
+  count: number;
+  maxMessages: number;
+};
 
 /** Whether the operator configured a provider; when false every chat surface stays hidden. */
 export type ChatStatus = {
@@ -11,6 +21,9 @@ export type ChatStatus = {
   host: string | null;
   promptVersion: string;
   scopes: { library: boolean; book: boolean };
+  /** Present only on servers that support Ask. Absent means Session only. */
+  modes?: ChatMode[];
+  sessionLimits?: SessionLimits;
 };
 
 /** Scope of a persisted conversation; it cannot change once the conversation exists. */
@@ -59,6 +72,9 @@ export type ConversationSummary = {
   title: string;
   scope: ChatScope;
   updatedAt: number;
+  createdAt?: number;
+  messageCount?: number;
+  persisted?: boolean;
 };
 
 /** `GET /api/chat/conversations/:id` */
@@ -67,13 +83,36 @@ export type ConversationDetail = {
   title: string;
   scope: ChatScope;
   messages: ChatMessage[];
+  createdAt?: number;
+  messageCount?: number;
 };
+
+/** One imported turn for "Save as session" (`POST /api/chat/conversations`). */
+export type ImportedMessage = {
+  role: ChatRole;
+  content: string;
+  citations?: Citation[];
+};
+
+/** `POST /api/chat/conversations` body: turns an Ask transcript into a Session. */
+export type SaveConversationRequest = {
+  scope: ChatScope;
+  title?: string;
+  messages: ImportedMessage[];
+};
+
+/** `PATCH /api/chat/conversations/:id` body. */
+export type RenameConversationRequest = { title: string };
 
 /** `POST /api/chat/messages` body; omit `conversationId` to start a conversation. */
 export type ChatRequest = {
   conversationId?: string;
   message: string;
   scope: ChatRequestScope;
+  /** Only sent when the server advertises `modes`; absent means the legacy Session turn. */
+  mode?: ChatMode;
+  /** Ask only: whether the turn may search the library. */
+  useLibrary?: boolean;
 };
 
 /** Failure codes carried by the terminal SSE `error` event. */
@@ -89,9 +128,13 @@ export type ChatErrorCode =
 /** First SSE event of a turn: citations the answer may reference. */
 export type ChatSourcesEvent = {
   type: "sources";
-  conversationId: string;
+  /** `null` in Ask: the turn is not saved. */
+  conversationId: string | null;
   retrieval: ChatRetrieval;
   citations: Citation[];
+  mode?: ChatMode;
+  persisted?: boolean;
+  useLibrary?: boolean;
 };
 
 /** Zero or more incremental answer chunks. */
@@ -100,10 +143,13 @@ export type ChatDeltaEvent = { type: "delta"; text: string };
 /** Last SSE event on success. */
 export type ChatDoneEvent = {
   type: "done";
-  conversationId: string;
+  /** `null` in Ask: the turn is not saved. */
+  conversationId: string | null;
   messageId: string;
   title: string;
   finishReason: "stop" | "length";
+  mode?: ChatMode;
+  persisted?: boolean;
 };
 
 /** Terminal SSE event that replaces `done`. */

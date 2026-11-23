@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, type Db } from "../src/adapters/storage/db.js";
 import { SqliteConversationRepository } from "../src/adapters/storage/SqliteConversationRepository.js";
-import { MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
+import { DEFAULT_MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
 import type { ChatMessage, Conversation } from "../src/domain/assistant/Conversation.js";
-import { ConversationFullError } from "../src/domain/assistant/errors.js";
+import { ConversationFullError, ConversationLimitError } from "../src/domain/assistant/errors.js";
 
-const CAPS = { maxConversations: MAX_CONVERSATIONS, maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION };
+const CAPS = { maxConversations: DEFAULT_MAX_CONVERSATIONS, maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION };
 const databases: Db[] = [];
 const roots: string[] = [];
 
@@ -75,12 +75,12 @@ describe("SqliteConversationRepository", () => {
     const user = message("legacy-u", "user", "Why?");
     const assistant: ChatMessage = {
       ...message("legacy-a", "assistant", "Because of linkage."),
-      promptVersion: "feynman-3",
+      promptVersion: "feynman-4",
     };
 
     repo.saveTurn({ conversationId: "legacy", newConversation: null, user, assistant }, CAPS, 1);
 
-    expect(repo.messages("legacy")[1]?.promptVersion).toBe("feynman-3");
+    expect(repo.messages("legacy")[1]?.promptVersion).toBe("feynman-4");
   });
 
   it("creates a conversation and its first turn in the same operation", () => {
@@ -130,7 +130,7 @@ describe("SqliteConversationRepository", () => {
     expect(repo.messages("library")).toHaveLength(2);
   });
 
-  it("counts conversations and drops the least recently updated one beyond the cap", () => {
+  it("blocks a new conversation at the cap and never deletes the oldest session", () => {
     const db = database();
     const repo = new SqliteConversationRepository(db);
     repo.create(conversation("old", { kind: "library" }, 1));
@@ -138,15 +138,89 @@ describe("SqliteConversationRepository", () => {
     repo.saveTurn(turn("new", ["u", "a"], { at: 100 }), CAPS, 100);
 
     expect(repo.countAll()).toBe(2);
-    repo.saveTurn(
-      turn("fresh", ["u2", "a2"], { at: 200, newConversation: conversation("fresh", { kind: "library" }, 200) }),
-      { ...CAPS, maxConversations: 2 },
-      200,
-    );
+    let failure: unknown;
+    try {
+      repo.saveTurn(
+        turn("fresh", ["u2", "a2"], { at: 200, newConversation: conversation("fresh", { kind: "library" }, 200) }),
+        { ...CAPS, maxConversations: 2 },
+        200,
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(ConversationLimitError);
+    expect(failure).toMatchObject({ limit: 2, count: 2 });
     expect(repo.countAll()).toBe(2);
-    expect(repo.get("old")).toBeUndefined();
+    expect(repo.get("old")).toBeDefined();
     expect(repo.messages("new")).toHaveLength(2);
-    expect(repo.messages("fresh")).toHaveLength(2);
+    expect(repo.get("fresh")).toBeUndefined();
+
+    // Existing sessions still accept turns at the cap.
+    repo.saveTurn(turn("new", ["u3", "a3"], { at: 300 }), { ...CAPS, maxConversations: 2 }, 300);
+    expect(repo.messages("new")).toHaveLength(4);
+  });
+
+  it("renames without changing updatedAt or the activity order", () => {
+    const db = database();
+    const repo = new SqliteConversationRepository(db);
+    repo.create(conversation("older", { kind: "library" }, 1));
+    repo.create(conversation("newer", { kind: "library" }, 2));
+    repo.saveTurn(turn("newer", ["u", "a"], { at: 100 }), CAPS, 100);
+
+    const renamed = repo.rename("older", "Renamed");
+    expect(renamed).toMatchObject({ id: "older", title: "Renamed", updatedAt: 1 });
+    expect(repo.list({ kind: "library" }, 10).map((item) => item.id)).toEqual(["newer", "older"]);
+    expect(repo.rename("missing", "x")).toBeUndefined();
+  });
+
+  it("imports a whole session atomically with sequence numbers and message counts", () => {
+    const db = database();
+    const repo = new SqliteConversationRepository(db);
+    const imported = conversation("imported", { kind: "library" }, 5);
+    const messages = [
+      message("iu", "user", "Question"),
+      message("ia", "assistant", "Answer"),
+      message("iu2", "user", "Follow-up"),
+      message("ia2", "assistant", "Follow-up answer"),
+    ];
+
+    repo.importSession(imported, messages, CAPS, 5);
+
+    expect(repo.get("imported")).toEqual(imported);
+    expect(repo.messages("imported")).toEqual(messages);
+    expect(repo.list({ kind: "library" }, 10)).toEqual([{ ...imported, messageCount: 4 }]);
+    expect(db.prepare("SELECT seq FROM messages WHERE conversation_id = 'imported' ORDER BY seq").all())
+      .toEqual([{ seq: 1 }, { seq: 2 }, { seq: 3 }, { seq: 4 }]);
+
+    // A duplicate id fails inside the transaction and leaves no partial session.
+    expect(() => repo.importSession(conversation("partial", { kind: "library" }, 6), [
+      message("pu", "user", "Question"),
+      message("iu", "assistant", "Duplicate id"),
+    ], CAPS, 6)).toThrow();
+    expect(repo.get("partial")).toBeUndefined();
+    expect(repo.countAll()).toBe(1);
+  });
+
+  it("applies the blocking conversation and message caps to imports", () => {
+    const db = database();
+    const repo = new SqliteConversationRepository(db);
+    repo.create(conversation("existing", { kind: "library" }, 1));
+
+    expect(() => repo.importSession(
+      conversation("imported", { kind: "library" }, 2),
+      [message("u", "user", "q"), message("a", "assistant", "a")],
+      { ...CAPS, maxConversations: 1 },
+      2,
+    )).toThrow(ConversationLimitError);
+    expect(repo.get("imported")).toBeUndefined();
+
+    expect(() => repo.importSession(
+      conversation("long", { kind: "library" }, 2),
+      [message("u", "user", "q"), message("a", "assistant", "a")],
+      { ...CAPS, maxMessagesPerConversation: 1 },
+      2,
+    )).toThrow(ConversationFullError);
+    expect(repo.get("long")).toBeUndefined();
   });
 
   it("rejects a turn that would exceed the message cap without changing the conversation", () => {
@@ -164,17 +238,14 @@ describe("SqliteConversationRepository", () => {
     expect(repo.get("full")?.updatedAt).toBe(MAX_MESSAGES_PER_CONVERSATION / 2);
   });
 
-  it("rolls back eviction and the new conversation when the turn fails midway", () => {
+  it("rolls back the new conversation when the turn fails midway", () => {
     const db = database();
     const repo = new SqliteConversationRepository(db);
     repo.create(conversation("old-0", { kind: "library" }, 0));
     repo.saveTurn(turn("old-0", ["kept-u", "kept-a"], { at: 0 }), CAPS, 0);
-    for (let index = 1; index < MAX_CONVERSATIONS; index += 1) {
-      repo.create(conversation(`old-${index}`, { kind: "library" }, index));
-    }
 
-    // Duplicate message ids reach the primary key after the oldest conversation
-    // was already deleted, so the rollback must bring it (and its history) back.
+    // The duplicate message id reaches the primary key after the conversation row was
+    // inserted, so the transaction must remove that row again.
     const duplicate = message("same-id", "user", "q", 300);
     expect(() => repo.saveTurn(
       {
@@ -187,7 +258,7 @@ describe("SqliteConversationRepository", () => {
       300,
     )).toThrow();
 
-    expect(repo.countAll()).toBe(MAX_CONVERSATIONS);
+    expect(repo.countAll()).toBe(1);
     expect(repo.get("old-0")).toBeDefined();
     expect(repo.messages("old-0").map((item) => item.id)).toEqual(["kept-u", "kept-a"]);
     expect(repo.get("fresh")).toBeUndefined();

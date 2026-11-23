@@ -88,6 +88,56 @@ describe("parseChatEvent", () => {
     });
   });
 
+  it("parses the additive mode fields and the null Ask conversation id", () => {
+    expect(
+      parseChatEvent(
+        JSON.stringify({
+          type: "sources",
+          conversationId: null,
+          retrieval: "none",
+          citations: [],
+          mode: "ask",
+          persisted: false,
+          useLibrary: false,
+        }),
+      ),
+    ).toEqual({
+      type: "sources",
+      conversationId: null,
+      retrieval: "none",
+      citations: [],
+      mode: "ask",
+      persisted: false,
+      useLibrary: false,
+    });
+    expect(
+      parseChatEvent(
+        JSON.stringify({
+          type: "done",
+          conversationId: null,
+          messageId: "m1",
+          title: "",
+          finishReason: "stop",
+          mode: "ask",
+          persisted: false,
+        }),
+      ),
+    ).toEqual({
+      type: "done",
+      conversationId: null,
+      messageId: "m1",
+      title: "",
+      finishReason: "stop",
+      mode: "ask",
+      persisted: false,
+    });
+    expect(
+      parseChatEvent(
+        '{"type":"sources","conversationId":"c1","retrieval":"none","citations":[],"mode":"future"}',
+      ),
+    ).toEqual({ type: "sources", conversationId: "c1", retrieval: "none", citations: [] });
+  });
+
   it("drops citations that do not match the contract", () => {
     const event = parseChatEvent(
       JSON.stringify({

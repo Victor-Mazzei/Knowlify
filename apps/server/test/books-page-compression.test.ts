@@ -9,7 +9,7 @@ describe("HTTP compression", () => {
     const fixture = createChatFixture();
     const app = Fastify();
     await registerHttpCompression(app);
-    await app.register(chatRoutes, { prefix: "/api", chat: fixture.chat });
+    await app.register(chatRoutes, { prefix: "/api", chat: fixture.chat, sessions: fixture.sessions });
     await app.ready();
     try {
       const response = await app.inject({

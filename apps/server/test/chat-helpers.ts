@@ -1,7 +1,9 @@
 import { openDb, type Db } from "../src/adapters/storage/db.js";
 import { SqliteBookRepository } from "../src/adapters/storage/repositories.js";
 import { SqliteConversationRepository } from "../src/adapters/storage/SqliteConversationRepository.js";
+import { DEFAULT_MAX_CONVERSATIONS } from "../src/domain/assistant/Conversation.js";
 import { Chat, type ChatEvent, type ChatLimits } from "../src/use-cases/Chat.js";
+import { ChatSessions } from "../src/use-cases/ChatSessions.js";
 import type { Book, Logger } from "../src/ports/index.js";
 import {
   LlmError,
@@ -159,6 +161,7 @@ export interface ChatFixtureOptions {
 export interface ChatFixture {
   db: Db;
   chat: Chat;
+  sessions: ChatSessions;
   conversations: ConversationRepository;
   llm: LlmClient;
   retriever: PassageRetriever;
@@ -174,7 +177,14 @@ export function createChatFixture(options: ChatFixtureOptions = {}): ChatFixture
   const retriever = options.retriever ?? new FakeRetriever();
   let now = 1_000;
   let sequence = 0;
-  const limits: ChatLimits = { maxTokens: 256, timeoutSec: 5, ratePerMin: 20, libraryScope: true, ...options.limits };
+  const limits: ChatLimits = {
+    maxTokens: 256,
+    timeoutSec: 5,
+    ratePerMin: 20,
+    libraryScope: true,
+    maxConversations: DEFAULT_MAX_CONVERSATIONS,
+    ...options.limits,
+  };
   const chat = new Chat(
     llm,
     retriever,
@@ -186,7 +196,14 @@ export function createChatFixture(options: ChatFixtureOptions = {}): ChatFixture
     options.systemPrompt ?? (() => null),
     options.log,
   );
-  return { db, chat, conversations, llm, retriever, advance: (ms) => { now += ms; } };
+  const sessions = new ChatSessions(
+    conversations,
+    books,
+    { now: () => now },
+    { next: () => `id-${++sequence}` },
+    () => ({ maxConversations: limits.maxConversations }),
+  );
+  return { db, chat, sessions, conversations, llm, retriever, advance: (ms) => { now += ms; } };
 }
 
 export async function collect(events: AsyncIterable<ChatEvent>): Promise<ChatEvent[]> {

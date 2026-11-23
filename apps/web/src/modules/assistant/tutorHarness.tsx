@@ -67,8 +67,10 @@ export const tutorChatStatus = (overrides: Partial<ChatStatus> = {}): ChatStatus
   enabled: true,
   model: "deepseek-v4.1-flash",
   host: "api.example.test",
-  promptVersion: "feynman-2",
+  promptVersion: "feynman-4",
   scopes: { library: true, book: true },
+  modes: ["ask", "session"],
+  sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
   ...overrides,
 });
 

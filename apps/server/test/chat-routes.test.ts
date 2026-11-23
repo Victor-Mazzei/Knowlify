@@ -12,6 +12,7 @@ import { SEARCH_TIMED_OUT_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { LlmError } from "../src/ports/assistant.js";
 import type { Logger } from "../src/ports/index.js";
 import type { Chat } from "../src/use-cases/Chat.js";
+import type { ChatSessions } from "../src/use-cases/ChatSessions.js";
 import {
   BOOK,
   BlockingRetriever,
@@ -35,13 +36,19 @@ function fixture(options: Parameters<typeof createChatFixture>[0] = {}) {
 
 async function appFor(
   chat: Chat,
+  sessions: ChatSessions,
   configure?: (app: FastifyInstance) => void,
   heartbeatMs?: number,
 ): Promise<FastifyInstance> {
   const app = Fastify();
   await app.register(cors, { origin: true });
   configure?.(app);
-  await app.register(chatRoutes, { prefix: "/api", chat, ...(heartbeatMs === undefined ? {} : { heartbeatMs }) });
+  await app.register(chatRoutes, {
+    prefix: "/api",
+    chat,
+    sessions,
+    ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
+  });
   await app.ready();
   apps.push(app);
   return app;
@@ -96,23 +103,25 @@ function post(app: FastifyInstance, payload: object) {
 
 describe("chat HTTP routes", () => {
   it("reports the frozen status shape", async () => {
-    const { chat } = fixture({ llm: new NoLlmClient() });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ llm: new NoLlmClient() });
+    const app = await appFor(chat, sessions);
     const response = await app.inject({ method: "GET", url: "/api/chat/status" });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
       enabled: false,
       model: null,
       host: null,
-      promptVersion: "feynman-4",
+      promptVersion: "feynman-5",
       scopes: { library: false, book: false },
+      modes: ["ask", "session"],
+      sessionLimits: { maxSessions: 200, count: 0, maxMessages: 100 },
     });
     expect(response.body).not.toMatch(/https?:\/\/|api[_-]?key|secret/i);
   });
 
   it("returns 503 chat_disabled without consuming a turn", async () => {
-    const { chat, conversations } = fixture({ llm: new NoLlmClient() });
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture({ llm: new NoLlmClient() });
+    const app = await appFor(chat, sessions);
     const response = await post(app, { message: "hi", scope: { kind: "library" } });
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ message: "Chat is not configured", code: "chat_disabled" });
@@ -120,8 +129,8 @@ describe("chat HTTP routes", () => {
   });
 
   it("validates the body and the conversation id", async () => {
-    const { chat } = fixture();
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
     const invalid = [
       {},
       { message: "", scope: { kind: "library" } },
@@ -141,8 +150,8 @@ describe("chat HTTP routes", () => {
   });
 
   it("returns 400 for whitespace-only messages, including Unicode whitespace", async () => {
-    const { chat, conversations } = fixture();
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture();
+    const app = await appFor(chat, sessions);
     for (const message of ["   ", "\t\n", "\u00a0", "\u2003", "\u3000", "\ufeff"]) {
       const response = await post(app, { message, scope: { kind: "library" } });
       expect(response.statusCode).toBe(400);
@@ -154,15 +163,15 @@ describe("chat HTTP routes", () => {
   });
 
   it("returns 413 for bodies over the route limit", async () => {
-    const { chat } = fixture();
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
     const response = await post(app, { message: "x".repeat(40_000), scope: { kind: "library" } });
     expect(response.statusCode).toBe(413);
   });
 
   it("maps missing books and conversations to 404", async () => {
-    const { chat } = fixture();
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
     expect((await post(app, { message: "q", scope: { kind: "book", bookId: "missing" } })).statusCode).toBe(404);
     expect((await post(app, { conversationId: "missing", message: "q", scope: { kind: "library" } })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/api/chat/conversations/missing" })).statusCode).toBe(404);
@@ -171,11 +180,11 @@ describe("chat HTTP routes", () => {
 
   it("maps a disabled library and a scope change to 409", async () => {
     const disabled = fixture({ limits: { libraryScope: false } });
-    const app = await appFor(disabled.chat);
+    const app = await appFor(disabled.chat, disabled.sessions);
     expect((await post(app, { message: "q", scope: { kind: "library" } })).statusCode).toBe(409);
 
     const enabled = fixture();
-    const enabledApp = await appFor(enabled.chat);
+    const enabledApp = await appFor(enabled.chat, enabled.sessions);
     const first = await post(enabledApp, { message: "q", scope: { kind: "library" } });
     const conversationId = parseSseEvents(first.body)[0];
     expect(conversationId.type).toBe("sources");
@@ -188,7 +197,7 @@ describe("chat HTTP routes", () => {
   });
 
   it("rejects a full conversation with 409 before the stream starts", async () => {
-    const { chat, conversations } = fixture();
+    const { chat, sessions, conversations } = fixture();
     conversations.create({ id: "full", scope: { kind: "library" }, title: "full", createdAt: 1, updatedAt: 1 });
     for (let turn = 0; turn < MAX_MESSAGES_PER_CONVERSATION / 2; turn += 1) {
       conversations.saveTurn({
@@ -198,7 +207,7 @@ describe("chat HTTP routes", () => {
         assistant: { id: `a${turn}`, role: "assistant", content: "a", citations: null, promptVersion: "feynman-1", createdAt: 1 },
       }, { maxConversations: MAX_CONVERSATIONS, maxMessagesPerConversation: MAX_MESSAGES_PER_CONVERSATION }, 1);
     }
-    const app = await appFor(chat);
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { conversationId: "full", message: "q", scope: { kind: "library" } });
     expect(response.statusCode).toBe(409);
@@ -206,8 +215,8 @@ describe("chat HTTP routes", () => {
   });
 
   it("rate limits with Retry-After", async () => {
-    const { chat } = fixture({ limits: { ratePerMin: 1 } });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ limits: { ratePerMin: 1 } });
+    const app = await appFor(chat, sessions);
     expect((await post(app, { message: "one", scope: { kind: "library" } })).statusCode).toBe(200);
     const response = await post(app, { message: "two", scope: { kind: "library" } });
     expect(response.statusCode).toBe(429);
@@ -219,8 +228,8 @@ describe("chat HTTP routes", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
-    const { chat } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "What is deep work?", scope: { kind: "library" } });
     expect(response.statusCode).toBe(200);
@@ -240,8 +249,8 @@ describe("chat HTTP routes", () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new WaitingLlmClient();
-    const { chat } = fixture({ llm, retriever });
-    const app = await appFor(chat, undefined, 25);
+    const { chat, sessions } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions, undefined, 25);
     await app.listen({ port: 0, host: "127.0.0.1" });
     const address = app.server.address();
     if (!address || typeof address === "string") throw new Error("Expected a TCP address");
@@ -281,8 +290,8 @@ describe("chat HTTP routes", () => {
     retriever.hits = [passage()];
     const llm = new FakeLlmClient();
     llm.error = new LlmError("timeout", "slow provider");
-    const { chat, conversations } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "grounded question", scope: { kind: "library" } });
     expect(response.statusCode).toBe(200);
@@ -305,8 +314,8 @@ describe("chat HTTP routes", () => {
       providerStatus: 400,
       providerDetail: "missing_session",
     });
-    const { chat, conversations } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "grounded question", scope: { kind: "library" } });
     expect(response.statusCode).toBe(200);
@@ -359,12 +368,12 @@ describe("chat HTTP routes", () => {
       });
       const retriever = new FakeRetriever();
       retriever.hits = [passage({ text: passageSentinel })];
-      const { chat, conversations } = fixture({
+      const { chat, sessions, conversations } = fixture({
         llm,
         retriever,
         log: { info: () => {}, error: (error) => chatLogs.push(error) },
       });
-      const app = await appFor(chat);
+      const app = await appFor(chat, sessions);
 
       const response = await post(app, { message: promptSentinel, scope: { kind: "library" } });
       expect(response.statusCode).toBe(200);
@@ -417,12 +426,12 @@ describe("chat HTTP routes", () => {
     });
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat } = fixture({
+    const { chat, sessions } = fixture({
       llm,
       retriever,
       log: { info: () => {}, error: (error, message) => logs.push(error, message) },
     });
-    const app = await appFor(chat);
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "grounded question", scope: { kind: "library" } });
     expect(response.statusCode).toBe(200);
@@ -455,8 +464,8 @@ describe("chat HTTP routes", () => {
     });
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "grounded question", scope: { kind: "library" } });
     expect(response.statusCode).toBe(200);
@@ -480,8 +489,8 @@ describe("chat HTTP routes", () => {
       error: (_error, message) => logs.push(message),
       warn: (message) => logs.push(message),
     };
-    const { chat } = fixture({ llm, retriever, log });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ llm, retriever, log });
+    const app = await appFor(chat, sessions);
     const sentinel = "zebraquantum-question";
 
     const response = await post(app, { message: `What is ${sentinel}?`, scope: { kind: "library" } });
@@ -491,7 +500,7 @@ describe("chat HTTP routes", () => {
     const sources = events[0] as Record<string, unknown>;
     expect(sources).toMatchObject({ type: "sources", retrieval: "none", citations: [] });
     // No SSE event field was added for the timeout state.
-    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations"]);
+    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations", "mode", "persisted"]);
     expect(llm.requests).toHaveLength(1);
     const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
     expect(prompt).toContain(SEARCH_TIMED_OUT_BLOCK);
@@ -499,14 +508,14 @@ describe("chat HTTP routes", () => {
     expect(prompt).toContain(`Question: What is ${sentinel}?`);
     expect(logs.join("\n")).not.toContain(sentinel);
     const conversationId = sources.conversationId as string;
-    expect(chat.get(conversationId)?.messages.at(-1)?.content).toBe("The search was slow. From general knowledge.");
+    expect(sessions.get(conversationId)?.messages.at(-1)?.content).toBe("The search was slow. From general knowledge.");
   });
 
   it("calls the provider when retrieval finds nothing", async () => {
     const llm = new FakeLlmClient();
     const retriever = new FakeRetriever();
-    const { chat } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
 
     const response = await post(app, { message: "An unanswerable question", scope: { kind: "library" } });
     const events = parseSseEvents(response.body);
@@ -520,8 +529,8 @@ describe("chat HTTP routes", () => {
   it("lists, returns and deletes conversations", async () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
-    const { chat, conversations } = fixture({ retriever });
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture({ retriever });
+    const app = await appFor(chat, sessions);
 
     const created = parseSseEvents((await post(app, { message: "What is deep work?", scope: { kind: "library" } })).body);
     const conversationId = (created[0] as { conversationId: string }).conversationId;
@@ -529,7 +538,15 @@ describe("chat HTTP routes", () => {
     const libraryList = await app.inject({ method: "GET", url: "/api/chat/conversations" });
     expect(libraryList.statusCode).toBe(200);
     expect(libraryList.json()).toEqual([
-      { id: conversationId, title: "What is deep work?", scope: { kind: "library" }, updatedAt: expect.any(Number) },
+      {
+        id: conversationId,
+        title: "What is deep work?",
+        scope: { kind: "library" },
+        createdAt: expect.any(Number),
+        updatedAt: expect.any(Number),
+        messageCount: 2,
+        persisted: true,
+      },
     ]);
     expect((await app.inject({ method: "GET", url: `/api/chat/conversations?bookId=${BOOK.id}` })).json()).toEqual([]);
 
@@ -539,6 +556,10 @@ describe("chat HTTP routes", () => {
       id: conversationId,
       title: "What is deep work?",
       scope: { kind: "library" },
+      createdAt: expect.any(Number),
+      updatedAt: expect.any(Number),
+      messageCount: 2,
+      persisted: true,
       messages: [
         { role: "user", content: "What is deep work?" },
         { role: "assistant", content: "Hello there", citations: [{ n: 1 }] },
@@ -549,12 +570,206 @@ describe("chat HTTP routes", () => {
     expect(conversations.countAll()).toBe(0);
   });
 
+  it("keeps the legacy body contract: no mode means a saved Session", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat, sessions, conversations } = fixture({ retriever });
+    const app = await appFor(chat, sessions);
+
+    const response = await post(app, { message: "Old client question", scope: { kind: "library" } });
+    expect(response.statusCode).toBe(200);
+    const events = parseSseEvents(response.body);
+    expect(events[0]).toMatchObject({ mode: "session", persisted: true });
+    expect(events.at(-1)).toMatchObject({ mode: "session", persisted: true, title: "Old client question" });
+    expect(conversations.countAll()).toBe(1);
+  });
+
+  it("rejects invalid mode combinations with 400 invalid_mode", async () => {
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
+
+    const askWithConversation = await post(app, {
+      conversationId: "some-conversation",
+      message: "q",
+      scope: { kind: "library" },
+      mode: "ask",
+    });
+    expect(askWithConversation.statusCode).toBe(400);
+    expect(askWithConversation.json()).toMatchObject({ code: "invalid_mode" });
+
+    const sessionWithLibrarySwitch = await post(app, {
+      message: "q",
+      scope: { kind: "library" },
+      useLibrary: false,
+    });
+    expect(sessionWithLibrarySwitch.statusCode).toBe(400);
+    expect(sessionWithLibrarySwitch.json()).toMatchObject({ code: "invalid_mode" });
+
+    const unknownMode = await post(app, { message: "q", scope: { kind: "library" }, mode: "other" });
+    expect(unknownMode.statusCode).toBe(400);
+  });
+
+  it("streams an Ask turn without creating a conversation", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat, sessions, conversations } = fixture({ retriever });
+    const app = await appFor(chat, sessions);
+
+    const response = await post(app, {
+      message: "Ephemeral question",
+      scope: { kind: "library" },
+      mode: "ask",
+      useLibrary: true,
+    });
+    expect(response.statusCode).toBe(200);
+    const events = parseSseEvents(response.body);
+    expect(events[0]).toMatchObject({ conversationId: null, mode: "ask", persisted: false, useLibrary: true });
+    expect(events.at(-1)).toMatchObject({ conversationId: null, mode: "ask", persisted: false, title: "" });
+    expect(conversations.countAll()).toBe(0);
+    expect((await app.inject({ method: "GET", url: "/api/chat/conversations" })).json()).toEqual([]);
+  });
+
+  it("renames a session without changing updatedAt or the list order", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat, sessions } = fixture({ retriever });
+    const app = await appFor(chat, sessions);
+
+    const older = parseSseEvents((await post(app, { message: "Older question", scope: { kind: "library" } })).body);
+    const olderId = (older[0] as { conversationId: string }).conversationId;
+    const before = (await app.inject({ method: "GET", url: "/api/chat/conversations" })).json() as Array<{
+      id: string; updatedAt: number;
+    }>;
+    const olderBefore = before.find((item) => item.id === olderId);
+
+    const renamed = await app.inject({
+      method: "PATCH",
+      url: `/api/chat/conversations/${olderId}`,
+      payload: { title: "  Renamed session  " },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect(renamed.json()).toMatchObject({
+      id: olderId,
+      title: "Renamed session",
+      updatedAt: olderBefore?.updatedAt,
+      messageCount: 2,
+      persisted: true,
+    });
+    expect((await app.inject({
+      method: "PATCH",
+      url: `/api/chat/conversations/${olderId}`,
+      payload: { title: "   " },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "PATCH",
+      url: "/api/chat/conversations/missing",
+      payload: { title: "x" },
+    })).statusCode).toBe(404);
+  });
+
+  it("imports an Ask transcript as a saved session", async () => {
+    const { chat, sessions, conversations } = fixture();
+    const app = await appFor(chat, sessions);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: {
+        scope: { kind: "library" },
+        messages: [
+          { role: "user", content: "What is deep work?" },
+          {
+            role: "assistant",
+            content: "Focused work without distraction.",
+            citations: [
+              { n: 1, passageId: 4, bookId: BOOK.id, bookTitle: "Client supplied title", page: 12, section: "Chapter 1" },
+              { n: 2, passageId: 5, bookId: "deleted-book", page: null, section: null },
+            ],
+          },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      title: "What is deep work?",
+      scope: { kind: "library" },
+      messageCount: 2,
+      persisted: true,
+    });
+    expect(conversations.countAll()).toBe(1);
+    const importedId = response.json().id as string;
+    const detail = (await app.inject({ method: "GET", url: `/api/chat/conversations/${importedId}` })).json();
+    expect(detail.messages[1].citations).toEqual([
+      { n: 1, passageId: 4, bookId: BOOK.id, bookTitle: BOOK.title, page: 12, section: "Chapter 1" },
+    ]);
+
+    expect((await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: { scope: { kind: "book", bookId: "missing" }, messages: [
+        { role: "user", content: "q" }, { role: "assistant", content: "a" },
+      ] },
+    })).statusCode).toBe(404);
+    expect((await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: { scope: { kind: "library" }, messages: [{ role: "assistant", content: "a" }] },
+    })).statusCode).toBe(400);
+    expect((await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: {
+        scope: { kind: "library" },
+        messages: [{ role: "user", content: "q" }, { role: "assistant", content: "x".repeat(9_000) }],
+      },
+    })).statusCode).toBe(400);
+  });
+
+  it("blocks a new session at the limit with 409 conversation_limit", async () => {
+    const retriever = new FakeRetriever();
+    retriever.hits = [passage()];
+    const { chat, sessions, conversations } = fixture({ retriever, limits: { maxConversations: 1 } });
+    const app = await appFor(chat, sessions);
+
+    const first = parseSseEvents((await post(app, { message: "First", scope: { kind: "library" } })).body);
+    const conversationId = (first[0] as { conversationId: string }).conversationId;
+
+    const blocked = await post(app, { message: "Second", scope: { kind: "library" } });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toMatchObject({ code: "conversation_limit", limit: 1, count: 1 });
+    expect(conversations.countAll()).toBe(1);
+    expect(retriever.queries).toHaveLength(1);
+
+    // Existing sessions and Ask keep working at the limit.
+    expect((await post(app, { conversationId, message: "Continue", scope: { kind: "library" } })).statusCode).toBe(200);
+    expect((await post(app, { message: "Ask", scope: { kind: "library" }, mode: "ask" })).statusCode).toBe(200);
+
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/chat/conversations",
+      payload: {
+        scope: { kind: "library" },
+        messages: [{ role: "user", content: "q" }, { role: "assistant", content: "a" }],
+      },
+    });
+    expect(imported.statusCode).toBe(409);
+    expect(imported.json()).toMatchObject({ code: "conversation_limit" });
+    expect(conversations.countAll()).toBe(1);
+  });
+
+  it("caps the conversation list limit at 200", async () => {
+    const { chat, sessions } = fixture();
+    const app = await appFor(chat, sessions);
+    expect((await app.inject({ method: "GET", url: "/api/chat/conversations?limit=201" })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/api/chat/conversations?limit=200" })).statusCode).toBe(200);
+  });
+
   it("aborts the upstream when the client disconnects and persists nothing", async () => {
     const retriever = new FakeRetriever();
     retriever.hits = [passage()];
     const llm = new WaitingLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
-    const app = await appFor(chat);
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
+    const app = await appFor(chat, sessions);
     await app.listen({ port: 0, host: "127.0.0.1" });
     const address = app.server.address();
     if (!address || typeof address === "string") throw new Error("Expected a TCP address");
@@ -591,10 +806,10 @@ describe("chat HTTP routes", () => {
   it("never starts the provider when the client disconnects during retrieval", async () => {
     const retriever = new BlockingRetriever();
     const llm = new FakeLlmClient();
-    const { chat, conversations } = fixture({ llm, retriever });
+    const { chat, sessions, conversations } = fixture({ llm, retriever });
     let resolveSocketClosed!: () => void;
     const socketClosed = new Promise<void>((resolve) => { resolveSocketClosed = resolve; });
-    const app = await appFor(chat, (instance) => {
+    const app = await appFor(chat, sessions, (instance) => {
       instance.addHook("onRequest", (request, _reply, done) => {
         request.raw.socket.once("close", resolveSocketClosed);
         done();

@@ -15,6 +15,26 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.2.0] - 2026-11-23
+
+### Added
+
+- The tutor has an Ask mode for quick questions that are not saved and a Session mode that keeps the history so it can be resumed later, with a visible description of each mode and a permanent "not saved" or "saved" state line.
+- Ask can search your library or answer without it; the choice is visible, remembered on this device and sent per question. Attached reader text is always sent to the model and the interface says so.
+- Saved tutor sessions are listed per book and for the whole library, with resume, inline rename and delete. Starting a new session never deletes the previous one, and opening the tutor in the reader resumes the latest session of that book.
+- An Ask chat with questions asks before it is discarded and can be saved as a session.
+- Settings → AI has a Session limit card (20 to 5000, with the current count). Reaching the limit blocks new sessions with a link to the setting instead of deleting the oldest session.
+- `KNOWLIFY_CHAT_MAX_CONVERSATIONS` sets the initial session limit (default 200, range 20 to 5000); a limit saved in Settings → AI takes precedence.
+
+### Changed
+
+- Reaching the session limit now blocks new sessions instead of deleting the oldest one. Existing sessions keep working, Ask is unaffected, and lowering the limit never deletes anything.
+- The tutor no longer ends every answer with a check question: questions are optional, at most one every three assistant turns and never in two consecutive turns; an explicit request to be tested is honored, and "no questions" is respected. New messages use prompt `feynman-5`; stored messages keep their original version.
+
+### Fixed
+
+- "Save as session" now refuses an Ask chat longer than the 20-message import limit with an explicit warning and saves nothing, instead of silently keeping only the newest turns. The dialog also offers an explicit "Save last 20 messages" action that says how many oldest messages it leaves out. Partial answers are imported exactly as shown and disclosed, unanswered last questions are disclosed, and Cancel and Discard keep working.
+
 ## [2.1.0] - 2026-11-23
 
 ### Added
@@ -363,7 +383,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...v2.1.0
 [2.0.4]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...v2.0.3

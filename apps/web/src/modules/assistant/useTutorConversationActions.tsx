@@ -5,13 +5,13 @@ import type { TutorContextValue } from "./TutorProvider";
 import type { ConversationsState } from "./useConversations";
 import type { ConversationSummary } from "./types";
 
-/** Shared "New chat" and delete flow for the dock header, the history view and the /ask rail. */
+/** Shared "New session" and delete flow for the dock header, the sessions view and the /ask rail. */
 export function useTutorConversationActions({
   tutor,
-  list,
+  lists,
 }: {
   tutor: TutorContextValue;
-  list: ConversationsState;
+  lists: ConversationsState[];
 }) {
   const { ask, dialog } = useConfirm();
   const [error, setError] = useState("");
@@ -21,6 +21,8 @@ export function useTutorConversationActions({
   const wantsFocus = useRef(false);
   const active = tutor.activeSlot;
   const streaming = Boolean(active?.streaming);
+  const listsRef = useRef(lists);
+  listsRef.current = lists;
   const requestFocus = () => {
     wantsFocus.current = true;
     setFocusTick((value) => value + 1);
@@ -32,45 +34,23 @@ export function useTutorConversationActions({
     newButtonRef.current?.focus();
   }, [busy, streaming, focusTick]);
 
-  const startNew = useCallback(async () => {
+  const listFor = (id: string) =>
+    listsRef.current.find((list) => list.conversations.some((item) => item.id === id)) ??
+    listsRef.current[0];
+
+  const startNew = useCallback(() => {
     if (busy || streaming) return;
-    const id = active?.conversationId;
-    if (!id) {
-      tutor.resetSlot(tutor.activeKey);
-      return;
-    }
-    const name = active?.kind === "book" ? active.bookTitle ?? "this book" : "your library";
-    const confirmed = await ask({
-      title: "Start a new chat?",
-      message: (
-        <>
-          Your conversation about <strong>{name}</strong> will be deleted. This cannot be undone.
-        </>
-      ),
-      confirmLabel: "New chat",
-      danger: true,
-    });
-    if (!confirmed || tutor.activeSlot?.streaming) return;
-    setBusy(true);
-    setError("");
-    try {
-      await list.remove(id);
-      tutor.forgetConversation(id);
-      tutor.resetSlot(tutor.activeKey);
-    } catch (value) {
-      setError(formatError(value));
-    } finally {
-      requestFocus();
-      setBusy(false);
-    }
-  }, [busy, streaming, active, tutor, list, ask]);
+    tutor.startNewSession();
+  }, [busy, streaming, tutor]);
 
   const removeConversation = useCallback(
     async (conversation: ConversationSummary) => {
+      const list = listFor(conversation.id);
+      if (!list) return;
       if (busy || list.deletingIds.has(conversation.id)) return;
       if (tutor.isConversationStreaming(conversation.id)) return;
       const confirmed = await ask({
-        title: "Delete conversation?",
+        title: "Delete session?",
         message: (
           <>
             <strong>{conversation.title}</strong> will be deleted. This cannot be undone.
@@ -85,13 +65,15 @@ export function useTutorConversationActions({
       try {
         await list.remove(conversation.id);
         tutor.forgetConversation(conversation.id);
+        tutor.clearSessionLimit();
+        tutor.refreshStatus();
         requestFocus();
       } catch (value) {
         setError(formatError(value));
         requestFocus();
       }
     },
-    [busy, list, tutor, ask],
+    [busy, tutor, ask],
   );
 
   return {

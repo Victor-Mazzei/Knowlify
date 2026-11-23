@@ -1,5 +1,5 @@
 import type { ChatMessage, ChatScope, Citation, Conversation } from "../../domain/assistant/Conversation.js";
-import { ConversationFullError } from "../../domain/assistant/errors.js";
+import { ConversationFullError, ConversationLimitError } from "../../domain/assistant/errors.js";
 import type { ConversationCaps, ConversationRepository, ConversationTurn } from "../../ports/assistant.js";
 import type { Db } from "./db.js";
 
@@ -10,6 +10,7 @@ interface ConversationRow {
   title: string;
   created_at: number;
   updated_at: number;
+  message_count?: number;
 }
 
 interface MessageRow {
@@ -36,6 +37,7 @@ function toConversation(row: ConversationRow): Conversation {
     title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    ...(row.message_count !== undefined ? { messageCount: row.message_count } : {}),
   };
 }
 
@@ -110,6 +112,8 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   saveTurn(turn: ConversationTurn, caps: ConversationCaps, now: number): void {
+    // `immediate` takes the write lock before the cap is read, so two processes cannot
+    // both pass the check and create one session beyond the limit.
     this.db.transaction(() => {
       const exists = this.db.prepare("SELECT 1 AS present FROM conversations WHERE id = ?").get(turn.conversationId);
       if (turn.newConversation) {
@@ -117,7 +121,7 @@ export class SqliteConversationRepository implements ConversationRepository {
           throw new Error("Conversation turn id does not match the new conversation");
         }
         if (exists) throw new Error("Conversation already exists");
-        while (this.countAll() >= Math.max(1, caps.maxConversations)) this.deleteOldestRow();
+        this.assertConversationLimit(caps);
         this.insertConversation(turn.newConversation);
       } else if (!exists) {
         throw new Error("Conversation does not exist");
@@ -129,9 +133,7 @@ export class SqliteConversationRepository implements ConversationRepository {
 
       const seq = this.db.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?")
         .get(turn.conversationId) as { seq: number };
-      const insert = this.db.prepare(`INSERT INTO messages
-        (id, conversation_id, seq, role, content, citations_json, prompt_version, created_at)
-        VALUES (@id, @conversation_id, @seq, @role, @content, @citations_json, @prompt_version, @created_at)`);
+      const insert = this.messageInserter();
       insert.run({
         id: turn.user.id,
         conversation_id: turn.conversationId,
@@ -153,15 +155,51 @@ export class SqliteConversationRepository implements ConversationRepository {
         created_at: turn.assistant.createdAt,
       });
       this.db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, turn.conversationId);
-    })();
+    }).immediate();
+  }
+
+  importSession(
+    conversation: Conversation,
+    messages: readonly ChatMessage[],
+    caps: ConversationCaps,
+    _now: number,
+  ): void {
+    this.db.transaction(() => {
+      const exists = this.db.prepare("SELECT 1 AS present FROM conversations WHERE id = ?").get(conversation.id);
+      if (exists) throw new Error("Conversation already exists");
+      this.assertConversationLimit(caps);
+      if (messages.length > caps.maxMessagesPerConversation) throw new ConversationFullError();
+      this.insertConversation(conversation);
+      const insert = this.messageInserter();
+      messages.forEach((message, index) => {
+        insert.run({
+          id: message.id,
+          conversation_id: conversation.id,
+          seq: index + 1,
+          role: message.role,
+          content: message.content,
+          citations_json: message.citations ? JSON.stringify(message.citations) : null,
+          prompt_version: message.promptVersion,
+          created_at: message.createdAt,
+        });
+      });
+    }).immediate();
+  }
+
+  rename(id: string, title: string): Conversation | undefined {
+    const changed = this.db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title, id).changes;
+    return changed > 0 ? this.get(id) : undefined;
   }
 
   list(scope: ChatScope, limit: number): Conversation[] {
+    const select = `SELECT c.*,
+        (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+      FROM conversations c`;
     const rows = scope.kind === "library"
-      ? this.db.prepare(`SELECT * FROM conversations WHERE scope_kind = 'library'
-          ORDER BY updated_at DESC, created_at DESC LIMIT ?`).all(limit)
-      : this.db.prepare(`SELECT * FROM conversations WHERE scope_kind = 'book' AND book_id = ?
-          ORDER BY updated_at DESC, created_at DESC LIMIT ?`).all(scope.bookId, limit);
+      ? this.db.prepare(`${select} WHERE c.scope_kind = 'library'
+          ORDER BY c.updated_at DESC, c.created_at DESC LIMIT ?`).all(limit)
+      : this.db.prepare(`${select} WHERE c.scope_kind = 'book' AND c.book_id = ?
+          ORDER BY c.updated_at DESC, c.created_at DESC LIMIT ?`).all(scope.bookId, limit);
     return (rows as ConversationRow[]).map(toConversation);
   }
 
@@ -210,12 +248,16 @@ export class SqliteConversationRepository implements ConversationRepository {
     });
   }
 
-  /** Caller owns the transaction, so a failed turn restores this deletion too. */
-  private deleteOldestRow(): void {
-    const oldest = this.db.prepare(`SELECT id FROM conversations
-      ORDER BY updated_at ASC, created_at ASC, id ASC LIMIT 1`).get() as { id: string } | undefined;
-    if (!oldest) return;
-    this.db.prepare("DELETE FROM messages WHERE conversation_id = ?").run(oldest.id);
-    this.db.prepare("DELETE FROM conversations WHERE id = ?").run(oldest.id);
+  /** The caller owns the transaction, so the count and the insert share one write lock. */
+  private assertConversationLimit(caps: ConversationCaps): void {
+    const max = Math.max(1, caps.maxConversations);
+    const count = this.countAll();
+    if (count >= max) throw new ConversationLimitError(max, count);
+  }
+
+  private messageInserter() {
+    return this.db.prepare(`INSERT INTO messages
+      (id, conversation_id, seq, role, content, citations_json, prompt_version, created_at)
+      VALUES (@id, @conversation_id, @seq, @role, @content, @citations_json, @prompt_version, @created_at)`);
   }
 }

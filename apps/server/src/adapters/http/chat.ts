@@ -4,7 +4,9 @@ import {
   ChatDisabledError,
   ChatRateLimitedError,
   ConversationFullError,
+  ConversationLimitError,
   ConversationScopeMismatchError,
+  InvalidModeError,
   LibraryChatUnavailableError,
 } from "../../domain/assistant/errors.js";
 import { NotFoundError, ValidationError } from "../../domain/errors.js";
@@ -13,10 +15,14 @@ import {
   MAX_EXCERPT_CHARS,
   MAX_QUESTION_CHARS,
   MAX_SECTION_CHARS,
+  type Conversation,
 } from "../../domain/assistant/Conversation.js";
 import type { Chat, ChatEvent, ChatTurnInput } from "../../use-cases/Chat.js";
+import type { ChatSessions } from "../../use-cases/ChatSessions.js";
 
 const BODY_LIMIT = 32 * 1024;
+const IMPORT_BODY_LIMIT = 64 * 1024;
+const RENAME_BODY_LIMIT = 4 * 1024;
 /**
  * SSE comment cadence. Besides keeping proxies from idling the stream, a byte every
  * second works around the WebKit releases affected by bugs.webkit.org 322545, which
@@ -27,6 +33,7 @@ export const HEARTBEAT_MS = 1_000;
 
 export interface ChatRoutesOptions {
   chat: Chat;
+  sessions: ChatSessions;
   /** Test seam; production uses HEARTBEAT_MS. */
   heartbeatMs?: number;
 }
@@ -63,11 +70,13 @@ const scopeSchema = {
 const messageBodySchema = {
   type: "object",
   required: ["message", "scope"],
-  propertyNames: { enum: ["conversationId", "message", "scope"] },
+  propertyNames: { enum: ["conversationId", "message", "scope", "mode", "useLibrary"] },
   properties: {
     conversationId: { type: "string", minLength: 1, maxLength: MAX_CONVERSATION_ID_CHARS },
     message: { type: "string", minLength: 1, maxLength: MAX_QUESTION_CHARS },
     scope: scopeSchema,
+    mode: { type: "string", enum: ["ask", "session"] },
+    useLibrary: { type: "boolean" },
   },
 } as const;
 
@@ -76,13 +85,61 @@ const listQuerySchema = {
   propertyNames: { enum: ["bookId", "limit"] },
   properties: {
     bookId: { type: "string", minLength: 1 },
-    limit: { type: "integer", minimum: 1, maximum: 50, default: 20 },
+    limit: { type: "integer", minimum: 1, maximum: 200, default: 20 },
   },
+} as const;
+
+const importScopeSchema = {
+  oneOf: [
+    {
+      type: "object",
+      required: ["kind"],
+      propertyNames: { enum: ["kind"] },
+      properties: { kind: { type: "string", enum: ["library"] } },
+    },
+    {
+      type: "object",
+      required: ["kind", "bookId"],
+      propertyNames: { enum: ["kind", "bookId"] },
+      properties: {
+        kind: { type: "string", enum: ["book"] },
+        bookId: { type: "string", minLength: 1 },
+      },
+    },
+  ],
+} as const;
+
+const importBodySchema = {
+  type: "object",
+  required: ["scope", "messages"],
+  propertyNames: { enum: ["scope", "title", "messages"] },
+  properties: {
+    scope: importScopeSchema,
+    title: { type: "string", minLength: 1 },
+    messages: { type: "array", minItems: 2, maxItems: 20 },
+  },
+} as const;
+
+const renameBodySchema = {
+  type: "object",
+  required: ["title"],
+  propertyNames: { enum: ["title"] },
+  properties: { title: { type: "string", minLength: 1 } },
 } as const;
 
 interface ListQuery {
   bookId?: string;
   limit?: number;
+}
+
+interface ImportBody {
+  scope: unknown;
+  title?: unknown;
+  messages: unknown;
+}
+
+interface RenameBody {
+  title: unknown;
 }
 
 /**
@@ -91,12 +148,23 @@ interface ListQuery {
  * regular JSON errors. CORS headers are copied because hijacked replies skip hooks.
  */
 export async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) {
-  const { chat, heartbeatMs = HEARTBEAT_MS } = opts;
+  const { chat, sessions, heartbeatMs = HEARTBEAT_MS } = opts;
 
   app.setErrorHandler((error: FastifyError, _req, reply) => {
     if (error.validation) return reply.code(400).send({ message: error.message });
     if (error instanceof ValidationError) return reply.code(400).send({ message: error.message });
     if (error instanceof NotFoundError) return reply.code(404).send({ message: error.message });
+    if (error instanceof InvalidModeError) {
+      return reply.code(400).send({ message: error.message, code: error.code });
+    }
+    if (error instanceof ConversationLimitError) {
+      return reply.code(409).send({
+        message: error.message,
+        code: error.code,
+        limit: error.limit,
+        count: error.count,
+      });
+    }
     if (error instanceof ConversationScopeMismatchError) {
       return reply.code(409).send({ message: error.message });
     }
@@ -249,21 +317,14 @@ export async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) 
   app.get<{ Querystring: ListQuery }>(
     "/chat/conversations",
     { schema: { querystring: listQuerySchema } },
-    async (request) => chat.list({ bookId: request.query.bookId, limit: request.query.limit }).map((conversation) => ({
-      id: conversation.id,
-      title: conversation.title,
-      scope: conversation.scope,
-      updatedAt: conversation.updatedAt,
-    })),
+    async (request) => sessions.list({ bookId: request.query.bookId, limit: request.query.limit }).map(toSummary),
   );
 
   app.get<{ Params: { id: string } }>("/chat/conversations/:id", async (request, reply) => {
-    const detail = chat.get(request.params.id);
+    const detail = sessions.get(request.params.id);
     if (!detail) return reply.code(404).send({ message: "Not found" });
     return {
-      id: detail.conversation.id,
-      title: detail.conversation.title,
-      scope: detail.conversation.scope,
+      ...toSummary({ ...detail.conversation, messageCount: detail.messages.length }),
       messages: detail.messages.map((message) => ({
         id: message.id,
         role: message.role,
@@ -274,10 +335,46 @@ export async function chatRoutes(app: FastifyInstance, opts: ChatRoutesOptions) 
     };
   });
 
+  app.patch<{ Params: { id: string }; Body: RenameBody }>(
+    "/chat/conversations/:id",
+    { schema: { body: renameBodySchema }, bodyLimit: RENAME_BODY_LIMIT },
+    async (request, reply) => {
+      const renamed = sessions.rename(request.params.id, request.body?.title);
+      if (!renamed) return reply.code(404).send({ message: "Not found" });
+      const detail = sessions.get(renamed.id);
+      return toSummary({ ...renamed, messageCount: detail?.messages.length ?? 0 });
+    },
+  );
+
+  app.post<{ Body: ImportBody }>(
+    "/chat/conversations",
+    { schema: { body: importBodySchema }, bodyLimit: IMPORT_BODY_LIMIT },
+    async (request, reply) => {
+      const imported = sessions.import({
+        scope: request.body.scope,
+        ...(request.body.title !== undefined ? { title: request.body.title } : {}),
+        messages: request.body.messages,
+      });
+      return reply.code(201).send(toSummary(imported));
+    },
+  );
+
   app.delete<{ Params: { id: string } }>("/chat/conversations/:id", async (request, reply) => {
-    if (!chat.remove(request.params.id)) return reply.code(404).send({ message: "Not found" });
+    if (!sessions.remove(request.params.id)) return reply.code(404).send({ message: "Not found" });
     return reply.code(204).send();
   });
+}
+
+function toSummary(conversation: Conversation) {
+  return {
+    id: conversation.id,
+    title: conversation.title,
+    scope: conversation.scope,
+    createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt,
+    messageCount: conversation.messageCount ?? 0,
+    persisted: true,
+  };
 }
 
 function writeEvent(response: ServerResponse, event: ChatEvent): boolean {

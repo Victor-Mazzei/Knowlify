@@ -76,6 +76,8 @@ export function TutorDock() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (document.querySelector('[aria-modal="true"]:not(#tutor-panel)')) return;
+      // Escape inside an inline editor cancels that edit, not the whole tutor.
+      if (event.key === "Escape" && event.target instanceof Element && event.target.closest("[data-tutor-rename]")) return;
       if (
         event.altKey &&
         !event.ctrlKey &&

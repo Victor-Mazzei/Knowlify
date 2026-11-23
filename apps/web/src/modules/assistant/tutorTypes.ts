@@ -1,5 +1,6 @@
 import type { Selection } from "../notes/types";
 import type { ChatExcerpt } from "./excerpt";
+import type { ChatMode } from "./types";
 
 const MAX_BOOK_SLOTS = 3;
 export const LIBRARY_SLOT_KEY = "library";
@@ -20,27 +21,38 @@ export type TutorSlot = {
   kind: "library" | "book";
   bookId?: string;
   bookTitle?: string;
+  /** Ask answers are ephemeral; Session answers are saved. */
+  mode: ChatMode;
+  /** Ask only: the library switch for the next question. */
+  useLibrary: boolean;
   conversationId?: string;
   conversationTitle?: string;
   /** Conversation the panel must load when it (re)mounts. */
   initialId?: string;
-  /** Incremented to remount the panel: new chat or a conversation picked from history. */
+  /** Incremented to remount the panel: new session, mode change or a conversation picked from history. */
   session: number;
   streaming: boolean;
   excerpt?: ChatExcerpt;
   excerptError?: string;
+  /** The one automatic "latest session of this book" lookup already ran. */
+  resumeChecked?: boolean;
+  /** Title of the session the panel loaded automatically, for the "Resuming" banner. */
+  resumedTitle?: string;
 };
 
 export type TutorSurface = "dock" | "page";
-export type TutorView = "chat" | "history";
+export type TutorView = "chat" | "sessions";
 
 export const newSlot = (
   kind: "library" | "book",
-  book?: { id: string; title: string },
+  book: { id: string; title: string } | undefined,
+  defaults: { mode: ChatMode; useLibrary: boolean },
 ): TutorSlot => ({
   key: kind === "library" ? LIBRARY_SLOT_KEY : bookSlotKey(book?.id ?? ""),
   kind,
   ...(kind === "book" ? { bookId: book?.id, bookTitle: book?.title } : {}),
+  mode: defaults.mode,
+  useLibrary: defaults.useLibrary,
   session: 0,
   streaming: false,
 });

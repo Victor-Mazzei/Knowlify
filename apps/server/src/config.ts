@@ -166,6 +166,23 @@ export const readSearchWarmupMaxMb = (value: string | undefined): number | null 
   return Number(raw);
 };
 
+/**
+ * Seed for the saved-session limit. Unset means the built-in default (200); an invalid
+ * value is a boot-time mistake and is never echoed (it could be a mistyped secret).
+ */
+export const readChatMaxConversations = (value: string | undefined): number | null => {
+  const raw = value?.trim();
+  if (!raw) return null;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error("KNOWLIFY_CHAT_MAX_CONVERSATIONS must be an integer between 20 and 5000");
+  }
+  const parsed = Number(raw);
+  if (parsed < 20 || parsed > 5000) {
+    throw new Error("KNOWLIFY_CHAT_MAX_CONVERSATIONS must be an integer between 20 and 5000");
+  }
+  return parsed;
+};
+
 /** Unlike the tolerant numeric readers, an unknown style is a boot-time mistake. */
 const readApiStyle = (value: string | undefined): LlmApiStyle => {
   const raw = value?.trim();
@@ -265,6 +282,11 @@ export const config = {
     apiStyle: llmApiStyle,
     headers: llmHeaders,
     legacySessionHeader: llmHeadersValue === undefined && llmUrl !== null,
+  },
+  // Saved-session limit (ADR-13): environment seed, overridden by Settings unless
+  // KNOWLIFY_LLM_LOCKED is set. `null` means the built-in default (200).
+  chat: {
+    maxConversations: readChatMaxConversations(process.env.KNOWLIFY_CHAT_MAX_CONVERSATIONS),
   },
   // UI-managed LLM settings (ADR-13..17). The env block above remains the seed when
   // no database record exists; these control the interface and the SSRF policy.
