@@ -8,7 +8,9 @@ import { NoLlmClient } from "../src/adapters/llm/NoLlmClient.js";
 import { OpenAiCompatibleLlmClient } from "../src/adapters/llm/OpenAiCompatibleLlmClient.js";
 import { MAX_CONVERSATIONS, MAX_MESSAGES_PER_CONVERSATION } from "../src/domain/assistant/Conversation.js";
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
+import { SEARCH_TIMED_OUT_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
 import { LlmError } from "../src/ports/assistant.js";
+import type { Logger } from "../src/ports/index.js";
 import type { Chat } from "../src/use-cases/Chat.js";
 import {
   BOOK,
@@ -465,6 +467,39 @@ describe("chat HTTP routes", () => {
     expect(received[0]?.["x-static"]).toBe(headerSentinel);
     expect(received[0]?.authorization).toBe("Bearer chat-key");
     expect(response.body).not.toContain(headerSentinel);
+  });
+
+  it("streams the provider answer with the timeout note instead of a no-match note", async () => {
+    const llm = new FakeLlmClient();
+    llm.chunks = ["The search was slow. ", "From general knowledge."];
+    const retriever = new FakeRetriever();
+    retriever.unavailable = true;
+    const logs: string[] = [];
+    const log: Logger = {
+      info: (message) => logs.push(message),
+      error: (_error, message) => logs.push(message),
+      warn: (message) => logs.push(message),
+    };
+    const { chat } = fixture({ llm, retriever, log });
+    const app = await appFor(chat);
+    const sentinel = "zebraquantum-question";
+
+    const response = await post(app, { message: `What is ${sentinel}?`, scope: { kind: "library" } });
+    const events = parseSseEvents(response.body);
+
+    expect(events.map((event) => event.type)).toEqual(["sources", "delta", "delta", "done"]);
+    const sources = events[0] as Record<string, unknown>;
+    expect(sources).toMatchObject({ type: "sources", retrieval: "none", citations: [] });
+    // No SSE event field was added for the timeout state.
+    expect(Object.keys(sources)).toEqual(["type", "conversationId", "retrieval", "citations"]);
+    expect(llm.requests).toHaveLength(1);
+    const prompt = llm.requests[0].messages.at(-1)?.content ?? "";
+    expect(prompt).toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(prompt).not.toContain(NO_PASSAGES_BLOCK);
+    expect(prompt).toContain(`Question: What is ${sentinel}?`);
+    expect(logs.join("\n")).not.toContain(sentinel);
+    const conversationId = sources.conversationId as string;
+    expect(chat.get(conversationId)?.messages.at(-1)?.content).toBe("The search was slow. From general knowledge.");
   });
 
   it("calls the provider when retrieval finds nothing", async () => {

@@ -107,11 +107,23 @@ function retrievalAnchor(history: readonly ContextMessage[]): string | undefined
   return previousQuestion ? previousQuestion.slice(0, MAX_ANCHOR_CHARS) : undefined;
 }
 
-/** Last interrogative sentence, so an earlier "Great." does not become the anchor. */
+/**
+ * Last interrogative sentence, so an earlier "Great." does not become the anchor.
+ * Scans backwards instead of matching `/[^.?!]*\?/g`: on a long answer with no
+ * terminator (a code block, a table) the regex retried at every position and cost
+ * O(n²) in the request path.
+ */
 function lastQuestionSentence(text: string): string | undefined {
   const flattened = stripCitationMarkers(text).replace(/\s+/g, " ").trim();
-  const last = flattened.match(/[^.?!]*\?/g)?.at(-1)?.trim();
-  return last || undefined;
+  const questionMark = flattened.lastIndexOf("?");
+  if (questionMark < 0) return undefined;
+  const previous = Math.max(
+    flattened.lastIndexOf(".", questionMark - 1),
+    flattened.lastIndexOf("?", questionMark - 1),
+    flattened.lastIndexOf("!", questionMark - 1),
+  );
+  const sentence = flattened.slice(previous + 1, questionMark + 1).trim();
+  return sentence || undefined;
 }
 
 function countWords(text: string): number {

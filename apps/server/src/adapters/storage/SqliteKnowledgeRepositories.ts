@@ -1,3 +1,4 @@
+import type Database from "better-sqlite3";
 import type { Db } from "./db.js";
 import {
   isDegradedVersion,
@@ -14,6 +15,9 @@ import type {
   PassageView,
   PendingIndexUpsert,
 } from "../../ports/knowledge.js";
+import { toFtsPlan, type FtsPlanOptions } from "./ftsQuery.js";
+
+export { toFtsPlan, toFtsQuery, type FtsPlan } from "./ftsQuery.js";
 
 interface BookIndexRow {
   book_id: string;
@@ -272,11 +276,33 @@ export class SqliteBookIndexRepository implements BookIndexRepository {
   }
 }
 
+function mergeHits(
+  strict: readonly { passageId: number; rank: number }[],
+  expanded: readonly { passageId: number; rank: number }[],
+  limit: number,
+): { passageId: number; rank: number }[] {
+  const seen = new Set<number>();
+  const merged: { passageId: number; rank: number }[] = [];
+  for (const hit of [...strict, ...expanded]) {
+    if (seen.has(hit.passageId)) continue;
+    seen.add(hit.passageId);
+    merged.push(hit);
+    if (merged.length >= limit) break;
+  }
+  return merged;
+}
+
 export class SqlitePassageRepository implements PassageRepository {
+  private dfEpoch: number | null = null;
+  private readonly dfCache = new Map<string, number>();
+  private dfTotal = 0;
+  private vocab: { exact: Database.Statement; range: Database.Statement } | null | undefined;
+
   constructor(private db: Db) {}
 
   clear(bookId: string): void {
     this.db.prepare("DELETE FROM chunks WHERE book_id = ?").run(bookId);
+    this.invalidateFrequencyCache();
   }
 
   append(bookId: string, items: { passage: Passage; vector: Float32Array | null }[]): void {
@@ -289,25 +315,103 @@ export class SqlitePassageRepository implements PassageRepository {
         if (item.vector) insertVector.run(Number(result.lastInsertRowid), bookId, toBlob(item.vector));
       }
     })();
+    this.invalidateFrequencyCache();
+  }
+
+  /**
+   * A write from this same connection does not bump `PRAGMA data_version` (only other
+   * connections' commits do), so the write path clears the cache explicitly. The
+   * production search worker is a separate read-only connection and relies on the epoch.
+   */
+  private invalidateFrequencyCache(): void {
+    this.dfEpoch = null;
+    this.dfCache.clear();
   }
 
   searchLexical(q: string, limit: number, bookId?: string): { passageId: number; rank: number }[] {
-    const match = toFtsQuery(q);
-    if (!match || limit <= 0) return [];
-    const rows = bookId
+    const plan = toFtsPlan(q, this.frequencyOptions());
+    if (!plan.primary || limit <= 0) return [];
+    // The FTS rowid *is* chunks.id (`content_rowid='id'`), so the unfiltered path needs no
+    // join. Joining read one chunks row per match, which costs 3-6x more on a cold page
+    // cache (random reads) and neither changes the ranking nor the returned ids.
+    const unfiltered = this.db.prepare(`
+      SELECT chunks_fts.rowid AS passageId, bm25(chunks_fts) AS rank
+      FROM chunks_fts
+      WHERE chunks_fts MATCH ?
+      ORDER BY rank LIMIT ?
+    `);
+    // The join is required to filter by book, and it stays bounded to that book's rows.
+    const filtered = bookId
       ? this.db.prepare(`
           SELECT c.id AS passageId, bm25(chunks_fts) AS rank
           FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
           WHERE chunks_fts MATCH ? AND c.book_id = ?
           ORDER BY rank LIMIT ?
-        `).all(match, bookId, limit)
-      : this.db.prepare(`
-          SELECT c.id AS passageId, bm25(chunks_fts) AS rank
-          FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid
-          WHERE chunks_fts MATCH ?
-          ORDER BY rank LIMIT ?
-        `).all(match, limit);
-    return rows as { passageId: number; rank: number }[];
+        `)
+      : null;
+    const run = (match: string): { passageId: number; rank: number }[] =>
+      (filtered
+        ? filtered.all(match, bookId, limit)
+        : unfiltered.all(match, limit)) as { passageId: number; rank: number }[];
+
+    const strict = run(plan.primary);
+    // The three-term OR is allowed only when no term is rare and the AND matched nothing.
+    // With rare terms present, common terms never enter an OR: the rare union is the only
+    // recall pass, bounded to the rare postings and the request's 8 s worker timeout.
+    if (plan.rare === 0 && strict.length === 0 && plan.fallback) {
+      return mergeHits(strict, run(plan.fallback), limit);
+    }
+    return strict;
+  }
+
+  /** df cache and total row count are invalidated together when the file epoch changes. */
+  private frequencyOptions(): FtsPlanOptions | undefined {
+    const epoch = this.db.pragma("data_version", { simple: true }) as number;
+    if (this.dfEpoch !== epoch) {
+      this.dfEpoch = epoch;
+      this.dfCache.clear();
+      this.dfTotal = (this.db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }).n;
+    }
+    if (!this.ensureVocab()) return undefined;
+    return {
+      documentFrequency: (text, prefix) => this.documentFrequency(text, prefix),
+      totalRows: this.dfTotal,
+    };
+  }
+
+  private ensureVocab(): boolean {
+    if (this.vocab === null) return false;
+    if (this.vocab) return true;
+    try {
+      this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp.chunks_vocab USING fts5vocab('main', 'chunks_fts', 'row')");
+      this.vocab = {
+        exact: this.db.prepare("SELECT doc FROM temp.chunks_vocab WHERE term = ?"),
+        range: this.db.prepare("SELECT SUM(doc) AS n FROM temp.chunks_vocab WHERE term >= ? AND term < ?"),
+      };
+      return true;
+    } catch {
+      // No corpus access (or FTS5 vocab unavailable): the pure planner still answers.
+      this.vocab = null;
+      return false;
+    }
+  }
+
+  private documentFrequency(text: string, prefix: boolean): number {
+    const key = `${prefix ? "p" : "e"}:${text}`;
+    const cached = this.dfCache.get(key);
+    if (cached !== undefined) return cached;
+    let df = 0;
+    if (this.vocab) {
+      if (prefix) {
+        const row = this.vocab.range.get(text, `${text}\uffff`) as { n: number | null } | undefined;
+        df = row?.n ?? 0;
+      } else {
+        const row = this.vocab.exact.get(text) as { doc: number } | undefined;
+        df = row?.doc ?? 0;
+      }
+    }
+    this.dfCache.set(key, df);
+    return df;
   }
 
   hydrate(ids: number[]): PassageView[] {
@@ -325,18 +429,6 @@ export class SqlitePassageRepository implements PassageRepository {
       return row ? [row] : [];
     });
   }
-}
-
-const FTS_TOKEN_LIMIT = 20;
-
-/**
- * FTS5 expects a query expression, not free text. Only tokenized, quoted terms reach it,
- * which keeps operators such as NEAR/OR/* typed by the user from changing the query shape.
- */
-export function toFtsQuery(q: string): string {
-  const tokens = q.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
-  const terms = [...new Set(tokens)].slice(0, FTS_TOKEN_LIMIT).map((token) => `"${token.replaceAll('"', '""')}"*`);
-  return terms.join(" OR ");
 }
 
 function toBlob(vector: Float32Array): Buffer {

@@ -160,6 +160,8 @@ describe("Knowledge HTTP contract", () => {
     expect(found.statusCode).toBe(200);
     const body = found.json();
     expect(body).toMatchObject({ mode: "lexical", coverage: { indexed: 1, total: 2 } });
+    // The availability flag is internal to the tutor prompt; the API envelope is unchanged.
+    expect(body).not.toHaveProperty("unavailable");
     expect(body.hits).toHaveLength(2);
     expect(body.hits.find((hit: { bookId: string }) => hit.bookId === "one")).toMatchObject({
       bookId: "one", bookTitle: "Title one", text: "a needle in the haystack", location: { page: 42, section: null },

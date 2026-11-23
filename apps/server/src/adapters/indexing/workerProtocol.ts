@@ -10,6 +10,8 @@ export interface RunLimits {
 export type WorkerRequest =
   | { type: "run"; job: IngestJob; embedder: EmbedderConfig; limits: RunLimits; chunking: "domain" | "paragraph" }
   | { type: "query"; id: number; text: string; embedder: EmbedderConfig }
+  /** The caller gave up on `id`; skip it if it has not started yet. */
+  | { type: "query-cancel"; id: number }
   | { type: "batch-ack"; id: number }
   | { type: "cancel" }
   | { type: "close" };

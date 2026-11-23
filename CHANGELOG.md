@@ -15,6 +15,15 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.0.4] - 2026-11-22
+
+### Fixed
+
+- Tutor and library search no longer freeze the server on large indexes: FTS5 ranking and the exact vector scan run in a read-only worker thread with per-read time limits, and the query embedding falls back to lexical search after two seconds. Low-signal single-character terms no longer trigger whole-corpus scans, while languages, grades and symbols such as `C++`, `R` and `7` still match as exact tokens. Above the vector scan ceiling, a question with no lexical match gets a bounded, evenly spread semantic sample instead of no sources, and an abandoned embedding is cancelled instead of piling up in the ingestion worker.
+- The unfiltered library search reads the FTS rowid directly instead of joining the passage text, which returns the same ranking and was 3–6× faster on a cold page cache in a 200k-chunk lab. The retrieval worker keeps its bounded memory settings (no multi-gigabyte mmap); its cache and busy-timeout values were measured and left unchanged.
+- Library and tutor search now drop English, Portuguese and Spanish stopwords and question scaffolding, start prefix matching at three characters, keep at most ten informative terms, and try a two-term `AND` before falling back to the full `OR`. On a 200k-chunk lab this cut warm p95 from 743 ms to 157 ms (extrapolated to ~2.6 s at 3.3M chunks, below the 3 s target); short terms and numbers stay exact, so `C`, `R`, `Go`, `C++`, grades and years remain searchable. Results for long questions are more focused and are not identical to the previous ranking. The search worker also caches the `chunk_vectors` count per SQLite `data_version`.
+- When a library-search read times out or its worker is discarded, the tutor is told the search timed out instead of being told that no passage matched: it briefly mentions the delay and answers from the conversation history and general knowledge, marked as such, without claiming the library has no information. Book-only turns say the library was not used for the question. This state stays inside the prompt; no API or SSE field was added.
+
 ## [2.0.3] - 2026-11-22
 
 ### Fixed
@@ -333,7 +342,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...HEAD
+[2.0.4]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.3...v2.0.4
 [2.0.3]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.0...v2.0.1

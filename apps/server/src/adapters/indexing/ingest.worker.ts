@@ -29,6 +29,15 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryGeneration = 0;
 /** Runs are serialized: a run posted during the cancellation of the previous one waits. */
 let runs: Promise<void> = Promise.resolve();
+/**
+ * Queries are serialized too, and cancelled ids are remembered until their turn: the
+ * main thread aborts a timed-out embedding, and the worker must drop the queued query
+ * instead of paying for it later. A query already inside the embedder cannot be
+ * interrupted (local inference is synchronous); its result is simply discarded.
+ */
+let queries: Promise<void> = Promise.resolve();
+const cancelledQueries = new Set<number>();
+const MAX_CANCELLED_QUERIES = 64;
 
 function post(message: WorkerResponse, transfer: ArrayBuffer[] = []): void {
   port.postMessage(message, transfer);
@@ -152,16 +161,29 @@ async function handleRun(message: Extract<WorkerRequest, { type: "run" }>): Prom
 }
 
 async function handleQuery(message: Extract<WorkerRequest, { type: "query" }>): Promise<void> {
+  if (cancelledQueries.delete(message.id)) return;
   const active = embedderFor(message.embedder);
   try {
     const vector = await active.embedQuery(message.text);
+    // The caller gave up while the embedder was working: never post its result.
+    if (cancelledQueries.delete(message.id)) return;
     post({ type: "query-result", id: message.id, vector }, vector ? [vector.buffer as ArrayBuffer] : []);
   } catch (error) {
-    const failure = describeFailure(error);
-    post({ type: "failed", code: failure.code, message: failure.message });
+    // A query failure is not a run failure: report it only to the waiting caller so an
+    // active ingestion is never interrupted by a retrieval error.
+    console.warn(`[indexing worker] query embedding failed (${safeErrorType(error)})`);
     post({ type: "query-result", id: message.id, vector: null });
   } finally {
     postStatus(active);
+  }
+}
+
+function rememberCancelledQuery(id: number): void {
+  cancelledQueries.add(id);
+  while (cancelledQueries.size > MAX_CANCELLED_QUERIES) {
+    const oldest = cancelledQueries.values().next().value;
+    if (oldest === undefined) break;
+    cancelledQueries.delete(oldest);
   }
 }
 
@@ -185,7 +207,13 @@ port.on("message", (message: WorkerRequest) => {
         console.error(`[indexing worker] run queue failed (${safeErrorType(error)})`);
       });
       return;
+    case "query-cancel":
+      rememberCancelledQuery(message.id);
+      return;
     case "query":
-      void handleQuery(message);
+      if (cancelledQueries.delete(message.id)) return;
+      queries = queries.then(() => handleQuery(message)).catch((error: unknown) => {
+        console.error(`[indexing worker] query queue failed (${safeErrorType(error)})`);
+      });
   }
 });

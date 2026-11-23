@@ -67,6 +67,30 @@ describe("session context helpers", () => {
     expect(buildRetrievalQueries("why?", history)).toEqual(["What is deep work? why?", "why?"]);
   });
 
+  it("anchors on the last interrogative sentence only", () => {
+    const history: ContextMessage[] = [
+      message("assistant", "First: what is deep work? Second: which part of attention [1] matters most? Then a note. Is that clear?"),
+    ];
+    expect(buildRetrievalQueries("Yes.", history)[0]).toContain("Is that clear? Yes.");
+    const withoutLast = [message("assistant", "First: what is deep work? Second: which part matters most?")];
+    expect(buildRetrievalQueries("Yes.", withoutLast)[0]).toContain("Second: which part matters most? Yes.");
+  });
+
+  it("anchors in linear time on a long answer without sentence terminators", () => {
+    const history: ContextMessage[] = [
+      message("assistant", `${"no punctuation here ".repeat(18_000)} and then one question?`),
+      message("user", "Previous"),
+    ];
+    const started = performance.now();
+    const queries = buildRetrievalQueries("The focus part.", history);
+    const elapsed = performance.now() - started;
+
+    expect(queries).toHaveLength(2);
+    expect(queries[0]).toContain("The focus part.");
+    // The old regex retried the whole match at every position: ~O(n²) on this input.
+    expect(elapsed).toBeLessThan(1_000);
+  });
+
   it("searches a long message as written and retries with the anchored form", () => {
     const history: ContextMessage[] = [
       message("user", "What is deep work?"),

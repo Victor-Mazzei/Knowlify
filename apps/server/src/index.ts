@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { Db } from "./adapters/storage/db.js";
 import type { Logger } from "./ports/index.js";
-import type { IngestionRunner } from "./ports/knowledge.js";
+import type { IngestionRunner, PassageQueryStore, PassageRepository, VectorStore } from "./ports/knowledge.js";
 import { SqliteBookRepository, SqliteSourceRepository, SqliteNoteRepository, SqliteProgressRepository, SqliteSyncProgressRepository, SqliteBookDuplicateRepository, SqliteMergeLogRepository, SqliteUnitOfWork, SqliteTagRepository, SqliteIgnoredBookRepository, SqliteMcpTokenRepository, SqliteBookMetadataRepository } from "./adapters/storage/repositories.js";
 import { SqliteBookListQuery } from "./adapters/storage/SqliteBookListQuery.js";
 import { SqliteBookIndexRepository, SqlitePassageRepository } from "./adapters/storage/SqliteKnowledgeRepositories.js";
@@ -67,6 +67,8 @@ import { kosyncRoutes } from "./adapters/http/kosync.js";
 import { opdsRoutes } from "./adapters/http/opds.js";
 import { Indexing } from "./use-cases/Indexing.js";
 import { PassageSearch } from "./use-cases/PassageSearch.js";
+import { SqlitePassageQueryStore } from "./adapters/storage/SqlitePassageQueryStore.js";
+import { SearchWorkerStore } from "./adapters/search/SearchWorkerStore.js";
 import { knowledgeRoutes } from "./adapters/http/knowledge.js";
 import { chatRoutes } from "./adapters/http/chat.js";
 import { Chat } from "./use-cases/Chat.js";
@@ -205,10 +207,18 @@ export function createServices(
     settings: settingsRepository,
     backpressure: { enabled: true },
   }, log);
-  const passageSearch = new PassageSearch(passages, vectors, runner, books, bookIndexes, {
-    enabled: indexing.enabled,
-    vectorScanMax: config.indexing.vectorScanMax,
-  }, log);
+  const searchStore = createPassageQueryStore(db, passages, vectors, log);
+  const passageSearch = new PassageSearch(
+    searchStore,
+    runner,
+    books,
+    bookIndexes,
+    {
+      enabled: indexing.enabled,
+      vectorScanMax: config.indexing.vectorScanMax,
+    },
+    log,
+  );
   const conversations = new SqliteConversationRepository(db);
   const progressRepository = new SqliteProgressRepository(db);
   const duplicateFinder = new DuplicateFinder(
@@ -371,6 +381,7 @@ export function createServices(
     ignoredRepository,
     indexing,
     passageSearch,
+    searchStore,
     chat,
     llmSettings,
     metadataSettings,
@@ -484,6 +495,7 @@ export async function buildApp(
     services.duplicates.stop();
     await services.metadataExtractors.close();
     await services.ingestionRunner.close();
+    await services.searchStore.close();
     // Refresh planner statistics after a session with heavy inserts/deletes (ADR-D1).
     if (db.open) db.pragma("optimize");
   });
@@ -575,6 +587,29 @@ export async function buildApp(
   }
 
   return { app, scanner, indexing, duplicates: services.duplicates };
+}
+
+export type PassageQueryStoreHandle = PassageQueryStore & { close(): Promise<void> };
+
+/**
+ * Retrieval reads run off the API event loop whenever the database is a real file. A
+ * worker cannot share SQLite's in-memory database, so unit tests and ephemeral builds
+ * keep the in-process store; they are small and never drive the production path.
+ */
+export function createPassageQueryStore(
+  db: Db,
+  passages: PassageRepository,
+  vectors: VectorStore,
+  log: Logger,
+): PassageQueryStoreHandle {
+  if (db.name === ":memory:") return new SqlitePassageQueryStore(passages, vectors);
+  return new SearchWorkerStore({
+    file: db.name,
+    log: (message, error) => {
+      if (error === undefined) log.warn?.(message);
+      else log.error(error, message);
+    },
+  });
 }
 
 /**

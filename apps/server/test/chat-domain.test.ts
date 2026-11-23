@@ -19,6 +19,11 @@ import {
   type TutorMessage,
 } from "../src/domain/assistant/tutorPrompt.js";
 import { NO_PASSAGES_BLOCK } from "../src/domain/assistant/tutorPrompt.js";
+import {
+  LIBRARY_NOT_USED_BLOCK,
+  SEARCH_PARTIAL_BLOCK,
+  SEARCH_TIMED_OUT_BLOCK,
+} from "../src/domain/assistant/tutorPrompt.js";
 
 describe("assistant domain", () => {
   it("trims questions and enforces the documented limits", () => {
@@ -62,6 +67,70 @@ describe("Feynman tutor prompt", () => {
       role: "user",
       content: `${NO_PASSAGES_BLOCK}\n\nQuestion: What is deep work?`,
     });
+  });
+
+  it("replaces the no-passages note with a timeout note and keeps the envelope rule", () => {
+    const messages = buildTutorMessages({
+      question: "What is deep work?",
+      passages: [],
+      history: [],
+      librarySearch: "timed_out",
+    });
+    const user = messages.at(-1)?.content ?? "";
+    expect(user).toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(user).not.toContain(NO_PASSAGES_BLOCK);
+    expect(messages[0].content).toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(messages[0].content).toContain("briefly mention");
+    expect(messages[0].content).toContain("Never say the library does not contain the information");
+  });
+
+  it("distinguishes a library that was not used from a clean no-match", () => {
+    const notUsed = buildTutorMessages({
+      question: "Explain this page",
+      passages: [],
+      history: [],
+      librarySearch: "not_used",
+    });
+    expect(notUsed.at(-1)?.content).toContain(LIBRARY_NOT_USED_BLOCK);
+    expect(notUsed.at(-1)?.content).not.toContain(NO_PASSAGES_BLOCK);
+    expect(notUsed[0]!.content).toContain(LIBRARY_NOT_USED_BLOCK);
+
+    const noMatch = buildTutorMessages({
+      question: "Explain this page",
+      passages: [],
+      history: [],
+      librarySearch: "used",
+    });
+    expect(noMatch.at(-1)?.content).toContain(NO_PASSAGES_BLOCK);
+    expect(noMatch.at(-1)?.content).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+  });
+
+  it("keeps the partial-timeout note alongside passages and the total-timeout note without them", () => {
+    expect(SEARCH_PARTIAL_BLOCK).toBe("Library search: partial; some results may be missing (timed out).");
+    const withPassages = buildTutorMessages({
+      question: "What is deep work?",
+      passages: [{ n: 1, bookTitle: "Deep Work", page: 1, section: null, text: "Focus is rare." }],
+      history: [],
+      librarySearch: "timed_out",
+    });
+    const passageUser = withPassages.at(-1)?.content ?? "";
+    expect(passageUser).toContain(SEARCH_PARTIAL_BLOCK);
+    expect(passageUser).not.toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(passageUser).toContain("<passage");
+    expect(passageUser).not.toContain(NO_PASSAGES_BLOCK);
+
+    const withExcerpt = buildTutorMessages({
+      question: "Explain this",
+      passages: [],
+      history: [],
+      excerpt: { text: "visible text", kind: "visible" },
+      librarySearch: "timed_out",
+    });
+    const excerptUser = withExcerpt.at(-1)?.content ?? "";
+    expect(excerptUser).toContain(SEARCH_TIMED_OUT_BLOCK);
+    expect(excerptUser).not.toContain(SEARCH_PARTIAL_BLOCK);
+    expect(excerptUser).toContain("<excerpt");
+    expect(excerptUser).not.toContain(NO_PASSAGES_BLOCK);
   });
 
   it("numbers passages, keeps their metadata and escapes the closing delimiter", () => {

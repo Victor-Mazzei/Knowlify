@@ -6,6 +6,7 @@ import { Worker } from "node:worker_threads";
 import { LEXICAL_INDEX_SUFFIX } from "../../domain/knowledge/BookIndex.js";
 import type {
   EmbeddingsStatus,
+  EmbedQueryOptions,
   IngestionRunner,
   IngestJob,
   IngestOutcome,
@@ -29,6 +30,12 @@ export interface ThreadIngestionRunnerOptions {
   workers?: number;
   /** Test seam: run an alternative worker entry point. */
   workerPath?: string;
+  /**
+   * Ceiling on query embeddings waiting for a worker. A busy ingestion worker would
+   * otherwise let abandoned queries accumulate; past this limit the caller falls back to
+   * lexical search instead of queueing more work.
+   */
+  maxQueryBacklog?: number;
   /**
    * Test seam: chunking strategy inside the worker. Production relies on the
    * domain `chunkSections` (the default) once that track lands.
@@ -57,7 +64,11 @@ interface PendingQuery {
   slot: WorkerSlot;
   resolve: (vector: Float32Array | null) => void;
   reject: (error: unknown) => void;
+  /** Removes the abort listener once the request settles for any reason. */
+  detach: () => void;
 }
+
+const DEFAULT_MAX_QUERY_BACKLOG = 4;
 
 function initialStatus(config: EmbedderConfig): EmbeddingsStatus {
   switch (config.kind) {
@@ -111,12 +122,14 @@ export class ThreadIngestionRunner implements IngestionRunner {
   private readonly readyListeners = new Set<() => void>();
   private readonly maxBytes: number;
   private readonly maxWorkers: number;
+  private readonly maxQueryBacklog: number;
   private readonly log: (message: string, error?: unknown) => void;
 
   constructor(private readonly options: ThreadIngestionRunnerOptions) {
     this.status = initialStatus(options.embedder);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxWorkers = Math.max(1, Math.floor(options.workers ?? 1));
+    this.maxQueryBacklog = Math.max(1, Math.floor(options.maxQueryBacklog ?? DEFAULT_MAX_QUERY_BACKLOG));
     this.log = options.log ?? (() => {});
   }
 
@@ -128,8 +141,13 @@ export class ThreadIngestionRunner implements IngestionRunner {
     });
   }
 
-  async embedQuery(text: string): Promise<Float32Array | null> {
+  async embedQuery(text: string, options: EmbedQueryOptions = {}): Promise<Float32Array | null> {
     if (this.options.embedder.kind === "none" || this.closing) return null;
+    if (options.signal?.aborted) return null;
+    if (this.queries.size >= this.maxQueryBacklog) {
+      this.log("Query embedding skipped; the ingestion worker is busy");
+      return null;
+    }
     let slot: WorkerSlot;
     try {
       slot = this.pickQuerySlot();
@@ -138,11 +156,21 @@ export class ThreadIngestionRunner implements IngestionRunner {
     }
     const id = ++this.queryId;
     return new Promise<Float32Array | null>((resolve, reject) => {
-      this.queries.set(id, { slot, resolve, reject });
+      const signal = options.signal;
+      const onAbort = (): void => {
+        if (!this.queries.delete(id)) return;
+        detach();
+        this.cancelQuery(slot, id);
+        resolve(null);
+      };
+      const detach = (): void => signal?.removeEventListener("abort", onAbort);
+      this.queries.set(id, { slot, resolve, reject, detach });
+      signal?.addEventListener("abort", onAbort, { once: true });
       try {
         slot.worker.postMessage({ type: "query", id, text, embedder: this.options.embedder } satisfies WorkerRequest);
       } catch (error) {
         this.queries.delete(id);
+        detach();
         reject(error);
       }
     });
@@ -290,14 +318,27 @@ export class ThreadIngestionRunner implements IngestionRunner {
   private failQueries(error: unknown): void {
     const pending = [...this.queries.values()];
     this.queries.clear();
-    for (const query of pending) query.reject(error);
+    for (const query of pending) {
+      query.detach();
+      query.reject(error);
+    }
   }
 
   private failQueriesFor(slot: WorkerSlot, error: unknown): void {
     for (const [id, query] of this.queries) {
       if (query.slot !== slot) continue;
       this.queries.delete(id);
+      query.detach();
       query.reject(error);
+    }
+  }
+
+  /** Tells the worker to skip a query no caller waits for anymore. Never stops a run. */
+  private cancelQuery(slot: WorkerSlot, id: number): void {
+    try {
+      slot.worker.postMessage({ type: "query-cancel", id } satisfies WorkerRequest);
+    } catch {
+      /* the worker is gone; the exit handler already dropped its pending queries */
     }
   }
 
@@ -334,6 +375,7 @@ export class ThreadIngestionRunner implements IngestionRunner {
         const query = this.queries.get(message.id);
         if (!query) return;
         this.queries.delete(message.id);
+        query.detach();
         query.resolve(message.vector);
         return;
       }

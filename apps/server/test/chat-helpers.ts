@@ -103,13 +103,17 @@ export class WaitingLlmClient implements LlmClient {
 export class FakeRetriever implements PassageRetriever {
   mode = "hybrid";
   hits: PassageSearchHit[] = [];
+  unavailable = false;
   error: Error | null = null;
-  readonly queries: { q: string; bookId?: string; limit: number }[] = [];
+  readonly queries: { q: string; bookId?: string; limit: number; allowShortQuery?: boolean }[] = [];
 
-  async search(query: { q: string; bookId?: string; limit: number }): Promise<{ mode: string; hits: PassageSearchHit[] }> {
-    this.queries.push(query);
+  async search(
+    query: { q: string; bookId?: string; limit: number },
+    options?: { allowShortQuery?: boolean },
+  ): Promise<{ mode: string; hits: PassageSearchHit[]; unavailable: boolean }> {
+    this.queries.push({ ...query, ...(options?.allowShortQuery ? { allowShortQuery: true } : {}) });
     if (this.error) throw this.error;
-    return { mode: this.mode, hits: this.hits };
+    return { mode: this.mode, hits: this.hits, unavailable: this.unavailable };
   }
 }
 
@@ -148,6 +152,8 @@ export interface ChatFixtureOptions {
   log?: Logger;
   /** Mutable provider, so tests can change the persona between turns. */
   systemPrompt?: () => string | null;
+  /** Use a caller-owned database instead of a fresh in-memory one. */
+  db?: Db;
 }
 
 export interface ChatFixture {
@@ -160,7 +166,7 @@ export interface ChatFixture {
 }
 
 export function createChatFixture(options: ChatFixtureOptions = {}): ChatFixture {
-  const db = openDb(":memory:");
+  const db = options.db ?? openDb(":memory:");
   const books = new SqliteBookRepository(db);
   for (const book of options.books ?? [BOOK]) books.save(book);
   const conversations = new SqliteConversationRepository(db);
