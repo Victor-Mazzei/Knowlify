@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ASK_LIBRARY_OFF, ASK_LIBRARY_ON, LibraryToggle } from "./LibraryToggle";
 import { ModeSwitch } from "./ModeSwitch";
 import { FirstUseHint } from "./FirstUseHint";
@@ -11,6 +11,9 @@ import type { TutorSlot } from "./TutorProvider";
 import { useConversations } from "./useConversations";
 import { useTutorConversationActions } from "./useTutorConversationActions";
 import type { ConversationSummary } from "./types";
+import { useMediaQuery } from "../../components/useMediaQuery";
+import { isDesktopShell } from "../../services/desktop";
+import { COMPACT_TUTOR_QUERY, DESKTOP_RESERVE_STYLE } from "./tutorLayout";
 import "./sessions.css";
 
 const slotTitle = (slot: TutorSlot | undefined) => {
@@ -37,6 +40,8 @@ const contextLine = (slot: TutorSlot | undefined, reader: ReturnType<typeof useT
 export function TutorPanel({ isMobile = false }: { isMobile?: boolean }) {
   const tutor = useTutor();
   const page = tutor.surface === "page";
+  // The desktop shell injects a fixed connection button at the bottom-right.
+  const desktop = isDesktopShell();
   const slot = tutor.activeSlot;
   const status = tutor.status;
   const bookId = slot?.kind === "book" ? slot.bookId : tutor.reader?.book.id;
@@ -55,8 +60,66 @@ export function TutorPanel({ isMobile = false }: { isMobile?: boolean }) {
   });
   const actions = useTutorConversationActions({ tutor, lists: [bookList, libraryList] });
   const [announcement, setAnnouncement] = useState("");
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // The short-viewport sheet is a disclosure over the page, so the covered chat stays inert.
+  const compactSessions = useMediaQuery(COMPACT_TUTOR_QUERY);
+  const sessionsToggle = useRef<HTMLButtonElement>(null);
+  const sessionsClose = useRef<HTMLButtonElement>(null);
   const previousMode = useRef(slot?.mode);
   const previousLibrary = useRef(slot?.useLibrary);
+
+  const closeSessions = useCallback((returnFocus = true) => {
+    setSessionsOpen(false);
+    if (returnFocus) window.requestAnimationFrame(() => sessionsToggle.current?.focus());
+  }, []);
+
+  useEffect(() => {
+    if (!page) setSessionsOpen(false);
+  }, [page]);
+
+  useEffect(() => {
+    if (!compactSessions) setSessionsOpen(false);
+  }, [compactSessions]);
+
+  // On the desktop, the injected connection button owns the bottom-right corner.
+  // When the panel column has to scroll, start at its end so the composer and
+  // Send are visible above the button; the header/mode stay reachable by scrolling up.
+  useEffect(() => {
+    if (!desktop) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const settle = () => {
+      if (panel.scrollHeight > panel.clientHeight + 1) panel.scrollTop = panel.scrollHeight;
+    };
+    settle();
+    const frame = window.requestAnimationFrame(settle);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(settle);
+    observer?.observe(panel);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [desktop, page]);
+
+  // The sheet is a disclosure, not a modal: Escape closes it and focus returns to the trigger.
+  useEffect(() => {
+    if (!sessionsOpen) return;
+    const frame = window.requestAnimationFrame(() => sessionsClose.current?.focus());
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[aria-modal="true"]:not(#tutor-panel)')) return;
+      // Escape inside an inline editor cancels that edit, not the whole sheet.
+      if (event.target instanceof Element && event.target.closest("[data-tutor-rename]")) return;
+      event.stopPropagation();
+      closeSessions();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [sessionsOpen, closeSessions]);
 
   const busyIds = new Set<string>();
   for (const item of tutor.slots) {
@@ -127,6 +190,21 @@ export function TutorPanel({ isMobile = false }: { isMobile?: boolean }) {
     return ok;
   };
 
+  /** Picking a session from the compact sheet returns to the chat and keeps focus predictable. */
+  const selectSession = (conversation: ConversationSummary) => {
+    const fromSheet = sessionsOpen;
+    setSessionsOpen(false);
+    tutor.selectConversation(conversation);
+    if (fromSheet) window.requestAnimationFrame(() => sessionsToggle.current?.focus());
+  };
+
+  const startNewFromList = () => {
+    const fromSheet = sessionsOpen;
+    setSessionsOpen(false);
+    actions.startNew();
+    if (fromSheet) window.requestAnimationFrame(() => sessionsToggle.current?.focus());
+  };
+
   const newTitle = slot?.streaming
     ? "Available when the answer finishes."
     : actions.busy
@@ -163,7 +241,7 @@ export function TutorPanel({ isMobile = false }: { isMobile?: boolean }) {
         sections={sections}
         activeId={activeId}
         deleteDisabledIds={busyIds}
-        onSelect={tutor.selectConversation}
+        onSelect={selectSession}
         onDelete={(conversation) => void actions.removeConversation(conversation)}
         onRename={rename}
       />
@@ -177,40 +255,72 @@ export function TutorPanel({ isMobile = false }: { isMobile?: boolean }) {
 
   return (
     <div
+      ref={panelRef}
       id="tutor-panel"
+      data-desktop={desktop ? "true" : undefined}
+      data-sessions-open={page && sessionsOpen ? "true" : undefined}
       className={page ? "asst-page tutor-page" : "tutor-dock"}
+      style={desktop ? DESKTOP_RESERVE_STYLE : undefined}
       role={page ? undefined : isMobile ? "dialog" : "complementary"}
       aria-modal={!page && isMobile ? true : undefined}
       aria-label={page ? undefined : "Tutor"}
     >
+      {page && sessionsOpen && (
+        <div className="tutor-sessions-backdrop" aria-hidden="true" onClick={() => closeSessions()} />
+      )}
       {page && (
-        <aside className="asst-rail" aria-label="Sessions">
+        <aside id="tutor-sessions" className="asst-rail" aria-label="Sessions">
           <div className="asst-rail-head">
             <p className="eyebrow">Sessions</p>
             <button
               ref={actions.newButtonRef}
               type="button"
               className="ghost bordered"
-              onClick={() => actions.startNew()}
+              onClick={startNewFromList}
               disabled={actions.newDisabled}
             >
               New session
             </button>
+            {sessionsOpen && (
+              <button
+                ref={sessionsClose}
+                type="button"
+                className="tutor-sessions-close"
+                aria-label="Close sessions"
+                onClick={() => closeSessions()}
+              >
+                ×
+              </button>
+            )}
           </div>
           {listView}
         </aside>
       )}
 
-      <section className={page ? "asst-main" : "tutor-main"} aria-label={page ? "Chat" : undefined}>
+      <section
+        className={page ? "asst-main" : "tutor-main"}
+        aria-label={page ? "Chat" : undefined}
+        inert={page && sessionsOpen && compactSessions ? true : undefined}
+      >
         {page ? (
           <header className="asst-heading">
             <p className="eyebrow">Tutor</p>
             <h1>Ask your library</h1>
             <p>
               {tutor.modesSupported
-                ? "Ask a quick question, or keep a session with your books. Answers cite the passages they use when the library is on."
-                : "Keep a session with your books. Answers cite the passages they use when the library is on."}
+                ? "Ask a quick question, or keep a saved session."
+                : "Keep a saved session with your books."}
             </p>
+            <button
+              ref={sessionsToggle}
+              type="button"
+              className="ghost bordered tutor-sessions-toggle"
+              aria-expanded={sessionsOpen}
+              aria-controls="tutor-sessions"
+              onClick={() => setSessionsOpen((open) => !open)}
+            >
+              Sessions
+            </button>
           </header>
         ) : (
           <header className="tutor-head">

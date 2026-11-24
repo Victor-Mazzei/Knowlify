@@ -15,6 +15,18 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.3.1] - 2026-11-24
+
+### Changed
+
+- Ask controls are simpler: "Search my books" explains what is sent, book suggestions moved behind the composer settings ("Suggest books from my library"), and "Suggest books" asks for book cards on the next message only. On windows up to 520 px high the "Suggest books" button is hidden to save space.
+
+### Fixed
+
+- The tutor page keeps its header and composer in place and scrolls only the message area. The tutor follows new answers while you are at the bottom, leaves you where you are when you scroll up, and offers "Jump to latest" to return.
+- The message area keeps a minimum height on short windows, including wide desktops: the surrounding chrome yields and the column scrolls when needed, so the composer and Send stay reachable. On short or landscape windows the Ask page keeps the app menu and the saved-session list reachable through compact keyboard controls.
+- In the desktop app, the tutor button and composer reserve space for the "Connection settings" button, following its font size and zoom. Known limit: in very small windows (effective width below 320 px, or effective height around 300 px at high zoom) the message field can still overlap the connection button.
+
 ## [2.3.0] - 2026-11-24
 
 ### Added
@@ -404,7 +416,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.0.4...v2.1.0

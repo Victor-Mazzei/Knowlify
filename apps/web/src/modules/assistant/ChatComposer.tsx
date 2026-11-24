@@ -19,6 +19,7 @@ export function ChatComposer({
   useLibrary = true,
   libraryAvailable = true,
   recommendControl,
+  settings,
 }: {
   draft: string;
   onDraft: (value: string) => void;
@@ -38,6 +39,8 @@ export function ChatComposer({
   libraryAvailable?: boolean;
   /** Ask + whole library: the book suggestion controls, rendered with the question field. */
   recommendControl?: ReactNode;
+  /** Ask + whole library: the settings gear and its popover, rendered with the actions. */
+  settings?: ReactNode;
 }) {
   const inputId = useId();
   const privacyId = useId();
@@ -106,6 +109,7 @@ export function ChatComposer({
           <span className="asst-host">{host ?? "the configured model provider"}</span>.
         </p>
         <div className="asst-composer-buttons">
+          {settings}
           {onUseVisibleText && !excerpt && (
             <button type="button" className="ghost" onClick={onUseVisibleText}>
               Use page text

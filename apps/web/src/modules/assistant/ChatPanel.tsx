@@ -5,7 +5,7 @@ import type { ChatExcerpt } from "./excerpt";
 import { ChatComposer } from "./ChatComposer";
 import { MessageList } from "./MessageList";
 import { ModeStatus } from "./ModeStatus";
-import { RecommendControl } from "./RecommendControl";
+import { ComposerSettings, RecommendControl } from "./RecommendControl";
 import { SessionLimitNotice } from "./SessionLimitNotice";
 import { useChat } from "./useChat";
 import type { ChatLimitDetails } from "./useChat";
@@ -93,6 +93,7 @@ export function ChatPanel({
   const [initialId] = useState(conversationId);
   const [draft, setDraft] = useState("");
   const [recommendNext, setRecommendNext] = useState(false);
+  const [scrollSignal, setScrollSignal] = useState(0);
   const effectiveMode: ChatMode = modeSupported ? mode : "session";
   const lastQuestion = useRef("");
   const chat = useChat({
@@ -151,6 +152,11 @@ export function ChatPanel({
   const blockedByLimit =
     effectiveMode === "session" && !chat.loading && !chat.conversationId && Boolean(sessionLimit);
   const composerDisabled = disabled || blockedByLimit || chat.sessionFull;
+  const scrollToLatest = () => setScrollSignal((value) => value + 1);
+  const retry = () => {
+    scrollToLatest();
+    chat.retry();
+  };
   const showRecommend = recommendSupported && effectiveMode === "ask" && scope.kind === "library";
   const recommendAvailable = showRecommend && useLibrary && status.scopes.library;
   const recommendArmed = recommendNext && recommendAvailable;
@@ -186,13 +192,14 @@ export function ChatPanel({
           useLibrary={useLibrary}
           onEnableLibrary={onEnableLibrary}
           onOpenBook={onOpenBook}
+          scrollSignal={scrollSignal}
         />
       )}
       {chat.error && (
         <div className="asst-error" role="alert">
           <span>{chat.error}</span>
           {chat.canRetry && (
-            <button type="button" className="ghost bordered" onClick={chat.retry}>
+            <button type="button" className="ghost bordered" onClick={retry}>
               Retry
             </button>
           )}
@@ -209,7 +216,7 @@ export function ChatPanel({
       {chat.stopped && (
         <div className="asst-stopped" role="status">
           <span>Answer stopped.</span>
-          <button type="button" className="ghost bordered" onClick={chat.retry}>
+          <button type="button" className="ghost bordered" onClick={retry}>
             Retry
           </button>
         </div>
@@ -240,6 +247,7 @@ export function ChatPanel({
           onDraft={setDraft}
           onSubmit={(question) => {
             lastQuestion.current = question;
+            scrollToLatest();
             chat.send(question, excerpt, recommendArmed ? "on" : undefined);
             setRecommendNext(false);
             setDraft("");
@@ -259,13 +267,21 @@ export function ChatPanel({
           recommendControl={
             showRecommend ? (
               <RecommendControl
-                mode={recommend}
-                onModeChange={(value) => onRecommendChange?.(value)}
                 armed={recommendArmed}
                 onArm={setRecommendNext}
                 useLibrary={useLibrary}
                 libraryAvailable={status.scopes.library}
+                onEnableLibrary={onEnableLibrary}
                 disabled={disabled || chat.streaming || chat.sessionFull}
+              />
+            ) : undefined
+          }
+          settings={
+            showRecommend ? (
+              <ComposerSettings
+                mode={recommend}
+                onModeChange={(value) => onRecommendChange?.(value)}
+                disabled={disabled || chat.streaming || !status.scopes.library}
               />
             ) : undefined
           }

@@ -80,9 +80,15 @@
   color: var(--ink);
 }
 .tutor-mode-desc {
-  color: var(--ink-dim);
-  font-size: 11.5px;
-  line-height: 1.4;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Ask-only library switch */

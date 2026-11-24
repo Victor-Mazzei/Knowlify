@@ -29,6 +29,22 @@ const apiResponse = (url: string) => {
   return new Response("{}", { status: 404 });
 };
 
+function stubShortViewport() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query.includes("max-height: 620px"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+}
+
 function renderShell(initialEntries = ["/"]) {
   const onLogout = vi.fn();
   const view = render(
@@ -36,6 +52,7 @@ function renderShell(initialEntries = ["/"]) {
       <Routes>
         <Route element={<AppShell credentials={credentials} onLogout={onLogout} />}>
           <Route path="/" element={<main>library content</main>} />
+          <Route path="/ask" element={<main>ask content</main>} />
           <Route path="/notes" element={<main>notes content</main>} />
           <Route path="/settings" element={<main>settings content</main>} />
         </Route>
@@ -56,6 +73,7 @@ describe("AppShell", () => {
     const { onLogout, container } = renderShell();
 
     expect(screen.getByRole("link", { name: "Library" })).toHaveAttribute("aria-current", "page");
+    expect(container.querySelector(".app")).not.toHaveClass("app-ask");
     expect(screen.getByRole("link", { name: "Knowlify" })).toContainElement(
       container.querySelector(".brand svg[aria-hidden='true']"),
     );
@@ -66,6 +84,45 @@ describe("AppShell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Log out" }));
     expect(onLogout).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets the Ask route own the viewport so only the transcript scrolls", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => apiResponse(String(input))));
+    const { container } = renderShell(["/ask"]);
+
+    expect(await screen.findByText("ask content")).toBeInTheDocument();
+    expect(container.querySelector(".app")).toHaveClass("app-ask");
+  });
+
+  it("keeps navigation reachable on a short Ask viewport and exits the route", async () => {
+    stubShortViewport();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => apiResponse(String(input))));
+    const { container } = renderShell(["/ask"]);
+
+    expect(await screen.findByText("ask content")).toBeInTheDocument();
+    expect(container.querySelector(".app")).toHaveClass("app-ask", "app-compact");
+    expect(screen.queryByRole("link", { name: "Notes" })).not.toBeInTheDocument();
+
+    const menu = screen.getByRole("button", { name: "Menu" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(menu);
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("link", { name: "Notes" })).not.toBeInTheDocument();
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    expect(menu).toHaveFocus();
+
+    // The menu is the keyboard path out of /ask when the header is collapsed.
+    fireEvent.click(menu);
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(screen.getByRole("link", { name: "Notes" }));
+    expect(screen.getByText("notes content")).toBeInTheDocument();
+    expect(container.querySelector(".app")).not.toHaveClass("app-ask");
+    expect(container.querySelector(".app")).not.toHaveClass("app-compact");
+    expect(screen.getByRole("link", { name: "Notes" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Menu" })).not.toBeInTheDocument();
   });
 
   it("keeps the same header and status requests when the route changes", async () => {

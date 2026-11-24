@@ -68,7 +68,7 @@ export type Citation = {
 };
 
 export type RecommendationStatus = "ready" | "none" | "library_off" | "unavailable";
-/** `explicit` when the user pressed "Recommend books"; `detected` for the automatic path. */
+/** `explicit` when the user pressed "Suggest books"; `detected` for the automatic path. */
 export type RecommendationIntent = "explicit" | "detected";
 export type RecommendationFocus = "recommend" | "learn";
 

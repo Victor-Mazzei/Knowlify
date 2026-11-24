@@ -50,7 +50,10 @@ const answerEvents = (conversationId = "c1") => [
   { type: "done", conversationId, messageId: "m1", title: "Question", finishReason: "stop" },
 ];
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete window.__TAURI__;
+});
 
 describe("TutorDock", () => {
   it("opens and closes with the FAB and Alt+T, keeping focus on the entry point", async () => {
@@ -58,6 +61,7 @@ describe("TutorDock", () => {
 
     const fab = await screen.findByRole("button", { name: "Open tutor" });
     expect(fab).toHaveAttribute("aria-keyshortcuts", "Alt+T");
+    expect(fab).not.toHaveAttribute("data-desktop");
     fab.focus();
     fireEvent.click(fab);
 
@@ -108,6 +112,17 @@ describe("TutorDock", () => {
     renderApp(createMockChatApi({ seed: false }), tutorChatStatus(), ["/ask"]);
     expect(await screen.findByRole("heading", { name: "Ask page" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open tutor" })).not.toBeInTheDocument();
+  });
+
+  it("marks the tutor surfaces for the desktop shell so they clear the connection button", async () => {
+    window.__TAURI__ = { core: { invoke: vi.fn() } };
+    renderApp(createMockChatApi({ seed: false }));
+
+    const fab = await screen.findByRole("button", { name: "Open tutor" });
+    expect(fab).toHaveAttribute("data-desktop", "true");
+    fireEvent.click(fab);
+    const panel = await screen.findByRole("complementary", { name: "Tutor" });
+    expect(panel).toHaveAttribute("data-desktop", "true");
   });
 
   it("does not show the FAB in the reader", async () => {

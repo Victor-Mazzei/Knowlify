@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
 import { TUTOR_ASK_LIBRARY_KEY, TUTOR_MODE_KEY } from "../../services/storage";
 import { createMockChatApi } from "./mockChat";
+import { ASK_LIBRARY_OFF, LIBRARY_HELP } from "./LibraryToggle";
 import { LIBRARY_SLOT_KEY, TutorProvider, useTutor } from "./TutorProvider";
 import { ReaderProbe, TutorTestProviders, chatStatusContext, tutorChatStatus } from "./tutorHarness";
 import type { ChatMessage, ChatStatus } from "./types";
@@ -34,7 +35,7 @@ const openDock = async () => {
 
 const askRadio = () => screen.getByRole("radio", { name: "Ask" });
 const sessionRadio = () => screen.getByRole("radio", { name: "Session" });
-const librarySwitch = () => screen.getByRole("switch", { name: "Use my library" });
+const librarySwitch = () => screen.getByRole("switch", { name: "Search my books" });
 const questionBox = () => screen.getByRole("textbox", { name: "Your question" });
 
 const announcement = () =>
@@ -109,14 +110,12 @@ describe("Tutor modes", () => {
     renderTutor(api);
     await openDock();
 
-    expect(screen.getByText("Quick question: nothing is saved")).toBeVisible();
-    expect(screen.getByText("Keeps the history and context; you can resume later")).toBeVisible();
+    expect(screen.getByText("Quick question: nothing is saved")).toBeInTheDocument();
+    expect(screen.getByText("Keeps the history and context; you can resume later")).toBeInTheDocument();
     fireEvent.click(askRadio());
     expect(screen.getByText(/Ask · not saved · library on/)).toBeInTheDocument();
     expect(librarySwitch()).toHaveAttribute("aria-checked", "true");
-    expect(
-      screen.getAllByText("Ask with your library: answers can cite your books.").length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(LIBRARY_HELP).length).toBeGreaterThan(0);
     expect(localStorage.getItem(TUTOR_MODE_KEY)).toBe("ask");
 
     fireEvent.change(questionBox(), { target: { value: "A quick question" } });
@@ -136,11 +135,7 @@ describe("Tutor modes", () => {
 
     fireEvent.click(librarySwitch());
     expect(screen.getByText(/Ask · not saved · library off/)).toBeInTheDocument();
-    expect(
-      screen.getAllByText(
-        "Ask without your library: the model answers on its own, no citations. Your books are not searched or sent.",
-      ).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(LIBRARY_HELP).length).toBeGreaterThan(0);
     expect(localStorage.getItem(TUTOR_ASK_LIBRARY_KEY)).toBe("0");
     expect(Object.keys(localStorage).sort()).toEqual([TUTOR_ASK_LIBRARY_KEY, TUTOR_MODE_KEY].sort());
 
@@ -414,7 +409,7 @@ describe("Tutor modes", () => {
 
     expect(screen.queryByRole("radiogroup", { name: "Chat mode" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio", { name: "Ask" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Use my library" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Search my books" })).not.toBeInTheDocument();
     expect(screen.getByText("New session · saves with your first answer")).toBeInTheDocument();
 
     fireEvent.change(questionBox(), { target: { value: "Legacy turn" } });
@@ -575,11 +570,7 @@ describe("Tutor modes", () => {
     await waitFor(() => expect(questionBox()).toHaveFocus());
 
     fireEvent.click(librarySwitch());
-    await waitFor(() =>
-      expect(announcement()).toContain(
-        "Ask without your library: the model answers on its own, no citations. Your books are not searched or sent.",
-      ),
-    );
+    await waitFor(() => expect(announcement()).toContain(ASK_LIBRARY_OFF));
 
     fireEvent.click(sessionRadio());
     await waitFor(() => expect(announcement()).toContain("Session mode. Saved as a new session."));

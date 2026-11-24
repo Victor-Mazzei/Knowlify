@@ -126,13 +126,13 @@ describe("BookSuggestions", () => {
       false,
       onEnableLibrary,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Turn on Use my library" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn on Search my books" }));
     expect(onEnableLibrary).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Book suggestions need Use my library.")).toBeInTheDocument();
+    expect(screen.getByText("Book suggestions need Search my books.")).toBeInTheDocument();
     off.unmount();
 
     renderSuggestions(payload({ status: "library_off", books: [] }), [], true, onEnableLibrary);
-    expect(screen.queryByRole("button", { name: "Turn on Use my library" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Turn on Search my books" })).not.toBeInTheDocument();
   });
 
   it("shows no cards when the turn has no markers", () => {

@@ -71,7 +71,7 @@ const NO_BOOKS_ANSWER =
   "I didn't find a book in your library that fits this topic. Try asking about a language, framework or subject you know you own.";
 
 const LIBRARY_OFF_ANSWER =
-  "Book suggestions need Use my library. Turn it on and ask again, and I can look for books you already have.";
+  "Book cards need Search my books. Turn it on and ask again, and I can look for books you already have.";
 
 /** Dev-only fixture for visual checks of the Markdown renderer. */
 const RICH_ANSWER = [
@@ -490,7 +490,7 @@ export function createMockChatApi(options: MockChatOptions = {}): ApiFn {
         });
       if (request.recommend === "on" && mode === "ask" && request.useLibrary === false)
         fail(400, {
-          message: "Book suggestions need Use my library.",
+          message: "Book suggestions need Search my books.",
           code: "library_required",
         });
 

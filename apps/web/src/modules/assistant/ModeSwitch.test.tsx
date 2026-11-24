@@ -8,8 +8,8 @@ describe("ModeSwitch", () => {
 
     const group = screen.getByRole("radiogroup", { name: "Chat mode" });
     expect(group).toBeInTheDocument();
-    expect(screen.getByText("Quick question: nothing is saved")).toBeVisible();
-    expect(screen.getByText("Keeps the history and context; you can resume later")).toBeVisible();
+    expect(screen.getByText("Quick question: nothing is saved")).toBeInTheDocument();
+    expect(screen.getByText("Keeps the history and context; you can resume later")).toBeInTheDocument();
 
     const ask = screen.getByRole("radio", { name: "Ask" });
     const session = screen.getByRole("radio", { name: "Session" });

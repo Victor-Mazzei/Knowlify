@@ -29,10 +29,11 @@ const openDock = async () => {
 
 const askRadio = () => screen.getByRole("radio", { name: "Ask" });
 const sessionRadio = () => screen.getByRole("radio", { name: "Session" });
-const librarySwitch = () => screen.getByRole("switch", { name: "Use my library" });
-const bookSwitch = () => screen.queryByRole("switch", { name: /Book suggestions/ });
+const librarySwitch = () => screen.getByRole("switch", { name: "Search my books" });
+const settingsButton = () => screen.queryByRole("button", { name: "Answer settings" });
+const bookSwitch = () => screen.queryByRole("switch", { name: "Suggest books from my library" });
 const questionBox = () => screen.getByRole("textbox", { name: "Your question" });
-const recommendButton = () => screen.queryByRole("button", { name: "Recommend books" });
+const recommendButton = () => screen.queryByRole("button", { name: "Suggest books" });
 
 const captureBodies = (chat: ApiFn) => {
   const bodies: Body[] = [];
@@ -55,8 +56,12 @@ describe("Book recommendations in Ask", () => {
     fireEvent.click(askRadio());
 
     expect(recommendButton()).toBeInTheDocument();
+    expect(settingsButton()).toBeInTheDocument();
+    expect(bookSwitch()).not.toBeInTheDocument();
+    fireEvent.click(settingsButton()!);
     expect(bookSwitch()).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("Auto")).toBeInTheDocument();
+    fireEvent.click(settingsButton()!);
 
     fireEvent.click(recommendButton()!);
     expect(recommendButton()).toHaveAttribute("aria-pressed", "true");
@@ -101,9 +106,11 @@ describe("Book recommendations in Ask", () => {
       expect(screen.queryByRole("button", { name: "Stop" })).not.toBeInTheDocument(),
     );
 
+    fireEvent.click(settingsButton()!);
     fireEvent.click(bookSwitch()!);
     expect(bookSwitch()).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText("Off")).toBeInTheDocument();
+    fireEvent.click(settingsButton()!);
     fireEvent.change(questionBox(), { target: { value: "Which books about Rust?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() => expect(bodies).toHaveLength(3));
@@ -118,6 +125,7 @@ describe("Book recommendations in Ask", () => {
     await openDock();
     expect(sessionRadio()).toBeChecked();
     expect(recommendButton()).not.toBeInTheDocument();
+    expect(settingsButton()).not.toBeInTheDocument();
     view.unmount();
 
     localStorage.clear();
@@ -127,6 +135,7 @@ describe("Book recommendations in Ask", () => {
     fireEvent.click(askRadio());
     expect(questionBox()).toBeInTheDocument();
     expect(recommendButton()).not.toBeInTheDocument();
+    expect(settingsButton()).not.toBeInTheDocument();
     bookView.unmount();
 
     localStorage.clear();
@@ -137,6 +146,7 @@ describe("Book recommendations in Ask", () => {
     await openDock();
     fireEvent.click(askRadio());
     expect(recommendButton()).not.toBeInTheDocument();
+    expect(settingsButton()).not.toBeInTheDocument();
     fireEvent.change(questionBox(), { target: { value: "Which books about Rust?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
@@ -144,27 +154,36 @@ describe("Book recommendations in Ask", () => {
     expect(screen.queryByRole("list", { name: "Books from your library" })).not.toBeInTheDocument();
   });
 
-  it("disables the request with the library off and offers to turn it on", async () => {
+  it("offers to turn Search my books on instead of hiding suggestions", async () => {
     const { api, bodies } = captureBodies(createMockChatApi({ seed: false, chunkDelayMs: 0 }));
     renderTutor(api);
     await openDock();
     fireEvent.click(askRadio());
     fireEvent.click(librarySwitch());
 
-    expect(recommendButton()).toBeDisabled();
-    expect(screen.getByText("Turn on Use my library to get book suggestions.")).toBeInTheDocument();
+    expect(recommendButton()).not.toBeInTheDocument();
+    expect(screen.getByText("Book suggestions need Search my books.")).toBeInTheDocument();
 
     fireEvent.change(questionBox(), { target: { value: "Which books about Rust?" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(await screen.findByText("Book suggestions need Use my library.")).toBeInTheDocument();
+    expect(await screen.findByText(/Book cards need Search my books/)).toBeInTheDocument();
     expect(bodies[0]).not.toHaveProperty("recommend");
     expect(bodies[0]).toMatchObject({ useLibrary: false });
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("log")).getByText("Book suggestions need Search my books."),
+      ).toBeInTheDocument(),
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "Turn on Use my library" }));
+    const composer = questionBox().closest("form");
+    expect(composer).not.toBeNull();
+    fireEvent.click(
+      within(composer as HTMLElement).getByRole("button", { name: "Turn on Search my books" }),
+    );
     expect(librarySwitch()).toHaveAttribute("aria-checked", "true");
     await waitFor(() =>
       expect(
-        screen.queryByRole("button", { name: "Turn on Use my library" }),
+        screen.queryByRole("button", { name: "Turn on Search my books" }),
       ).not.toBeInTheDocument(),
     );
     // Turning the switch on never resends the question by itself.

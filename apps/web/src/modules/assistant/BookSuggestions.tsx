@@ -68,7 +68,7 @@ export function BookSuggestions({
   recommendations?: ChatRecommendations;
   recommended?: number[];
   api: ApiFn;
-  /** Ask switch state: the "Turn on Use my library" action is hidden when it is already on. */
+  /** Ask switch state: the "Turn on Search my books" action is hidden when it is already on. */
   useLibrary: boolean;
   onEnableLibrary?: () => void;
   onOpenBook?: () => void;
@@ -86,10 +86,10 @@ export function BookSuggestions({
   if (recommendations.status === "library_off") {
     return (
       <div className="asst-suggestions-off" role="status">
-        <p>Book suggestions need Use my library.</p>
+        <p>Book suggestions need Search my books.</p>
         {!useLibrary && onEnableLibrary && (
           <button type="button" className="ghost bordered" onClick={onEnableLibrary}>
-            Turn on Use my library
+            Turn on Search my books
           </button>
         )}
       </div>
