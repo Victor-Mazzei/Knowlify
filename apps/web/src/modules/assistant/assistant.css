@@ -150,6 +150,9 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Reserve the transcript's scrollbar: an empty Ask and a full Session must keep
+     the same message width, and streaming must not reflow finished turns. */
+  scrollbar-gutter: stable;
   padding-right: 4px;
 }
 .asst-jump {

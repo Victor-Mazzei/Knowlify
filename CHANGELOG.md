@@ -15,6 +15,12 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.3.2] - 2026-11-24
+
+### Fixed
+
+- The tutor workspace keeps the same chat column, composer and message width when switching between Ask and Session, including when the message list, the saved-session list or the page starts scrolling. The dock reserves the same space. Cost: with classic (always visible) scrollbars the message area, the session list and the page reserve about 15 px for the scrollbar even when nothing scrolls; overlay scrollbars are unaffected.
+
 ## [2.3.1] - 2026-11-24
 
 ### Changed
@@ -416,7 +422,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.2...HEAD
+[2.3.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.1.0...v2.2.0

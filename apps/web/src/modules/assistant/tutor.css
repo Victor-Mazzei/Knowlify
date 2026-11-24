@@ -117,6 +117,8 @@
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Ask is taller than Session: reserve the scrollbar so the column keeps its width. */
+  scrollbar-gutter: stable;
   border-left: 1px solid var(--hairline);
   background: var(--panel);
   box-shadow: -18px 0 40px hsl(132 8.8% 11.2% / 0.08);
@@ -328,6 +330,9 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Ask's extra controls can make the page scroll; reserving the gutter keeps the
+     rail and the chat column in the same place in both modes. */
+  scrollbar-gutter: stable;
   padding-bottom: var(--space-4);
 }
 /* Compact controls replace the rail and app bar when the viewport is short. */
@@ -349,6 +354,8 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* The saved-session list changes between modes and when a session is added. */
+  scrollbar-gutter: stable;
 }
 /* The global <header> rule is the app bar; the page heading is editorial content. */
 .tutor-page .asst-heading {
