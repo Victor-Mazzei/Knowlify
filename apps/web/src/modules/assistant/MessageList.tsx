@@ -1,9 +1,11 @@
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useMemo } from "react";
 import type { ApiFn } from "../../components/dialogs";
 import { BookSuggestions } from "./BookSuggestions";
 import { AnswerText, Sources } from "./Citations";
 import { TutorStatus } from "./TutorStatus";
 import type { ChatMessage } from "./types";
+import { TRANSCRIPT_STYLE } from "./tutorLayout";
+import { useStickToBottom } from "./useStickToBottom";
 
 /**
  * One assistant answer. Memoizing at the message boundary means a streaming
@@ -49,6 +51,7 @@ export function MessageList({
   useLibrary = true,
   onEnableLibrary,
   onOpenBook,
+  scrollSignal = 0,
 }: {
   messages: ChatMessage[];
   streaming: boolean;
@@ -61,63 +64,76 @@ export function MessageList({
   useLibrary?: boolean;
   onEnableLibrary?: () => void;
   onOpenBook?: () => void;
+  /** Increments when the person sends or retries: that action always reaches the end. */
+  scrollSignal?: number;
 }) {
-  const end = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "nearest" });
-  }, [messages, streaming]);
-
-  if (messages.length === 0) {
-    return (
-      <div className="asst-empty">
-        <h2>{emptyTitle}</h2>
-        {emptyCopy && <p>{emptyCopy}</p>}
-        <div className="asst-examples">
-          {examples.map((question) => (
-            <button key={question} type="button" className="asst-example" onClick={() => onExample(question)}>
-              {question}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const { scrollRef, contentRef, onScroll, showJump, jumpToLatest } = useStickToBottom({
+    content: messages,
+    signal: scrollSignal,
+  });
 
   return (
-    <div className="asst-turns" role="log" aria-live="polite" aria-relevant="additions text">
-      {messages.map((message, index) => {
-        const live = streaming && index === messages.length - 1 && message.role === "assistant";
-        if (message.role === "user") {
-          return (
-            <article className="asst-turn" key={message.id}>
-              <p className="asst-turn-label">You</p>
-              <p className="asst-question">{message.content}</p>
-            </article>
-          );
-        }
-        return (
-          <article className="asst-turn" key={message.id}>
-            <p className="asst-turn-label">Tutor</p>
-            <div className="asst-answer-wrap" aria-busy={live ? true : undefined}>
-              <AssistantAnswer message={message} live={live} onOpenBook={onOpenBook} />
-              {live ? <TutorStatus phase={message.content ? "writing" : "thinking"} /> : null}
-              {message.incomplete ? <p className="asst-incomplete">Answer incomplete.</p> : null}
+    <div className="asst-thread" style={TRANSCRIPT_STYLE}>
+      <div className="asst-scroll" ref={scrollRef} onScroll={onScroll}>
+        {messages.length === 0 ? (
+          <div className="asst-empty" ref={contentRef}>
+            <h2>{emptyTitle}</h2>
+            {emptyCopy && <p>{emptyCopy}</p>}
+            <div className="asst-examples">
+              {examples.map((question) => (
+                <button key={question} type="button" className="asst-example" onClick={() => onExample(question)}>
+                  {question}
+                </button>
+              ))}
             </div>
-            <Sources citations={message.citations} />
-            {!live && (
-              <BookSuggestions
-                recommendations={message.recommendations}
-                recommended={message.recommended}
-                api={api}
-                useLibrary={useLibrary}
-                onEnableLibrary={onEnableLibrary}
-                onOpenBook={onOpenBook}
-              />
-            )}
-          </article>
-        );
-      })}
-      <div ref={end} aria-hidden="true" />
+          </div>
+        ) : (
+          <div className="asst-turns" role="log" aria-live="polite" aria-relevant="additions text" ref={contentRef}>
+            {messages.map((message, index) => {
+              const live = streaming && index === messages.length - 1 && message.role === "assistant";
+              if (message.role === "user") {
+                return (
+                  <article className="asst-turn" key={message.id}>
+                    <p className="asst-turn-label">You</p>
+                    <p className="asst-question">{message.content}</p>
+                  </article>
+                );
+              }
+              return (
+                <article className="asst-turn" key={message.id}>
+                  <p className="asst-turn-label">Tutor</p>
+                  <div className="asst-answer-wrap" aria-busy={live ? true : undefined}>
+                    <AssistantAnswer message={message} live={live} onOpenBook={onOpenBook} />
+                    {live ? <TutorStatus phase={message.content ? "writing" : "thinking"} /> : null}
+                    {message.incomplete ? <p className="asst-incomplete">Answer incomplete.</p> : null}
+                  </div>
+                  <Sources citations={message.citations} />
+                  {!live && (
+                    <BookSuggestions
+                      recommendations={message.recommendations}
+                      recommended={message.recommended}
+                      api={api}
+                      useLibrary={useLibrary}
+                      onEnableLibrary={onEnableLibrary}
+                      onOpenBook={onOpenBook}
+                    />
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {showJump && messages.length > 0 && (
+        <>
+          <p className="asst-visually-hidden" role="status">
+            New content below.
+          </p>
+          <button type="button" className="asst-jump" onClick={jumpToLatest}>
+            Jump to latest
+          </button>
+        </>
+      )}
     </div>
   );
 }

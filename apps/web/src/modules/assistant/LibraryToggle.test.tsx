@@ -1,31 +1,33 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ASK_LIBRARY_OFF, ASK_LIBRARY_ON, LibraryToggle } from "./LibraryToggle";
+import { ASK_LIBRARY_OFF, ASK_LIBRARY_ON, LIBRARY_HELP, LibraryToggle } from "./LibraryToggle";
 
 describe("LibraryToggle", () => {
-  it("is a switch with the visible state sentence linked as its description", () => {
+  it("is a switch named Search my books with the help sentence linked as its description", () => {
     render(<LibraryToggle checked onChange={() => undefined} />);
-    const toggle = screen.getByRole("switch", { name: "Use my library" });
+    const toggle = screen.getByRole("switch", { name: "Search my books" });
     expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText(ASK_LIBRARY_ON)).toBeVisible();
-    expect(toggle).toHaveAttribute("aria-describedby", screen.getByText(ASK_LIBRARY_ON).id);
+    expect(screen.getByText(LIBRARY_HELP)).toBeVisible();
+    expect(toggle).toHaveAttribute("aria-describedby", screen.getByText(LIBRARY_HELP).id);
   });
 
-  it("shows the privacy sentence for each state", () => {
+  it("keeps the same help and the announcements for each state", () => {
     const { rerender } = render(<LibraryToggle checked onChange={() => undefined} />);
-    expect(screen.getByText(ASK_LIBRARY_ON)).toBeInTheDocument();
+    expect(screen.getByText(LIBRARY_HELP)).toBeInTheDocument();
+    expect(ASK_LIBRARY_ON).toContain("on");
+    expect(ASK_LIBRARY_OFF).toContain("off");
 
     rerender(<LibraryToggle checked={false} onChange={() => undefined} />);
-    expect(screen.getByText(ASK_LIBRARY_OFF)).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Use my library" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByText(LIBRARY_HELP)).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Search my books" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("toggles with Space and Enter", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     render(<LibraryToggle checked onChange={onChange} />);
-    const toggle = screen.getByRole("switch", { name: "Use my library" });
+    const toggle = screen.getByRole("switch", { name: "Search my books" });
     toggle.focus();
     await user.keyboard(" ");
     expect(onChange).toHaveBeenLastCalledWith(false);
@@ -41,6 +43,6 @@ describe("LibraryToggle", () => {
 
   it("cannot be toggled while an answer is streaming", () => {
     render(<LibraryToggle checked onChange={() => undefined} disabled />);
-    expect(screen.getByRole("switch", { name: "Use my library" })).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Search my books" })).toBeDisabled();
   });
 });

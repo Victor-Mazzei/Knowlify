@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "react-router-dom";
+import { isDesktopShell } from "../../services/desktop";
+import { DESKTOP_RESERVE_STYLE } from "./tutorLayout";
 import { TutorPanel } from "./TutorPanel";
 import { useTutor } from "./TutorProvider";
-import { useMediaQuery } from "./useTutorMedia";
+import { useMediaQuery } from "../../components/useMediaQuery";
 import "./tutor.css";
 
 const DOCK_TARGET = "tutor-slot-dock";
@@ -23,6 +25,8 @@ export function TutorDock() {
   const tutor = useTutor();
   const location = useLocation();
   const isMobile = useMediaQuery("(max-width: 767px)");
+  // The desktop shell injects a fixed connection button at the bottom-right.
+  const desktop = isDesktopShell();
   const readerRoute = location.pathname.startsWith("/read/");
   const dock = tutor.surface === "dock";
   const needed = tutor.enabled && (dock ? tutor.open : Boolean(tutor.status?.scopes.library));
@@ -78,6 +82,14 @@ export function TutorDock() {
       if (document.querySelector('[aria-modal="true"]:not(#tutor-panel)')) return;
       // Escape inside an inline editor cancels that edit, not the whole tutor.
       if (event.key === "Escape" && event.target instanceof Element && event.target.closest("[data-tutor-rename]")) return;
+      // Escape inside the open composer settings closes only that popover.
+      if (
+        event.key === "Escape" &&
+        event.target instanceof Element &&
+        event.target.closest("[data-tutor-settings='open']")
+      ) {
+        return;
+      }
       if (
         event.altKey &&
         !event.ctrlKey &&
@@ -154,6 +166,8 @@ export function TutorDock() {
           ref={fab}
           type="button"
           className="tutor-fab"
+          data-desktop={desktop ? "true" : undefined}
+          style={desktop ? DESKTOP_RESERVE_STYLE : undefined}
           aria-expanded={tutor.open}
           aria-controls={renderPanel ? "tutor-panel" : undefined}
           aria-keyshortcuts="Alt+T"

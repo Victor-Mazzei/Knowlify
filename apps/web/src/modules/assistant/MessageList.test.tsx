@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
@@ -151,5 +151,119 @@ describe("MessageList", () => {
     ).toBeGreaterThan(0);
     expect(screen.queryByText(/\[book:2\]/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Not Mentioned/ })).not.toBeInTheDocument();
+  });
+});
+
+const answer = (id: string, content = "An answer"): ChatMessage => ({
+  id,
+  role: "assistant",
+  content,
+  citations: null,
+  createdAt: 3,
+});
+
+const setScrollMetrics = (
+  element: HTMLElement,
+  initialTop: number,
+  scrollHeight = 1000,
+  clientHeight = 300,
+) => {
+  let scrollTop = initialTop;
+  Object.defineProperty(element, "scrollHeight", { configurable: true, get: () => scrollHeight });
+  Object.defineProperty(element, "clientHeight", { configurable: true, get: () => clientHeight });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+  });
+  return () => scrollTop;
+};
+
+const renderScroll = (list: ChatMessage[], scrollSignal = 0) =>
+  render(
+    <MessageList
+      messages={list}
+      streaming={false}
+      examples={[]}
+      emptyTitle="Empty"
+      onExample={() => undefined}
+      api={api}
+      scrollSignal={scrollSignal}
+    />,
+  );
+
+describe("MessageList scrolling", () => {
+  it("keeps the end visible when new content arrives while near the bottom", () => {
+    const { container, rerender } = renderScroll(messages);
+    const scroller = container.querySelector<HTMLElement>(".asst-scroll");
+    expect(scroller).not.toBeNull();
+    const readTop = setScrollMetrics(scroller!, 700);
+
+    rerender(
+      <MessageList
+        messages={[...messages, answer("a2")]}
+        streaming={false}
+        examples={[]}
+        emptyTitle="Empty"
+        onExample={() => undefined}
+        api={api}
+        scrollSignal={0}
+      />,
+    );
+
+    expect(readTop()).toBe(1000);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).not.toBeInTheDocument();
+  });
+
+  it("does not pull a reader who scrolled up and offers Jump to latest", () => {
+    const { container, rerender } = renderScroll(messages);
+    const scroller = container.querySelector<HTMLElement>(".asst-scroll");
+    const readTop = setScrollMetrics(scroller!, 0);
+    fireEvent.scroll(scroller!);
+
+    expect(screen.getByRole("button", { name: "Jump to latest" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("New content below.");
+
+    rerender(
+      <MessageList
+        messages={[...messages, answer("a2")]}
+        streaming={false}
+        examples={[]}
+        emptyTitle="Empty"
+        onExample={() => undefined}
+        api={api}
+        scrollSignal={0}
+      />,
+    );
+    expect(readTop()).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to latest" }));
+    expect(readTop()).toBe(1000);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).not.toBeInTheDocument();
+  });
+
+  it("returns to the end when the person sends or retries", () => {
+    const { container, rerender } = renderScroll(messages);
+    const scroller = container.querySelector<HTMLElement>(".asst-scroll");
+    const readTop = setScrollMetrics(scroller!, 0);
+    fireEvent.scroll(scroller!);
+    expect(screen.getByRole("button", { name: "Jump to latest" })).toBeInTheDocument();
+
+    rerender(
+      <MessageList
+        messages={messages}
+        streaming={false}
+        examples={[]}
+        emptyTitle="Empty"
+        onExample={() => undefined}
+        api={api}
+        scrollSignal={1}
+      />,
+    );
+
+    expect(readTop()).toBe(1000);
+    expect(screen.queryByRole("button", { name: "Jump to latest" })).not.toBeInTheDocument();
   });
 });

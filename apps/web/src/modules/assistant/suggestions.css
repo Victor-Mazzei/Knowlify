@@ -191,21 +191,16 @@
   color: var(--accent-hover);
 }
 
-/* Ask + whole library: one-shot recommendation request and the Auto/Off preference. */
+/* Ask + whole library: one-shot "Suggest books" request. */
 .asst-recommend {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--hairline);
   border-radius: var(--radius-control);
   background: var(--panel-2);
-}
-.asst-recommend-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-3);
 }
 .asst-recommend-button {
   padding: 4px 10px;
@@ -216,21 +211,27 @@
   background: var(--accent-wash);
   color: var(--accent);
 }
-.asst-recommend-pref {
+.asst-recommend-off {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-}
-.asst-recommend-label {
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 600;
-}
-.asst-recommend-state {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-control);
+  background: var(--accent-wash);
   color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.asst-recommend-off p {
+  margin: 0;
+}
+.asst-recommend-off .ghost {
+  padding: 3px 9px;
+  font-size: 12px;
 }
 .asst-recommend-help,
 .asst-recommend-note {
@@ -243,6 +244,69 @@
 }
 .asst-recommend-note {
   color: var(--ink-muted);
+}
+
+/* Composer settings: the stored Auto/Off preference lives behind the gear. */
+.asst-settings {
+  display: inline-flex;
+}
+.asst-settings-trigger {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-color: var(--hairline);
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+}
+.asst-settings-trigger:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.asst-settings-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+.asst-settings-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 6;
+  display: grid;
+  gap: var(--space-2);
+  width: min(19rem, calc(100vw - 2 * var(--gutter)));
+  padding: var(--space-3);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+.asst-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.asst-settings-label {
+  flex: 1 1 10rem;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.asst-settings-state {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+.asst-settings-help {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 @media (max-width: 520px) {

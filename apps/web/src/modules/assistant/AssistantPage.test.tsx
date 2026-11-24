@@ -88,6 +88,46 @@ describe("AssistantPage", () => {
     expect(screen.queryByRole("textbox", { name: "Your question" })).not.toBeInTheDocument();
   });
 
+  it("keeps sessions reachable through a compact sheet and resumes by keyboard", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        matches: query.includes("max-height: 620px"),
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    );
+    renderAssistant(createMockChatApi({ chunkDelayMs: 0 }));
+
+    const toggle = await screen.findByRole("button", { name: "Sessions" });
+    const chat = document.querySelector(".asst-main");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(chat).toHaveAttribute("inert");
+
+    const close = screen.getByRole("button", { name: "Close sessions" });
+    await waitFor(() => expect(close).toHaveFocus());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "false"));
+    expect(screen.queryByRole("button", { name: "Close sessions" })).not.toBeInTheDocument();
+    expect(chat).not.toHaveAttribute("inert");
+    await waitFor(() => expect(toggle).toHaveFocus());
+
+    fireEvent.click(toggle);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Resume session: How does spaced repetition work?" }),
+    );
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(await screen.findByText(/Spaced repetition works/)).toBeInTheDocument();
+  });
+
   it("deletes a conversation after confirmation and focus returns to New", async () => {
     const chat = createMockChatApi({ chunkDelayMs: 0 });
     const deleted: string[] = [];
