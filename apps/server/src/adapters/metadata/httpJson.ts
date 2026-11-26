@@ -1,4 +1,5 @@
 import { GuardedFetchError } from "../llm/GuardedFetch.js";
+import { readTextCapped as readCappedBody } from "../outbound/cappedBody.js";
 import {
   knownProviderErrorReason,
   knownProviderErrorStatus,
@@ -192,64 +193,19 @@ export async function readJsonCapped(
   }
 }
 
-const isAbort = (error: unknown): boolean => {
-  if (typeof error !== "object" || error === null) return false;
-  const name = (error as { name?: unknown }).name;
-  return name === "AbortError" || name === "TimeoutError";
-};
-
 /**
- * A body that is discarded because its declared/actual size exceeds the ceiling is not a
- * read failure. If the cancellation itself is caused by the caller's abort, however, the
- * timeout must win over the size classification.
- */
-const cancelQuietly = async (cancel: () => Promise<void>, signal?: AbortSignal): Promise<void> => {
-  try {
-    await cancel();
-  } catch (error) {
-    if (signal?.aborted || isAbort(error)) throw providerFailure(error, signal);
-  }
-};
-
-/**
- * Reads a response body with a hard ceiling. `null` means the body is absent or too large
- * (the caller decides between `bad_response` and HTTP status); a failed/aborted read is
- * thrown as a classified provider failure, preserving the legacy timeout/network codes.
+ * Metadata-specific wrapper over the shared capped reader: a failed/aborted read keeps
+ * the legacy provider classification (`timeout`/`unavailable`).
  */
 export async function readTextCapped(
   response: Response,
   maxBytes: number,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const length = response.headers.get("content-length");
-  if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) {
-    await cancelQuietly(() => response.body?.cancel() ?? Promise.resolve(), signal);
-    return null;
-  }
-  if (!response.body) return null;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await cancelQuietly(() => reader.cancel(), signal);
-        return null;
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    // A read failure is not an invalid body: signal aborts map to timeout/legacy timeout,
-    // transport failures map to unavailable/network with the Node code when present.
-    await reader.cancel().catch(() => undefined);
-    throw providerFailure(error, signal);
-  } finally {
-    reader.releaseLock();
-  }
-  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8");
+  return readCappedBody(response, maxBytes, {
+    signal,
+    mapError: (error, abortedSignal) => providerFailure(error, abortedSignal),
+  });
 }
 
 export const isRecord = (value: unknown): value is Record<string, unknown> =>

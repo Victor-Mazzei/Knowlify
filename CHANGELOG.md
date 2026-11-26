@@ -15,6 +15,20 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.5.0] - 2026-11-25
+
+### Added
+
+- Knowlify can tell you when a newer release is available. This check is on by default. At most once a day, and only while someone uses the interface, the server asks GitHub for the latest published, final release of the source repository. GitHub sees the IP address of the server and nothing else: Knowlify sends no version, no library data and no ID, and it sends nothing at start-up. You can turn it off in Settings > About or with `KNOWLIFY_UPDATE_CHECK=off`, which makes no requests at all. Set `KNOWLIFY_UPDATE_LOCKED=1` as well so the Settings switch cannot change it.
+- The web app shows a small notice when the release is newer than your version, with a link to the release page. You can dismiss it, and it comes back only for a newer version. It is only a notice: Knowlify does not download or install anything. The notice is about the server. A desktop app in remote mode reports the remote server, not the app itself, and a version older than 2.5.0 cannot tell you about 2.5.0.
+- Settings > About has an Updates card with the state, the last check time, a "Check now" button and the on/off switch. "Check now" waits at least 60 seconds between real requests. During that time it keeps the current state and says "Checked a moment ago."; it says "Could not check just now." only when the request really fails.
+- New routes, all behind the usual sign-in: `GET /api/update` and `POST /api/update/check` (the same answer: `enabled`, `locked`, `canManage`, `current`, `latest`, `available`, `checkedAt`), and `GET` and `PUT /api/settings/update`. New optional settings: `KNOWLIFY_UPDATE_CHECK=on|off` (default `on`) and `KNOWLIFY_UPDATE_LOCKED=1`. A server without these routes shows nothing in the web app.
+- With the local network guard on, a phone or tablet on the network does not see the notice and cannot change the switch. `POST /api/update/check` works only from the computer that runs Knowlify (`403` with `code: "local_only"`), and `GET /api/update` from another device returns the saved result without starting a check.
+
+### Security
+
+- The update check uses the same safe outbound policy as the other external requests: HTTPS to a fixed public address, no redirects, a 1 MB limit and an 8 second timeout. The server reads only the release tag, checks that it looks like `vX.Y.Z`, and builds the link itself. Failures are silent and retried later with a growing delay.
+
 ## [2.4.0] - 2026-11-25
 
 ### Added
@@ -443,7 +457,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...v2.3.1

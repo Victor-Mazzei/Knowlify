@@ -15,6 +15,7 @@ import type { Indexing } from "../../use-cases/Indexing.js";
 import type { LlmSettings } from "../../use-cases/LlmSettings.js";
 import type { MetadataSettings } from "../../use-cases/MetadataSettings.js";
 import type { TutorPromptSettings } from "../../use-cases/TutorPromptSettings.js";
+import type { UpdateNotice } from "../../use-cases/UpdateNotice.js";
 import type { BookRemoval } from "../../use-cases/BookRemoval.js";
 import type { BookMetadata } from "../../use-cases/BookMetadata.js";
 import { toBookDetailDto } from "./bookDetail.js";
@@ -23,6 +24,8 @@ import type { BooksQuerystring } from "./booksQuery.js";
 import { toDto } from "./dto.js";
 import { settingsLlmRoutes } from "./settings-llm.js";
 import { settingsMetadataRoutes } from "./settings-metadata.js";
+import { settingsUpdateRoutes } from "./settings-update.js";
+import { updateRoutes } from "./update.js";
 
 const MIME = { pdf: "application/pdf", epub: "application/epub+zip" } as const;
 
@@ -49,9 +52,12 @@ export async function apiRoutes(
     metadataSettings?: MetadataSettings;
     removal: BookRemoval;
     bookMetadata: BookMetadata;
+    updateNotice?: UpdateNotice;
+    /** `KNOWLIFY_NETWORK_GUARD=lan`; the update routes use it for `canManage`. */
+    lanGuard?: boolean;
   },
 ) {
-  const { progress, library, indexing, coverThumbs, llmSettings, tutorPromptSettings, metadataSettings, removal, bookMetadata } = opts;
+  const { progress, library, indexing, coverThumbs, llmSettings, tutorPromptSettings, metadataSettings, removal, bookMetadata, updateNotice, lanGuard } = opts;
 
   app.get<{ Querystring: BooksQuerystring }>("/books", async (req, reply) => {
     reply.header("Vary", "Authorization");
@@ -224,5 +230,9 @@ export async function apiRoutes(
   }
   if (metadataSettings) {
     await app.register(settingsMetadataRoutes, { metadataSettings });
+  }
+  if (updateNotice) {
+    await app.register(updateRoutes, { updateNotice, lanGuard: lanGuard ?? false });
+    await app.register(settingsUpdateRoutes, { updateNotice });
   }
 }
