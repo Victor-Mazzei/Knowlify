@@ -7,6 +7,7 @@ import {
   assertBundledNodeMajor,
   assertSinglePlatform,
   buildServerManifest,
+  copyWebBuild,
   overlayNodeModules,
   platformPackageAllowed,
   prepareServer,
@@ -16,6 +17,9 @@ import {
 
 const server = JSON.parse(
   await readFile(new URL('../../server/package.json', import.meta.url), 'utf8'),
+);
+const runtimeManifest = JSON.parse(
+  await readFile(new URL('../node-runtime.json', import.meta.url), 'utf8'),
 );
 
 const exists = async path => {
@@ -244,6 +248,61 @@ test('overlays a workspace-nested dependency over the hoisted copy', async t => 
   assert.equal(await exists(join(hoisted, '@scope/tool/package.json')), true);
   assert.equal(await exists(join(hoisted, 'fastify/package.json')), true);
   assert.equal(await exists(join(hoisted, '.bin/tsx')), false);
+});
+
+test('copies the web build next to the server bundle', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knowlify-prepare-web-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const web = join(directory, 'web');
+  await writeTree(web, {
+    'index.html': '<!doctype html><div id="root"></div>',
+    'assets/app.js': 'console.log("web");',
+    'assets/app.css': ':root {}',
+  });
+  const destination = join(directory, 'server', 'web');
+  await writeTree(destination, { 'stale/old.txt': 'old' });
+
+  await copyWebBuild(web, destination);
+
+  assert.equal(
+    await readFile(join(destination, 'index.html'), 'utf8'),
+    '<!doctype html><div id="root"></div>',
+  );
+  assert.equal(await exists(join(destination, 'assets', 'app.js')), true);
+  assert.equal(await exists(join(destination, 'assets', 'app.css')), true);
+  assert.equal(await exists(join(destination, 'stale')), false, 'the destination is replaced');
+});
+
+test('refuses to copy a missing web build', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knowlify-prepare-web-missing-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+
+  await assert.rejects(
+    () => copyWebBuild(join(directory, 'missing'), join(directory, 'server', 'web')),
+    /web build not found at .*missing\/index\.html; run "npm run build -w @knowlify\/web" before prepare-server/,
+  );
+});
+
+test('aborts before touching resources when the web build is missing', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'knowlify-prepare-web-guard-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const resourcesDir = join(directory, 'resources');
+  await writeTree(resourcesDir, { 'server/sentinel.txt': 'kept' });
+
+  await assert.rejects(
+    prepareServer({
+      resourcesDir,
+      webDistDir: join(directory, 'missing-web'),
+      nodeVersion: runtimeManifest.version,
+      skipBuild: true,
+      log: () => {},
+    }),
+    /web build not found.*build -w @knowlify\/web/s,
+  );
+
+  assert.equal(await readFile(join(resourcesDir, 'server', 'sentinel.txt'), 'utf8'), 'kept');
+  assert.equal(await exists(join(resourcesDir, 'server', 'web')), false);
+  assert.equal(await exists(join(resourcesDir, 'server', 'dist')), false);
 });
 
 test('aborts before touching resources or installing on a major mismatch', async t => {

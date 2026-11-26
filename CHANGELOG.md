@@ -15,6 +15,27 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.4.0] - 2026-11-25
+
+### Added
+
+- Desktop: Settings → Network ("Share on my network") opens your library to phones and tablets on the same local network. Sharing is optional and off by default. It uses its own 16-character share password and a fixed port (47870 by default) so the address can be bookmarked. A confirmation explains that the local server restarts. The card shows the local address, a QR code that signs the phone in once, the share password behind Show and Copy, a Regenerate password action, the port under Advanced, and firewall tips for Windows, macOS and Linux.
+- Sharing limits you should know: traffic on the network is plain HTTP and is not encrypted, so use it only on networks you trust and never on public Wi-Fi (for an encrypted path, use Tailscale on both devices). Only IPv4 addresses are shown. It works only while Knowlify is open and the computer is awake. There is no installable web app (PWA) over the local network, because browsers require HTTPS for that.
+- A phone or tablet can read and use the library and notes. Administration actions work only on the computer that runs Knowlify: library folders, settings, the account password and MCP tokens.
+- Optional network guard `KNOWLIFY_NETWORK_GUARD=lan` for the server. It accepts only peers from the local network and only local `Host` and `Origin` values. Off by default; Docker and reverse-proxy deployments are unchanged.
+- With the guard on, administration routes (folders, sources, settings writes, MCP tokens, account) answer `403` with `code: "local_only"` to everything except the same computer. The guard also limits failed Basic and KOSync sign-in attempts per address (10 per minute, then `429` with `Retry-After`).
+- Desktop: the packaged app now includes the web app and serves it to the local network, while its own window keeps using the private loopback connection. Turning sharing on, off, changing the port or regenerating the password restarts the local server, which interrupts an upload or indexing in progress.
+
+### Fixed
+
+- On a phone or tablet, settings that only work on the computer now say so ("This action is only available on the computer that runs Knowlify") instead of showing a generic forbidden error, and you stay signed in.
+- The copy buttons in Share on my network work on plain HTTP pages and only say "Copied" when the copy worked; otherwise they show "Copy failed. Select the text and copy it."
+- A QR sign-in link is saved only after the browser removes the password from the address bar. If the browser cannot remove it, the link is ignored.
+
+### Security
+
+- No log level writes request credentials to the log. With `KNOWLIFY_LOG_LEVEL=trace`, the multipart parser logged the raw upload headers, including the `Authorization` password and `Host`. The logger now censors authorization, cookie, auth, token, secret, key and password headers, plus `Host`, `Origin` and `Referer`, at every level, including dynamic and capitalized names. Objects are copied through their property descriptors, so a `toJSON` function or getter cannot add credential fields after the censoring, and a reply logged under `res` is always censored. Known limits: logging a whole request or reply object under an unusual key, or a bare string that holds a secret, is not covered; the server does not log such objects.
+
 ## [2.3.2] - 2026-11-24
 
 ### Fixed
@@ -422,7 +443,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.2...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.2.0...v2.3.0

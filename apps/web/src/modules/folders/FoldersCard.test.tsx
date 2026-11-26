@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ScanStatusContext } from "../../components/ScanStatusContext";
 import type { ScanStatusContextValue } from "../../components/ScanStatusContext";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import type { FolderListing } from "./types";
 import type { Source } from "../../types";
 import { FoldersCard } from "./FoldersCard";
@@ -182,6 +183,36 @@ describe("FoldersCard", () => {
         expect.objectContaining({ body: JSON.stringify({ path: "/library" }) }),
       ),
     );
+  });
+
+  it("explains a local-only 403 in the folder picker", async () => {
+    const base = makeApi();
+    const api = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/fs") throw new ApiError(403, "Forbidden", "local_only");
+      return base(path, init);
+    });
+    renderCard({ api });
+    expect(await screen.findByText("/books")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add folder…" }));
+    const picker = await screen.findByRole("dialog", { name: "Choose a library folder" });
+    expect(await within(picker).findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+  });
+
+  it("explains a local-only 403 when adding a typed path", async () => {
+    const base = makeApi();
+    const api = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === "/api/sources" && init?.method === "POST") {
+        throw new ApiError(403, "Forbidden", "local_only");
+      }
+      return base(path, init);
+    });
+    renderCard({ api });
+    fireEvent.click(await screen.findByRole("button", { name: "Enter a path instead" }));
+    fireEvent.change(screen.getByLabelText("Folder path"), { target: { value: "/library" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add folder" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
   });
 
   it("uses the native dialog when the desktop app runs the local server", async () => {

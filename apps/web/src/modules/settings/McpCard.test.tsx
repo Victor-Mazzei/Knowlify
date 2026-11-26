@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
-import { ApiError } from "../../services/api";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import { McpCard } from "./McpCard";
 import { createMockMcpApi, type MockMcpScenario } from "./mcpMock";
 
@@ -117,6 +117,30 @@ describe("McpCard", () => {
     expect(screen.getByText("Disabled")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create token" })).not.toBeInTheDocument();
     expect(screen.queryByText(`${window.location.origin}/mcp`)).not.toBeInTheDocument();
+  });
+
+  it("explains that MCP tokens are managed only on the computer", async () => {
+    render(<McpCard api={mock("local_only")} />);
+
+    expect(await screen.findByText(LOCAL_ONLY_MESSAGE)).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create token" })).not.toBeInTheDocument();
+  });
+
+  it("shows the local-only message when creating a token is blocked", async () => {
+    const base = mock("empty");
+    const api: ApiFn = (path, init) => {
+      if (init?.method === "POST") return Promise.reject(new ApiError(403, "Forbidden", "local_only"));
+      return base(path, init);
+    };
+    render(<McpCard api={api} />);
+    await screen.findByText(/No tokens yet/);
+
+    fireEvent.change(screen.getByLabelText("Token name"), { target: { value: "Laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create token" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(screen.queryByRole("dialog", { name: "Your new MCP token" })).not.toBeInTheDocument();
   });
 
   it("honors enabled:false from a server that keeps the token route", async () => {

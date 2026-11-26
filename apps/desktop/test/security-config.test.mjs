@@ -46,15 +46,20 @@ test('capabilities keep filesystem and shell access out of the webview', async (
   assert.deepEqual(capability.permissions, ['core:default', 'dialog:allow-open']);
 });
 
+// The spawn environment moved to share.rs, so these static guards read both new
+// code (share.rs) and the wiring (main.rs).
+const rustSources = async () => {
+  const files = ['../src-tauri/src/main.rs', '../src-tauri/src/share.rs'];
+  return (await Promise.all(files.map(path => readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
+};
+
 // Rust is compiled on the user's machine, not here; keep a static guard for the
 // desktop-only LLM policy so it cannot silently disappear from the spawn call.
 test('local server inherits the private-LLM policy', async () => {
-  const source = await readFile(
-    new URL('../src-tauri/src/main.rs', import.meta.url),
-    'utf8',
-  );
-  assert.ok(
-    source.includes('.env("KNOWLIFY_LLM_ALLOW_PRIVATE", "on")'),
+  const source = await rustSources();
+  assert.match(
+    source,
+    /"KNOWLIFY_LLM_ALLOW_PRIVATE",\s*"on"/,
     'the local Node server must receive KNOWLIFY_LLM_ALLOW_PRIVATE=on',
   );
 });
@@ -63,10 +68,7 @@ test('local server inherits the private-LLM policy', async () => {
 // from the app location, never from PATH, and the app must not hand the spawn to a
 // shell or let the user's environment inject code into the bundled runtime.
 test('local server starts the bundled runtime without a shell or env injection', async () => {
-  const source = await readFile(
-    new URL('../src-tauri/src/main.rs', import.meta.url),
-    'utf8',
-  );
+  const source = await rustSources();
   assert.ok(
     /current_exe\(\)/.test(source),
     'the Node runtime must be resolved from the app executable',
@@ -83,9 +85,18 @@ test('local server starts the bundled runtime without a shell or env injection',
     !source.includes('Command::new("node")'),
     'release builds must not spawn `node` from PATH directly',
   );
-  for (const variable of ['NODE_OPTIONS', 'NODE_PATH', 'KNOWLIFY_NODE']) {
+  const removedList = /const REMOVED_ENV[^=]*=\s*\[[\s\S]*?\];/.exec(source)?.[0] ?? '';
+  assert.match(source, /\.env_remove\(name\)/, 'the removal list must reach the child');
+  for (const variable of [
+    'NODE_OPTIONS',
+    'NODE_PATH',
+    'KNOWLIFY_NODE',
+    'KNOWLIFY_TRUST_PROXY',
+    'KNOWLIFY_MCP_ALLOWED_HOSTS',
+    'KNOWLIFY_MCP_ALLOWED_ORIGINS',
+  ]) {
     assert.ok(
-      source.includes(`.env_remove("${variable}")`),
+      removedList.includes(`"${variable}"`),
       `the local server must not inherit ${variable}`,
     );
   }

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, changePassword, getAccount, saveCredentials } from "../../services/api";
+import { ApiError, changePassword, getAccount, LOCAL_ONLY_MESSAGE, saveCredentials } from "../../services/api";
 import { AccountCard } from "./AccountCard";
 
 vi.mock("../../services/api", async (importOriginal) => {
@@ -89,6 +89,35 @@ describe("AccountCard", () => {
     expect(saveCredentials).not.toHaveBeenCalled();
     expect(onCredentialsChange).not.toHaveBeenCalled();
     expect(screen.getByLabelText("New password")).toHaveValue("next-password");
+  });
+
+  it("explains a local-only password change without signing out", async () => {
+    const { onLogout, onCredentialsChange } = await setup();
+    vi.mocked(changePassword).mockRejectedValue(new ApiError(403, "Forbidden", "local_only"));
+
+    fill("current-pass", "next-password", "next-password");
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(saveCredentials).not.toHaveBeenCalled();
+    expect(onCredentialsChange).not.toHaveBeenCalled();
+    expect(onLogout).not.toHaveBeenCalled();
+  });
+
+  it("explains a local-only account read instead of a generic forbidden error", async () => {
+    vi.mocked(getAccount).mockRejectedValue(new ApiError(403, "Forbidden", "local_only"));
+    const onLogout = vi.fn();
+    render(
+      <AccountCard
+        credentials={credentials}
+        onLogout={onLogout}
+        onCredentialsChange={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
+    expect(onLogout).not.toHaveBeenCalled();
   });
 
   it("maps 429 to the fixed retry message", async () => {

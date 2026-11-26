@@ -1,6 +1,6 @@
 {
   "name": "@knowlify/desktop",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "private": true,
   "license": "AGPL-3.0-only",
   "engines": {
@@ -8,8 +8,8 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "node scripts/prepare-server.mjs && tauri dev",
-    "build": "node scripts/node-runtime.mjs fetch && node scripts/prepare-server.mjs && tauri build --config src-tauri/tauri.bundle.conf.json",
+    "dev": "npm run build -w @knowlify/web && node scripts/prepare-server.mjs && tauri dev",
+    "build": "node scripts/node-runtime.mjs fetch && npm run build -w @knowlify/web && node scripts/prepare-server.mjs && tauri build --config src-tauri/tauri.bundle.conf.json",
     "node:fetch": "node scripts/node-runtime.mjs fetch",
     "node:update": "node scripts/node-runtime.mjs update",
     "smoke-server": "node scripts/smoke-server.mjs",

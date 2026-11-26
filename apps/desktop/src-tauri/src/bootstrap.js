@@ -3,6 +3,15 @@
   if (window.top !== window) return;
   const key = 'knowlify-desktop-session';
   const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
+
+  // Settings restarts the local server when sharing changes. Reload through
+  // connect_saved so the webview gets the credentials of the new mode.
+  window.__KNOWLIFY_RECONNECT__ = () => {
+    try { sessionStorage.removeItem(key); } catch { /* storage can be unavailable */ }
+    try { localStorage.removeItem('knowlify-credentials'); } catch { /* storage can be unavailable */ }
+    location.replace('/');
+  };
+
   // Forward webview errors to the dev terminal (the command is a no-op in release builds).
   const report = (level, ...parts) => {
     const message = parts.map(p => (p instanceof Error ? `${p.message}\n${p.stack}` : typeof p === 'string' ? p : JSON.stringify(p))).join(' ').slice(0, 1500);

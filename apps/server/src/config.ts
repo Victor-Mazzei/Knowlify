@@ -73,6 +73,21 @@ export const parseTrustProxy = (value: string | undefined): boolean | number | s
   return entries.join(",");
 };
 
+export type NetworkGuardMode = "off" | "lan";
+
+/**
+ * `lan` turns on the share-on-my-network guard (peer/host/origin allowlists, loopback-only
+ * admin routes and the authentication failure limiter). `off` is the historical behaviour,
+ * required for Docker and for a deployment behind a public reverse proxy. An unknown value
+ * is a boot-time mistake and is never echoed: it could be a mistyped secret.
+ */
+export const readNetworkGuardMode = (value: string | undefined): NetworkGuardMode => {
+  const raw = value?.trim().toLowerCase();
+  if (!raw || raw === "off") return "off";
+  if (raw === "lan") return "lan";
+  throw new Error("KNOWLIFY_NETWORK_GUARD must be off or lan");
+};
+
 const serverHost = process.env.HOST?.trim() || "0.0.0.0";
 const isLoopbackHost = (host: string): boolean =>
   host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
@@ -228,6 +243,8 @@ export const config = {
   logLevel: readLogLevel(process.env.KNOWLIFY_LOG_LEVEL),
   // Opt-in: only a deployment behind a trusted proxy should believe X-Forwarded-For.
   trustProxy: parseTrustProxy(process.env.KNOWLIFY_TRUST_PROXY),
+  // Opt-in LAN share guard; the desktop sidecar sets `lan` in every local mode.
+  networkGuard: readNetworkGuardMode(process.env.KNOWLIFY_NETWORK_GUARD),
   dataDir,
   dbFile: resolve(dataDir, "knowlify.db"),
   booksDir: resolve(dataDir, "books"),

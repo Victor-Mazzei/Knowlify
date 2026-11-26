@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useApi } from "../../services/api";
 import type { Credentials } from "../../types";
 import { SettingsNav } from "./SettingsNav";
+import { useShareAvailable } from "./share/useShare";
 import {
   isSettingsSection,
   SETTINGS_SECTION_COMPONENTS,
@@ -37,6 +38,7 @@ export function SettingsPage({ credentials, onLogout, onCredentialsChange = () =
   const params = useParams<{ section: string }>();
   const section = isSettingsSection(params.section) ? params.section : null;
   const api = useApi(credentials, onLogout);
+  const shareAvailable = useShareAvailable();
   const titleRef = useRef<HTMLHeadingElement>(null);
   const lastSection = useRef<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -56,7 +58,7 @@ export function SettingsPage({ credentials, onLogout, onCredentialsChange = () =
   return (
     <main className="library settings">
       <div className="settings-layout">
-        <SettingsNav active={section} />
+        <SettingsNav active={section} hiddenSections={shareAvailable ? undefined : ["network"]} />
         <div className="settings-panel">
           <div className="intro settings-intro">
             <p className="eyebrow">Settings</p>

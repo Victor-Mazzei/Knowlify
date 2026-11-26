@@ -58,7 +58,7 @@ function load(invoke, { fetch = async () => ({ ok: true, status: 200 }), reconfi
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: 'bootstrap.js' });
-  return { listeners, document, location, storage };
+  return { listeners, document, location, storage, window };
 }
 
 function triggerWebviewError(listeners) {
@@ -112,6 +112,19 @@ test('keeps the Basic auth header for ASCII credentials identical to btoa', asyn
     requests[0].init.headers.Authorization,
     `Basic ${Buffer.from(`${credentials.user}:${credentials.pass}`).toString('base64')}`,
   );
+});
+
+test('__KNOWLIFY_RECONNECT__ clears the session and reloads through connect_saved', () => {
+  const { window, location, storage } = load(() => Promise.resolve());
+  storage.set('knowlify-desktop-session', JSON.stringify({ connection: { apiBaseUrl: 'http://127.0.0.1:1' } }));
+  storage.set('knowlify-credentials', 'reader:s3cret');
+
+  assert.equal(typeof window.__KNOWLIFY_RECONNECT__, 'function');
+  window.__KNOWLIFY_RECONNECT__();
+
+  assert.equal(storage.has('knowlify-desktop-session'), false);
+  assert.equal(storage.has('knowlify-credentials'), false);
+  assert.equal(location.replaced, '/');
 });
 
 test('forwards webview errors to the js_log command', async () => {

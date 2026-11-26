@@ -71,6 +71,10 @@ The desktop app has two modes:
 - **Local.** The app starts its own Knowlify server with the bundled Node.js. The database, uploaded books, covers, notes and reading progress stay in the app data folder on that computer. Source folders are indexed in place.
 - **Remote.** The app connects to a Knowlify server that you already run, for example the Docker container. The library, book files, covers, notes, reading progress, search index and settings stay on that server. The browser and the remote desktop app use the same data. The desktop app keeps the server URL, user name and password on the computer in `connection.json`.
 
+### Open your library on a phone
+
+In local mode, the desktop app can share your library with phones and other computers on the same network. Open **Settings > Network**, turn on **Share on my network**, then scan the QR code with your phone or type the address shown. The phone signs in with a separate share password, and the connection is plain HTTP, so use it only on a network you trust. Sharing is off by default.
+
 ### Connect the desktop app to your server
 
 1. Start the server. See [Quick start with Docker](#quick-start-with-docker).

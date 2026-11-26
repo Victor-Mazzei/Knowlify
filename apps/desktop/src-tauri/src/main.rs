@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use rand::{rngs::OsRng, RngCore};
+mod share;
+
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::OsStr,
@@ -44,7 +45,7 @@ fn open_server_log(dir: &std::path::Path, max_bytes: u64) -> Result<fs::File, St
 /// Credentials live in small files that older versions created with the process umask.
 /// Reapply owner-only permissions when reading or rewriting them.
 #[cfg(unix)]
-fn ensure_private_file(path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn ensure_private_file(path: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     if fs::metadata(path)?.mode() & 0o077 != 0 {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
@@ -53,13 +54,24 @@ fn ensure_private_file(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
-fn ensure_private_file(_path: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn ensure_private_file(_path: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
 #[derive(Default)]
-struct Server(Mutex<Option<Child>>);
+pub(crate) struct Server(Mutex<Option<Child>>);
 impl Server {
+    /// True while the child process exists and has not exited on its own.
+    pub(crate) fn is_running(&self) -> bool {
+        match self.0.lock() {
+            Ok(mut slot) => match slot.as_mut() {
+                Some(child) => matches!(child.try_wait(), Ok(None)),
+                None => false,
+            },
+            Err(_) => false,
+        }
+    }
+
     fn stop(&self) {
         if let Ok(mut slot) = self.0.lock() {
             if let Some(mut child) = slot.take() {
@@ -119,13 +131,17 @@ struct SavedSummary {
     user: Option<String>,
 }
 
-fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("connection.json"))
+    Ok(dir)
 }
 
-fn read_saved(app: &tauri::AppHandle) -> Option<Saved> {
+fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data_dir(app)?.join("connection.json"))
+}
+
+pub(crate) fn read_saved(app: &tauri::AppHandle) -> Option<Saved> {
     let path = config_path(app).ok()?;
     // Reading is the first touch in a launch; tighten permissions left by older versions.
     let _ = ensure_private_file(&path);
@@ -162,34 +178,6 @@ fn write_saved(app: &tauri::AppHandle, saved: &Saved) -> Result<(), String> {
         .and_then(|mut f| f.write_all(&body))
         .map_err(|e| e.to_string())?;
     ensure_private_file(&path).map_err(|e| e.to_string())
-}
-
-fn local_password(dir: &std::path::Path) -> Result<String, String> {
-    let path = dir.join("password");
-    if path.exists() {
-        ensure_private_file(&path).map_err(|e| e.to_string())?;
-        let value = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        if value.len() != 64 {
-            return Err("Invalid local password file".into());
-        }
-        return Ok(value);
-    }
-    let mut bytes = [0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
-    let value: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    use std::io::Write;
-    options
-        .open(path)
-        .and_then(|mut f| f.write_all(value.as_bytes()))
-        .map_err(|e| e.to_string())?;
-    Ok(value)
 }
 
 /// Why the Node runtime that runs the local server could not be resolved.
@@ -268,7 +256,7 @@ fn node_executable(
 
 /// Resolves the runtime for the current launch. A blank `KNOWLIFY_NODE` counts
 /// as unset; any other value must name an existing absolute file.
-fn resolve_node_executable() -> Result<PathBuf, String> {
+pub(crate) fn resolve_node_executable() -> Result<PathBuf, String> {
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Cannot locate the Knowlify executable: {e}"))?;
     let exe_dir = current_exe
@@ -351,7 +339,116 @@ fn saved_summary(app: tauri::AppHandle) -> Option<SavedSummary> {
     })
 }
 
-async fn establish(
+/// One launch of the local server. A fixed port is attempted once (no silent
+/// fallback to another port); an ephemeral port keeps the three attempts from
+/// earlier versions.
+struct LocalServerSpec<'a> {
+    bind_lan: bool,
+    fixed_port: Option<u16>,
+    password: &'a str,
+    force_env_password: bool,
+    web_dir: &'a Path,
+}
+
+fn start_local_server(
+    handle: &tauri::AppHandle,
+    slot: &mut Option<Child>,
+    dir: &Path,
+    server_dir: &Path,
+    node: &Path,
+    spec: &LocalServerSpec<'_>,
+) -> Result<Connection, String> {
+    let attempts = if spec.fixed_port.is_some() { 1 } else { 3 };
+    let mut last_error = String::new();
+    for _ in 0..attempts {
+        let port = match spec.fixed_port {
+            Some(port) => port,
+            None => {
+                let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
+                let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+                drop(listener);
+                port
+            }
+        };
+        let log = open_server_log(dir, MAX_SERVER_LOG_BYTES)?;
+        let env = share::server_env(&share::ServerEnvInput {
+            bind_lan: spec.bind_lan,
+            force_env_password: spec.force_env_password,
+            password: spec.password,
+            data_dir: dir,
+            web_dir: spec.web_dir,
+            port,
+        });
+        let mut command = Command::new(node);
+        command
+            .arg(server_dir.join("dist/index.js"))
+            .current_dir(server_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
+            .stderr(Stdio::from(log));
+        env.apply(&mut command);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x08000000);
+        }
+        let child = command.spawn().map_err(|e| spawn_error(&e))?;
+        *slot = Some(child);
+        // Keep ownership in state even if readiness checks fail or the app exits.
+        let base = format!("http://127.0.0.1:{port}");
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(500))
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| e.to_string())?;
+        for _ in 0..40 {
+            // The child was stored just above; treat an unexpected empty slot as a failed start.
+            let Some(child) = slot.as_mut() else {
+                break;
+            };
+            if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                break;
+            }
+            // `/health` is public, so the readiness probe never sends the password to a
+            // process that may have won the port race after we released it.
+            if client
+                .get(format!("{base}/health"))
+                .send()
+                .map(|r| r.status().is_success())
+                .unwrap_or(false)
+            {
+                handle.state::<NavigationGuard>().allow_server(&base);
+                return Ok(Connection {
+                    api_base_url: base,
+                    credentials: Credentials {
+                        user: "desktop".into(),
+                        pass: spec.password.into(),
+                    },
+                });
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        if let Some(mut child) = slot.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        let log_path = dir.join("server.log");
+        last_error = match spec.fixed_port {
+            Some(port) => format!(
+                "Local server did not start on port {port}. Check {} (including Node/SQLite compatibility).",
+                log_path.display()
+            ),
+            None => format!(
+                "Local server did not start. Check {} (including Node/SQLite compatibility).",
+                log_path.display()
+            ),
+        };
+    }
+    Err(last_error)
+}
+
+pub(crate) async fn establish(
     app: tauri::AppHandle,
     mode: String,
     url: Option<String>,
@@ -384,9 +481,15 @@ async fn establish(
         if mode != "local" {
             return Err("Unknown connection mode".into());
         }
-        let dir = handle.path().app_data_dir().map_err(|e| e.to_string())?;
-        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let password = local_password(&dir)?;
+        let dir = app_data_dir(&handle)?;
+        let share_config = share::read_share_config(&dir);
+        let share_state = handle.state::<share::ShareState>();
+        share_state.reset();
+        let password = if share_config.enabled {
+            share::read_or_create_share_password(&dir)?
+        } else {
+            share::local_password(&dir)?
+        };
         let server_dir: PathBuf = if cfg!(debug_assertions) {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/server")
         } else {
@@ -396,89 +499,82 @@ async fn establish(
                 .map_err(|e| e.to_string())?
                 .join("server")
         };
+        let web_dir = server_dir.join("web");
         let node = resolve_node_executable()?;
-        let mut last_error = String::new();
-        for _ in 0..3 {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-            let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-            drop(listener);
-            let log = open_server_log(&dir, MAX_SERVER_LOG_BYTES)?;
-            let mut command = Command::new(&node);
-            command
-                .arg(server_dir.join("dist/index.js"))
-                .current_dir(&server_dir)
-                .env("PORT", port.to_string())
-                .env("HOST", "127.0.0.1")
-                .env("KNOWLIFY_DATA", &dir)
-                .env("KNOWLIFY_USER", "desktop")
-                .env("KNOWLIFY_PASSWORD", &password)
-                // The app generates the password and passes it on every launch, so changing it in
-                // the UI would leave the server and the app out of sync.
-                .env("KNOWLIFY_ACCOUNT_LOCKED", "1")
-                // The local server belongs to the user and may talk to an LLM on loopback or LAN.
-                .env("KNOWLIFY_LLM_ALLOW_PRIVATE", "on")
-                .env_remove("KNOWLIFY_FORCE_ENV_PASSWORD")
-                .env_remove("KNOWLIFY_WEB_DIR")
-                // The user's environment must not inject code into the bundled runtime,
-                // and the override only picks the binary; the child does not inherit it.
-                .env_remove("NODE_OPTIONS")
-                .env_remove("NODE_PATH")
-                .env_remove("KNOWLIFY_NODE")
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(log.try_clone().map_err(|e| e.to_string())?))
-                .stderr(Stdio::from(log));
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                command.creation_flags(0x08000000);
+
+        if share_config.enabled {
+            // An occupied fixed port must not silently move to another port: the QR
+            // code and bookmarks would break. The app keeps working on loopback and
+            // the status tells the UI to offer Retry or another port.
+            if !share::is_port_available(share_config.port) {
+                share_state.set_error(share::ShareError::port_in_use(share_config.port));
+                let connection = start_local_server(
+                    &handle,
+                    &mut slot,
+                    &dir,
+                    &server_dir,
+                    &node,
+                    &LocalServerSpec {
+                        bind_lan: false,
+                        fixed_port: None,
+                        password: &password,
+                        force_env_password: true,
+                        web_dir: &web_dir,
+                    },
+                )?;
+                share_state.set_running(false);
+                return Ok(connection);
             }
-            let child = command.spawn().map_err(|e| spawn_error(&e))?;
-            *slot = Some(child);
-            // Keep ownership in state even if readiness checks fail or the app exits.
-            let base = format!("http://127.0.0.1:{port}");
-            let client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_millis(500))
-                .no_proxy()
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|e| e.to_string())?;
-            for _ in 0..40 {
-                // The child was stored just above; treat an unexpected empty slot as a failed start.
-                let Some(child) = slot.as_mut() else {
-                    break;
-                };
-                if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-                    break;
+            let shared = LocalServerSpec {
+                bind_lan: true,
+                fixed_port: Some(share_config.port),
+                password: &password,
+                force_env_password: true,
+                web_dir: &web_dir,
+            };
+            match start_local_server(&handle, &mut slot, &dir, &server_dir, &node, &shared) {
+                Ok(connection) => {
+                    share_state.set_running(true);
+                    if share::lan_ipv4().is_none() {
+                        share_state.set_error(share::ShareError::no_network());
+                    }
+                    return Ok(connection);
                 }
-                // `/health` is public, so the readiness probe never sends the password to a
-                // process that may have won the port race after we released it.
-                if client
-                    .get(format!("{base}/health"))
-                    .send()
-                    .map(|r| r.status().is_success())
-                    .unwrap_or(false)
-                {
-                    handle.state::<NavigationGuard>().allow_server(&base);
-                    return Ok(Connection {
-                        api_base_url: base,
-                        credentials: Credentials {
-                            user: "desktop".into(),
-                            pass: password,
-                        },
-                    });
+                Err(_) => {
+                    // The port was free when checked but Node lost the race or failed
+                    // to boot: report it and keep the app usable on loopback.
+                    share_state.set_error(share::ShareError::start_failed(share_config.port));
+                    let fallback = LocalServerSpec {
+                        bind_lan: false,
+                        fixed_port: None,
+                        password: &password,
+                        force_env_password: true,
+                        web_dir: &web_dir,
+                    };
+                    let connection = start_local_server(
+                        &handle,
+                        &mut slot,
+                        &dir,
+                        &server_dir,
+                        &node,
+                        &fallback,
+                    )?;
+                    share_state.set_running(false);
+                    return Ok(connection);
                 }
-                std::thread::sleep(Duration::from_millis(100));
             }
-            if let Some(mut child) = slot.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-            last_error = format!(
-                "Local server did not start. Check {} (including Node/SQLite compatibility).",
-                dir.join("server.log").display()
-            );
         }
-        Err(last_error)
+
+        let local = LocalServerSpec {
+            bind_lan: false,
+            fixed_port: None,
+            password: &password,
+            force_env_password: false,
+            web_dir: &web_dir,
+        };
+        let connection = start_local_server(&handle, &mut slot, &dir, &server_dir, &node, &local)?;
+        share_state.set_running(false);
+        Ok(connection)
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -489,7 +585,7 @@ async fn establish(
 /// addresses, CGNAT/Tailscale (100.64.0.0/10), `localhost`, single-label hostnames, and the
 /// usual LAN suffixes. Public hosts must use HTTPS because the desktop sends Basic
 /// credentials to them.
-fn is_cgnat(ip: std::net::Ipv4Addr) -> bool {
+pub(crate) fn is_cgnat(ip: std::net::Ipv4Addr) -> bool {
     let octets = ip.octets();
     octets[0] == 100 && (64..=127).contains(&octets[1])
 }
@@ -640,12 +736,16 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Server::default())
         .manage(NavigationGuard::default())
+        .manage(share::ShareState::default())
         .invoke_handler(tauri::generate_handler![
             connect,
             connect_saved,
             saved_summary,
             js_log,
-            open_external
+            open_external,
+            share::share_status,
+            share::set_share,
+            share::rotate_share_password
         ])
         .setup(|app| {
             let navigation = app.handle().clone();

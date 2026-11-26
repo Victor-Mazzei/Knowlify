@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
-import { ApiError } from "../../services/api";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import { bodyOf, gatedApi, mock, renderCard, spyApi } from "./llmCardTestUtils";
 
 describe("LlmCard", () => {
@@ -136,8 +136,17 @@ describe("LlmCard", () => {
     expect(maxTokens).toBeEnabled();
   });
 
-  it("shows a server URL rejection on the URL field", async () => {
-    const { api, calls } = spyApi(mock("blocked"));
+  it("explains that AI settings can only be changed on the computer", async () => {
+    renderCard(mock("local_only"));
+    const model = await screen.findByLabelText("Model");
+    fireEvent.change(model, { target: { value: "deepseek-chat" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(screen.getByLabelText("Model")).toHaveValue("deepseek-chat");
+  });
+
+  it("shows a server URL rejection on the URL field", async () => {    const { api, calls } = spyApi(mock("blocked"));
     renderCard(api);
     const url = await screen.findByLabelText("Server URL");
     fireEvent.change(url, { target: { value: "https://api.deepseek.com/v2" } });

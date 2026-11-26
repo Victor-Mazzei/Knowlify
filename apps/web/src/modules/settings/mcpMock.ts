@@ -9,7 +9,7 @@ import {
   type McpTokensView,
 } from "./mcpTypes";
 
-export const MOCK_MCP_SCENARIOS = ["empty", "populated", "disabled", "limit", "error"] as const;
+export const MOCK_MCP_SCENARIOS = ["empty", "populated", "disabled", "limit", "error", "local_only"] as const;
 
 export type MockMcpScenario = (typeof MOCK_MCP_SCENARIOS)[number];
 
@@ -109,6 +109,9 @@ export function createMockMcpApi(options: MockMcpOptions = {}): ApiFn {
     const url = new URL(path, "http://mock.local");
     const method = (init.method ?? "GET").toUpperCase();
     const body = readBody(init);
+
+    // The network guard blocks every `/api/mcp/tokens*` request from a phone.
+    if (scenario === "local_only") fail(403, "Forbidden", "local_only");
 
     if (url.pathname === "/api/mcp/tokens" && method === "GET") {
       if (scenario === "error") fail(500, "The server could not load MCP tokens.");

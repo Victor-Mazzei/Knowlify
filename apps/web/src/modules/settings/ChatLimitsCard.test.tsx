@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ApiError } from "../../services/api";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import { ChatLimitsCard } from "./ChatLimitsCard";
 import { createMockChatLimitsApi } from "./chatLimitsMock";
 
@@ -95,5 +95,16 @@ describe("ChatLimitsCard", () => {
       expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number from 20 to 5000."),
     );
     expect(input).toHaveValue(300);
+  });
+
+  it("explains that the session limit can only be changed on the computer", async () => {
+    renderCard(createMockChatLimitsApi({ localOnly: true }));
+
+    const input = await screen.findByLabelText("Maximum sessions");
+    fireEvent.change(input, { target: { value: "300" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(input).toBeInTheDocument();
   });
 });

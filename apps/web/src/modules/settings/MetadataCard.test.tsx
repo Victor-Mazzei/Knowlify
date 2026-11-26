@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiFn } from "../../components/dialogs";
-import { ApiError } from "../../services/api";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import { MetadataCard } from "./MetadataCard";
 import { createMockMetadataApi, type MockMetadataScenario } from "./metadataSettingsMock";
 
@@ -193,5 +193,16 @@ describe("MetadataCard", () => {
     await waitFor(() =>
       expect(screen.getByRole("alert")).toHaveTextContent("Metadata settings are locked by the server operator."),
     );
+  });
+
+  it("explains that metadata settings can only be changed on the computer", async () => {
+    render(<MetadataCard api={mock("local_only")} />);
+    await screen.findByRole("switch", { name: "Enable online metadata lookup" });
+
+    fireEvent.click(toggle());
+    fireEvent.click(saveButton());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(LOCAL_ONLY_MESSAGE);
+    expect(screen.getByRole("switch", { name: "Enable online metadata lookup" })).toBeInTheDocument();
   });
 });

@@ -10,6 +10,7 @@ export const MOCK_METADATA_SCENARIOS = [
   "locked",
   "unreadable",
   "unavailable",
+  "local_only",
 ] as const;
 
 export type MockMetadataScenario = (typeof MOCK_METADATA_SCENARIOS)[number];
@@ -22,8 +23,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
-const fail = (status: number, message: string): never => {
-  throw new ApiError(status, message);
+const fail = (status: number, message: string, code?: string): never => {
+  throw new ApiError(status, message, code);
 };
 
 const readBody = (init: RequestInit | undefined): Record<string, unknown> | null => {
@@ -71,6 +72,7 @@ export function createMockMetadataApi(options: MockMetadataOptions = {}): ApiFn 
     const url = new URL(path, "http://mock.local");
     const method = (init.method ?? "GET").toUpperCase();
     if (url.pathname !== "/api/settings/metadata") fail(404, "Mock metadata route not found.");
+    if (scenario === "local_only" && method !== "GET") fail(403, "Forbidden", "local_only");
     if (method === "GET") {
       if (scenario === "unavailable") fail(404, "Not found.");
       return json(200, view);

@@ -1,10 +1,15 @@
 import { renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { encodePairingFragment } from "../modules/settings/share/pairing";
 import {
+  ApiError,
   STORAGE_KEY,
   basicAuth,
+  changePassword,
   clearCredentials,
   formatError,
+  isLocalOnlyError,
+  LOCAL_ONLY_MESSAGE,
   parseApiError,
   readCredentials,
   useApi,
@@ -20,6 +25,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   localStorage.clear();
   delete window.__KNOWLIFY__;
+  window.history.replaceState(null, "", "/");
 });
 
 describe("readCredentials", () => {
@@ -60,6 +66,23 @@ describe("readCredentials", () => {
     localStorage.setItem(STORAGE_KEY, "{not json");
     expect(readCredentials()).toBeNull();
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("uses the credentials from a share QR link once and removes the fragment", () => {
+    const credentials = { user: "desktop", pass: "ABCDEFGHIJKLMNOP" };
+    window.location.hash = encodePairingFragment(credentials);
+
+    expect(readCredentials()).toEqual(credentials);
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(JSON.stringify(credentials));
+    expect(window.location.hash).toBe("");
+    expect(readCredentials()).toEqual(credentials);
+  });
+
+  it("ignores a malformed share link and keeps the stored credentials", () => {
+    window.location.hash = "#pair=not-valid";
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ user: "reader", pass: "secret" }));
+
+    expect(readCredentials()).toEqual({ user: "reader", pass: "secret" });
   });
 });
 
@@ -120,6 +143,54 @@ describe("useApi", () => {
       code: "selection_changed",
       details: { removed: 1 },
     });
+  });
+
+  it("does not sign out on a local-only 403", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ message: "Forbidden", code: "local_only" }), { status: 403 })),
+    );
+    const onUnauthorized = vi.fn();
+    const { result } = renderHook(() => useApi({ user: "reader", pass: "secret" }, onUnauthorized));
+
+    await expect(result.current("/api/settings/chat", { method: "PUT" })).rejects.toMatchObject({
+      status: 403,
+      code: "local_only",
+    });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+});
+
+describe("local-only 403", () => {
+  it("explains the desktop-only action and leaves other 403s alone", () => {
+    expect(formatError(new ApiError(403, "Forbidden", "local_only"))).toBe(LOCAL_ONLY_MESSAGE);
+    expect(formatError(new ApiError(403, "Forbidden"))).toBe("Forbidden");
+    expect(formatError(new ApiError(403, "Forbidden", "other"))).toBe("Forbidden");
+  });
+
+  it("narrows only a 403 carrying the local_only code", () => {
+    expect(isLocalOnlyError(new ApiError(403, "Forbidden", "local_only"))).toBe(true);
+    expect(isLocalOnlyError(new ApiError(403, "Forbidden"))).toBe(false);
+    expect(isLocalOnlyError(new ApiError(401, "Forbidden", "local_only"))).toBe(false);
+    expect(isLocalOnlyError(new Error("local_only"))).toBe(false);
+  });
+
+  it("keeps the code on the account route and does not sign out", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ message: "Forbidden", code: "local_only" }), { status: 403 })),
+    );
+    const onUnauthorized = vi.fn();
+    const error = await changePassword(
+      { user: "reader", pass: "secret" },
+      { current: "old", next: "next-password" },
+      onUnauthorized,
+    ).catch((reason: unknown) => reason);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 403, code: "local_only" });
+    expect(formatError(error)).toBe(LOCAL_ONLY_MESSAGE);
+    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 });
 
