@@ -12,6 +12,9 @@ export function isLoopbackOnlyRoute(method: string, url: string): boolean {
   if (under(path, "/api/fs")) return true;
   if (under(path, "/api/mcp/tokens")) return true;
   if (under(path, "/api/account")) return true;
+  // An update check is an external request: a paired device may read the cached
+  // state, but only the computer that runs Knowlify may trigger the network call.
+  if (method.toUpperCase() !== "GET" && path === "/api/update/check") return true;
   if (method.toUpperCase() === "GET") return false;
   return under(path, "/api/sources") || under(path, "/api/settings");
 }

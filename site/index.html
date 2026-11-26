@@ -334,11 +334,15 @@
               <dd><span class="egress-mark">When connected</span> Only when an MCP client asks for them. The client and its provider receive the response.</dd>
             </div>
             <div>
+              <dt>Update check</dt>
+              <dd><span class="egress-mark">Once a day</span> The server asks GitHub for the latest published release. GitHub sees the server's IP address; no version, library data or ID is sent. On by default. Turn it off in Settings or with <code>KNOWLIFY_UPDATE_CHECK=off</code>.</dd>
+            </div>
+            <div>
               <dt>RSS feed requests</dt>
               <dd><span class="egress-mark">When fetched</span> The feed URLs you add are requested. Article text is sanitized and stored locally.</dd>
             </div>
           </dl>
-          <p class="egress-note">Every outbound request is a deliberate setting or an action in the interface. The server blocks SSRF for user-supplied URLs and keeps the limits in the code, not in a policy page.</p>
+          <p class="egress-note">Apart from the daily update check, which you can turn off, every outbound request is a deliberate setting or an action in the interface. The server blocks SSRF for user-supplied URLs and keeps the limits in the code, not in a policy page.</p>
         </div>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { useApi } from "../../services/api";
 import type { Credentials } from "../../types";
 import { SettingsNav } from "./SettingsNav";
 import { useShareAvailable } from "./share/useShare";
+import { UpdateCard } from "../update/UpdateCard";
 import {
   isSettingsSection,
   SETTINGS_SECTION_COMPONENTS,
@@ -77,6 +78,7 @@ export function SettingsPage({ credentials, onLogout, onCredentialsChange = () =
           {ActiveSection ? (
             <Suspense fallback={<SettingsSectionFallback />}>
               <ActiveSection {...sectionProps} />
+              {section === "about" && <UpdateCard api={api} />}
             </Suspense>
           ) : (
             <section className="setting-card settings-missing" aria-labelledby="settings-section-title">

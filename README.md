@@ -280,6 +280,10 @@ The server has six contexts: Library, Reading, Catalog, Knowledge, Assistant and
 - The server rate-limits chat, MCP and metadata requests.
 - At start, the server logs a warning if the password is a default value (`admin` or `change-this-password`) and it listens on a non-loopback address; change the default password before you expose the server.
 
+### Update check and privacy
+
+Knowlify contacts GitHub once a day to look for a new version. GitHub sees the IP address of the server, and nothing else is sent: no version, no library data and no ID. The server asks only for the latest published release, and the first contact happens when someone uses the app, not at start-up. If a newer version exists, the web app shows a notice with a link to the release page. Turn it off in Settings > About, or set `KNOWLIFY_UPDATE_CHECK=off`. Set `KNOWLIFY_UPDATE_LOCKED=1` as well if the Settings switch must not change it; with `off` and `1` Knowlify never contacts GitHub for updates.
+
 ### HTTP on your local network
 
 Knowlify works at `http://<server IP>:8787` without HTTPS. Basic authentication then sends the password with each request, and KOSync sends its key, both in clear text on the network. Use this only on a network that you trust, and do not forward port 8787 to the Internet.

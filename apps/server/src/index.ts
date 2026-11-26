@@ -14,7 +14,7 @@ import { newsRoutes } from "./adapters/http/news/index.js";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import type { Db } from "./adapters/storage/db.js";
-import type { Logger } from "./ports/index.js";
+import type { Clock, Logger } from "./ports/index.js";
 import type { IndexEpoch } from "./ports/index-epoch.js";
 import type { IngestionRunner, PassageQueryStore, PassageRepository, VectorStore } from "./ports/knowledge.js";
 import { SqliteBookRepository, SqliteSourceRepository, SqliteNoteRepository, SqliteProgressRepository, SqliteSyncProgressRepository, SqliteBookDuplicateRepository, SqliteMergeLogRepository, SqliteUnitOfWork, SqliteTagRepository, SqliteIgnoredBookRepository, SqliteMcpTokenRepository, SqliteBookMetadataRepository, SqliteBookCandidateSource } from "./adapters/storage/repositories.js";
@@ -108,6 +108,9 @@ import { readVersion } from "./adapters/runtime/buildInfo.js";
 import { parseAllowPrivate } from "./domain/net/IpClassification.js";
 import { SqliteConversationRepository } from "./adapters/storage/SqliteConversationRepository.js";
 import type { EmbedderConfig } from "./adapters/indexing/embed/create.js";
+import { GithubReleaseSource } from "./adapters/update/GithubReleaseSource.js";
+import { SqliteUpdateConfigStore, SqliteUpdateStateStore } from "./adapters/update/SqliteUpdateStore.js";
+import { UpdateNotice } from "./use-cases/UpdateNotice.js";
 
 export { REDACT_PATHS };
 
@@ -156,11 +159,25 @@ function logIndexing(message: string, error?: unknown): void {
   else console.warn(`[indexing] ${message}`);
 }
 
+/**
+ * Test seams for outbound update checks. Production injects nothing: the composition
+ * root builds the guarded fetch, so no environment variable can replace the destination.
+ */
+export interface ServiceExtras {
+  update?: {
+    fetch?: typeof globalThis.fetch;
+    currentVersion?: string;
+    clock?: Clock;
+    timeoutMs?: number;
+  };
+}
+
 export function createServices(
   db: Db,
   log: Logger = { info: () => {}, error: () => {}, warn: () => {} },
   rss: RssSource = new SafeRssSource(undefined, undefined, log),
   ingestionRunner?: IngestionRunner,
+  extras: ServiceExtras = {},
 ) {
   // One counter for every passage-index writer in this process. The retrieval cache
   // compares it around each read, so no write can leave a stale entry behind.
@@ -182,6 +199,9 @@ export function createServices(
   const bookLocks = new BookLocks();
   const clock = { now: () => Date.now() };
   const ids = { next: () => randomUUID() };
+  // One read of the packaged version for `/api/about`, the outbound User-Agent and the
+  // update comparison; a missing manifest reports the sentinel and never announces.
+  const version = readVersion(undefined, (message) => log.warn?.(message));
   const duplicateRepository = new SqliteBookDuplicateRepository(db);
   const tagRepository = new SqliteTagRepository(db);
   const ignoredRepository = new SqliteIgnoredBookRepository(db);
@@ -299,8 +319,26 @@ export function createServices(
   const googleBooksFetch = createGuardedFetch({ policy: publicPolicy, debug: outbound("googlebooks") });
   const coverFetch = createGuardedFetch({ policy: publicPolicy, debug: outbound("cover") });
   const plainLlmFetch = observedFetch(globalThis.fetch, "llm", log);
-  const userAgent = `Knowlify/${readVersion(undefined, (message) => log.warn?.(message))}`;
+  const userAgent = `Knowlify/${version}`;
   const coverDownloader = new CoverDownloader({ fetch: coverFetch, userAgent });
+  // The release check shares the public-only policy (HTTPS/443, pinned public IP, no
+  // redirect, no proxy) and is never built from an environment variable. Nothing runs at
+  // boot: the notice is lazy and only a UI read or "Check now" may reach GitHub.
+  const updateNotice = new UpdateNotice({
+    source: new GithubReleaseSource({
+      fetch: extras.update?.fetch
+        ?? createGuardedFetch({ policy: publicPolicy, debug: outbound("github-update") }),
+      ...(extras.update?.timeoutMs === undefined ? {} : { timeoutMs: extras.update.timeoutMs }),
+    }),
+    stateStore: new SqliteUpdateStateStore(db),
+    configStore: new SqliteUpdateConfigStore(db),
+    currentVersion: extras.update?.currentVersion ?? version,
+    env: { enabled: config.update.enabled },
+    locked: config.update.locked,
+    clock: extras.update?.clock ?? clock,
+    log,
+  });
+  updateNotice.bootstrap();
   const bookMetadata = new BookMetadata(
     books,
     bookMetadataRepository,
@@ -490,6 +528,7 @@ export function createServices(
     bookMetadata,
     metadataLookup,
     mcpAccess,
+    updateNotice,
     ingestionRunner: runner,
   };
 }
@@ -528,6 +567,7 @@ export async function buildApp(
   logger: AppLogger = false,
   rss?: RssSource,
   ingestionRunner?: IngestionRunner,
+  extras: ServiceExtras = {},
 ) {
   // Fastify 5 fails closed on a numeric trustProxy because hop-count trust cannot validate
   // the peer. The env still offers the conventional hop count for deployments reachable only
@@ -573,7 +613,7 @@ export async function buildApp(
     warn: (message) => app.log.warn(message),
     debug: (message) => app.log.debug(message),
   };
-  const services = createServices(db, log, rss, ingestionRunner);
+  const services = createServices(db, log, rss, ingestionRunner, extras);
   const { scanner, indexing } = services;
   app.setErrorHandler((error: FastifyError, req, reply) => {
     if (req.url.split("?")[0] === "/api/account/password" && error.validation) {
@@ -635,7 +675,7 @@ export async function buildApp(
   const buildInfo = loadBuildInfo({ warn: (message) => app.log.warn(message) });
   await app.register(aboutRoutes, { prefix: "/api", buildInfo });
   await app.register(accountRoutes, { prefix: "/api", ...services });
-  await app.register(apiRoutes, { prefix: "/api", ...services });
+  await app.register(apiRoutes, { prefix: "/api", ...services, lanGuard });
   await app.register(settingsChatRoutes, {
     prefix: "/api",
     chatLimitsSettings: services.chatLimitsSettings,

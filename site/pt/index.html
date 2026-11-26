@@ -337,11 +337,15 @@
               <dd><span class="egress-mark">Quando conectado</span> Só quando um cliente MCP os pede. O cliente e o provedor dele recebem a resposta.</dd>
             </div>
             <div>
+              <dt>Verificação de atualização</dt>
+              <dd><span class="egress-mark">Uma vez por dia</span> O servidor pergunta ao GitHub qual é a última versão publicada. O GitHub vê o endereço IP do servidor; nenhuma versão, dado da biblioteca ou ID é enviado. Ativada por padrão. Desligue em Configurações ou com <code>KNOWLIFY_UPDATE_CHECK=off</code>.</dd>
+            </div>
+            <div>
               <dt>Requisições de feeds RSS</dt>
               <dd><span class="egress-mark">Quando buscados</span> As URLs de feeds que você adiciona são requisitadas. O texto dos artigos é sanitizado e guardado localmente.</dd>
             </div>
           </dl>
-          <p class="egress-note">Toda requisição de saída é uma configuração deliberada ou uma ação na interface. O servidor bloqueia SSRF para URLs fornecidas pelo usuário e mantém os limites no código, não em uma página de política.</p>
+          <p class="egress-note">Além da verificação diária de atualização, que você pode desligar, toda requisição de saída é uma configuração deliberada ou uma ação na interface. O servidor bloqueia SSRF para URLs fornecidas pelo usuário e mantém os limites no código, não em uma página de política.</p>
         </div>
       </div>
     </div>

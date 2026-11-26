@@ -12,6 +12,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { useMediaQuery } from "./useMediaQuery";
 import { WorkspaceStatusProvider, useHasWorkspaceStatus } from "./WorkspaceStatus";
 import { COMPACT_HEADER_QUERY } from "../modules/assistant/tutorLayout";
+import { UpdateBanner } from "../modules/update/UpdateBanner";
 
 export type NavKey = "library" | "ask" | "notes" | "news" | "settings";
 
@@ -167,6 +168,7 @@ function AppShellLayout({ credentials, onLogout, api: apiOverride, children }: A
           </>
         )}
       </header>
+      <UpdateBanner api={api} />
       {children ?? <Outlet />}
     </div>
   );

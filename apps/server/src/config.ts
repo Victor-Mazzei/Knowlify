@@ -88,6 +88,19 @@ export const readNetworkGuardMode = (value: string | undefined): NetworkGuardMod
   throw new Error("KNOWLIFY_NETWORK_GUARD must be off or lan");
 };
 
+/**
+ * Daily update check seed. `null` keeps the built-in default (`on`) distinguishable from
+ * an explicit `on` in `GET /api/settings/update` (`source: "default"` vs `"env"`). An
+ * unknown value is a boot-time mistake and is never echoed.
+ */
+export const readUpdateCheckMode = (value: string | undefined): boolean | null => {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "on") return true;
+  if (raw === "off") return false;
+  throw new Error("KNOWLIFY_UPDATE_CHECK must be on or off");
+};
+
 const serverHost = process.env.HOST?.trim() || "0.0.0.0";
 const isLoopbackHost = (host: string): boolean =>
   host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
@@ -311,6 +324,12 @@ export const config = {
   llmAllowPrivate: process.env.KNOWLIFY_LLM_ALLOW_PRIVATE?.trim() ?? "",
   // 1 locks the metadata lookup settings to the environment (PUT → 403 metadata_locked).
   metadataLocked: readFlag(process.env.KNOWLIFY_METADATA_LOCKED),
+  // Daily release check. `enabled: null` means the operator never set KNOWLIFY_UPDATE_CHECK,
+  // so GET /api/settings/update reports `source: "default"`. No boot-time network call.
+  update: {
+    enabled: readUpdateCheckMode(process.env.KNOWLIFY_UPDATE_CHECK),
+    locked: readFlag(process.env.KNOWLIFY_UPDATE_LOCKED),
+  },
   // External metadata lookup (ADR-5). Explicit user action only; `off` hides the feature
   // and makes the lookup/cover-by-URL routes answer 403, while manual editing stays on.
   metadata: {
