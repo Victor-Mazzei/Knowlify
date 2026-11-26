@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { FolderListing } from "../modules/folders/types";
+import { formatError } from "../services/api";
 
 export type ApiFn = (path: string, init?: RequestInit) => Promise<Response>;
 
-const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** Local-only 403s and other API errors share the same inline error style. */
+const errorText = (error: unknown) => formatError(error);
 
 /** Open dialogs, oldest first. Only the last one (the topmost) may react to the keyboard. */
 const openDialogs: symbol[] = [];

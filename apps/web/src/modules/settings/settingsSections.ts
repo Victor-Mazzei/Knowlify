@@ -5,6 +5,7 @@ import type { Credentials } from "../../types";
 export type SettingsSectionId =
   | "account"
   | "about"
+  | "network"
   | "folders"
   | "tags"
   | "duplicates"
@@ -14,7 +15,7 @@ export type SettingsSectionId =
   | "ai"
   | "mcp";
 
-export type SettingsGroupId = "general" | "library" | "metadata" | "ai";
+export type SettingsGroupId = "general" | "network" | "library" | "metadata" | "ai";
 
 export type SettingsSectionProps = {
   api: ApiFn;
@@ -38,6 +39,7 @@ export const SETTINGS_GROUPS: ReadonlyArray<{
   sections: readonly SettingsSectionId[];
 }> = [
   { id: "general", label: "General", sections: ["account", "about"] },
+  { id: "network", label: "Network", sections: ["network"] },
   { id: "library", label: "Library", sections: ["folders", "tags", "duplicates", "ignored-books", "search-index"] },
   { id: "metadata", label: "Metadata", sections: ["metadata"] },
   { id: "ai", label: "AI", sections: ["ai", "mcp"] },
@@ -55,6 +57,12 @@ export const SETTINGS_SECTIONS: Record<SettingsSectionId, SettingsSectionMeta> =
     label: "About",
     group: "general",
     description: "The version and runtime details of this Knowlify instance.",
+  },
+  network: {
+    id: "network",
+    label: "Network",
+    group: "network",
+    description: "Share your library with phones and tablets on the same local network.",
   },
   folders: {
     id: "folders",
@@ -120,6 +128,9 @@ export const LEGACY_SETTINGS_HASHES: Readonly<Record<string, SettingsSectionId>>
   "set-devices": "account",
   about: "about",
   "set-about": "about",
+  network: "network",
+  share: "network",
+  "set-network": "network",
   folders: "folders",
   "set-folders": "folders",
   tags: "tags",
@@ -161,6 +172,7 @@ type SectionComponent = LazyExoticComponent<ComponentType<SettingsSectionProps>>
 export const SETTINGS_SECTION_COMPONENTS: Record<SettingsSectionId, SectionComponent> = {
   account: lazy(() => import("./sections/AccountSection")),
   about: lazy(() => import("./sections/AboutSection")),
+  network: lazy(() => import("./sections/NetworkSection")),
   folders: lazy(() => import("./sections/FoldersSection")),
   tags: lazy(() => import("./sections/TagsSection")),
   duplicates: lazy(() => import("./sections/DuplicatesSection")),

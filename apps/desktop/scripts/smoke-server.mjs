@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,9 +11,10 @@ import { hostTarget, loadManifest, sidecarName, SUPPORTED_TARGETS, targetInfo } 
 
 /**
  * End-to-end check of the packaged server: starts it with the bundled Node.js on
- * an ephemeral loopback port and a throwaway data directory, probes /health and
- * the authenticated /api/about, loads the native modules under the same runtime
- * and stops the child before returning.
+ * an ephemeral port, bound to every IPv4 interface with the local-network guard,
+ * a throwaway data directory and the packaged web build. Probes /health, the
+ * authenticated /api/about and `GET /` with a local and a public `Host`, loads
+ * the native modules under the same runtime and stops the child before returning.
  */
 
 const desktopDir = fileURLToPath(new URL('../', import.meta.url));
@@ -22,6 +24,90 @@ const HEALTH_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
 const sleep = milliseconds => new Promise(resolveSleep => { setTimeout(resolveSleep, milliseconds); });
+
+/** Variables from the developer shell that must not reach the server process. */
+const INHERITED_STATE = [
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'KNOWLIFY_NODE',
+  'KNOWLIFY_TRUST_PROXY',
+  'KNOWLIFY_MCP_ALLOWED_HOSTS',
+  'KNOWLIFY_MCP_ALLOWED_ORIGINS',
+  'KNOWLIFY_FORCE_ENV_PASSWORD',
+];
+
+/**
+ * Environment of the smoke run. Mirrors the desktop sharing mode: all
+ * interfaces, fixed guard, packaged web directory, and no inherited override.
+ */
+export function smokeEnv({ port, dataDir, webDir, user, password }, baseEnv = process.env) {
+  const env = { ...baseEnv };
+  for (const name of INHERITED_STATE) delete env[name];
+  return {
+    ...env,
+    PORT: String(port),
+    HOST: '0.0.0.0',
+    KNOWLIFY_NETWORK_GUARD: 'lan',
+    KNOWLIFY_WEB_DIR: webDir,
+    KNOWLIFY_DATA: dataDir,
+    KNOWLIFY_USER: user,
+    KNOWLIFY_PASSWORD: password,
+    KNOWLIFY_ACCOUNT_LOCKED: '0',
+    KNOWLIFY_LIBRARY_PATHS: '',
+    KNOWLIFY_SCAN_INTERVAL: '0',
+    KNOWLIFY_INDEX_BACKFILL: 'off',
+    KNOWLIFY_INDEX_WORKERS: '1',
+    KNOWLIFY_MCP: 'off',
+    KNOWLIFY_METADATA_LOOKUP: 'off',
+  };
+}
+
+async function javascriptFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const full = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await javascriptFiles(full));
+    else if (entry.isFile() && entry.name.endsWith('.js')) files.push(full);
+  }
+  return files;
+}
+
+/**
+ * The server guard reads KNOWLIFY_NETWORK_GUARD from the environment, so the
+ * compiled config carries the literal. While the guard is being implemented in
+ * a separate change, the smoke run reports the Host check as skipped instead of
+ * failing; once the name is in the build, a public Host must be rejected.
+ */
+export async function serverSupportsNetworkGuard(distDir) {
+  for (const file of await javascriptFiles(distDir)) {
+    if ((await readFile(file, 'utf8')).includes('KNOWLIFY_NETWORK_GUARD')) return true;
+  }
+  return false;
+}
+
+function httpGet({ port, path = '/', hostHeader, timeoutMs = REQUEST_TIMEOUT_MS }) {
+  return new Promise((resolveRequest, reject) => {
+    const request = httpRequest({
+      host: '127.0.0.1',
+      port,
+      path,
+      method: 'GET',
+      headers: hostHeader ? { Host: hostHeader } : {},
+    }, response => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => { body += chunk; });
+      response.on('end', () => resolveRequest({
+        status: response.statusCode,
+        headers: response.headers,
+        body,
+      }));
+    });
+    request.setTimeout(timeoutMs, () => request.destroy(new Error('request timed out')));
+    request.on('error', reject);
+    request.end();
+  });
+}
 
 export function pickFreePort(host = '127.0.0.1') {
   return new Promise((resolvePort, reject) => {
@@ -122,6 +208,10 @@ export async function smokeServer({
   }
   const entry = join(serverDir, 'dist', 'index.js');
   if (!existsSync(entry)) fail(`Compiled server not found: ${entry}. Run prepare-server first`);
+  const webDir = join(serverDir, 'web');
+  if (!existsSync(join(webDir, 'index.html'))) {
+    fail(`Web build not found: ${join(webDir, 'index.html')}. Run prepare-server after building the web app`);
+  }
 
   const manifest = await loadManifest();
   const packaged = JSON.parse(await readFile(join(serverDir, 'package.json'), 'utf8'));
@@ -138,23 +228,7 @@ export async function smokeServer({
   const child = spawn(resolvedNode, [entry], {
     cwd: serverDir,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      PORT: String(port),
-      HOST: '127.0.0.1',
-      KNOWLIFY_DATA: workDir,
-      KNOWLIFY_USER: user,
-      KNOWLIFY_PASSWORD: password,
-      KNOWLIFY_ACCOUNT_LOCKED: '0',
-      KNOWLIFY_LIBRARY_PATHS: '',
-      KNOWLIFY_SCAN_INTERVAL: '0',
-      KNOWLIFY_INDEX_BACKFILL: 'off',
-      KNOWLIFY_INDEX_WORKERS: '1',
-      KNOWLIFY_MCP: 'off',
-      KNOWLIFY_METADATA_LOOKUP: 'off',
-      NODE_OPTIONS: '',
-      NODE_PATH: '',
-    },
+    env: smokeEnv({ port, dataDir: workDir, webDir, user, password }),
   });
   child.stdout.on('data', chunk => { logs.stdout += chunk.toString(); });
   child.stderr.on('data', chunk => { logs.stderr += chunk.toString(); });
@@ -182,8 +256,42 @@ export async function smokeServer({
       fail(`/api/about reports Node.js ${JSON.stringify(about.node)}, manifest pins ${manifest.version}`);
     }
     log(`[smoke-server] /api/about version=${about.version} node=${about.node}`);
+
+    const index = await httpGet({
+      port,
+      path: '/',
+      hostHeader: `127.0.0.1:${port}`,
+    });
+    if (index.status !== 200) {
+      fail(`GET / with Host: 127.0.0.1:${port} answered ${index.status} instead of 200`);
+    }
+    const contentType = String(index.headers['content-type'] ?? '');
+    if (!contentType.toLowerCase().includes('text/html')) {
+      fail(`GET / answered content-type ${JSON.stringify(contentType)} instead of text/html`);
+    }
+    if (!/<div id="root"/i.test(index.body)) {
+      fail('GET / did not serve the web app index.html from KNOWLIFY_WEB_DIR');
+    }
+    log('[smoke-server] GET / served the packaged web app');
+
+    const supportsGuard = await serverSupportsNetworkGuard(join(serverDir, 'dist'));
+    if (supportsGuard) {
+      const blocked = await httpGet({ port, path: '/', hostHeader: 'evil.example' });
+      if (blocked.status !== 403) {
+        fail(`GET / with Host: evil.example answered ${blocked.status} instead of 403`);
+      }
+      log('[smoke-server] network guard rejected a public Host');
+    } else {
+      log('[smoke-server] network guard not present in this server build; Host check skipped (run again after the server guard is merged)');
+    }
+
     log(`[smoke-server] native modules ok under ${resolvedNode}`);
-    return { port, version: about.version, node: about.node };
+    return {
+      port,
+      version: about.version,
+      node: about.node,
+      networkGuard: supportsGuard ? 'checked' : 'skipped',
+    };
   } finally {
     await stopChild(child);
     if (dataDir === null) {

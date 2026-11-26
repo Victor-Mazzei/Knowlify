@@ -91,6 +91,8 @@ async function createBundle(t, { sidecar = BINARY, sidecarName = SIDECAR, bundle
       type: 'module',
       version: server.version,
     }),
+    'server/web/index.html': '<!doctype html><div id="root"></div>\n',
+    'server/web/assets/app.js': 'console.log("web build");\n',
     'server/node_modules/fastify/package.json': '{}',
     'server/node_modules/better-sqlite3/package.json': '{}',
     'server/node_modules/better-sqlite3/prebuilds/win32-x64.node': 'native',
@@ -117,6 +119,7 @@ async function createMacBundle(t, { sidecar = SIGNED_BINARY, bundleName = 'Knowl
       type: 'module',
       version: server.version,
     }),
+    'Contents/Resources/server/web/index.html': '<!doctype html><div id="root"></div>\n',
     'Contents/Resources/server/node_modules/fastify/package.json': '{}',
     'Contents/Resources/server/node_modules/better-sqlite3/package.json': '{}',
     'Contents/Resources/server/node_modules/better-sqlite3/prebuilds/win32-x64.node': 'native',
@@ -202,6 +205,26 @@ test('accepts a sidecar whose hash derives from the pinned archive', zipTestOpti
   const result = await verifyBundle(verifyOptions(bundle, directory, { cacheDir, binariesDir }));
 
   assert.equal(result.target, WINDOWS_TARGET);
+});
+
+test('rejects a bundle without the web build served to the LAN', zipTestOptions, async t => {
+  const { directory, bundle } = await createBundle(t);
+  await unlink(join(bundle, 'server', 'web', 'index.html'));
+
+  await assert.rejects(
+    verifyBundle(verifyOptions(bundle, directory)),
+    /server\/web\/index\.html is missing from the bundle.*prepare-server/s,
+  );
+});
+
+test('rejects an empty web entry', zipTestOptions, async t => {
+  const { directory, bundle } = await createBundle(t);
+  await writeFile(join(bundle, 'server', 'web', 'index.html'), '');
+
+  await assert.rejects(
+    verifyBundle(verifyOptions(bundle, directory)),
+    /server\/web\/index\.html is empty/,
+  );
 });
 
 test('fails closed when only .node-sha256 is available', zipTestOptions, async t => {

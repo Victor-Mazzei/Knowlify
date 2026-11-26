@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { consumePairingFragment } from "../modules/settings/share/pairing";
 import type { Credentials } from "../types";
 
 const BASE = (window.__KNOWLIFY__?.apiBaseUrl ?? import.meta.env.VITE_API_BASE_URL ?? import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -36,6 +37,10 @@ export function readCredentials(): Credentials | null {
     const injected = window.__KNOWLIFY__.credentials;
     return isCredentials(injected) ? injected : null;
   }
+  // A sign-in link from the share QR code wins once; the fragment is removed
+  // before the first render, so the password never becomes a bookmark.
+  const paired = consumePairingFragment(saveCredentials);
+  if (paired) return paired;
   let stored: string | null;
   try {
     stored = localStorage.getItem(STORAGE_KEY);
@@ -69,7 +74,6 @@ export const clearCredentials = () => {
   }
 };
 export const saveCredentials = (credentials: Credentials) => localStorage.setItem(STORAGE_KEY, JSON.stringify(credentials));
-export function formatError(error: unknown) { return error instanceof Error ? error.message : "Something went wrong. Please try again."; }
 export type AccountInfo = { user: string; canChangePassword: boolean; passwordSource: "env" | "user" };
 export class ApiError extends Error {
   constructor(
@@ -82,6 +86,15 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+/** 403 from the network guard: the route only works from the computer running Knowlify. */
+export type LocalOnlyError = ApiError & { status: 403; code: "local_only" };
+export const LOCAL_ONLY_MESSAGE = "This action is only available on the computer that runs Knowlify.";
+export const isLocalOnlyError = (error: unknown): error is LocalOnlyError =>
+  error instanceof ApiError && error.status === 403 && error.code === "local_only";
+export function formatError(error: unknown) {
+  if (isLocalOnlyError(error)) return LOCAL_ONLY_MESSAGE;
+  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
 }
 /** Reads `{ message, code, ...detail }` from a failed response without throwing a second error. */
 export async function parseApiError(response: Response): Promise<ApiError> {
@@ -117,9 +130,8 @@ async function accountRequest(credentials: Credentials, path: string, init: Requ
   const response = await authorizedFetch(credentials, path, init);
   if (response.status === 401) { onUnauthorized(); throw new ApiError(401, "Your session expired. Please sign in again."); }
   if (response.ok) return response;
-  let message = `Request failed (${response.status})`;
-  try { const body: unknown = await response.json(); if (typeof body === "object" && body !== null && "message" in body && typeof body.message === "string") message = body.message; } catch { /* keep status */ }
-  throw new ApiError(response.status, message);
+  // Keep `code` and detail fields so the UI can explain a local-only 403.
+  throw await parseApiError(response);
 }
 export async function getAccount(credentials: Credentials, onUnauthorized: () => void): Promise<AccountInfo> {
   return (await accountRequest(credentials, "/api/account", {}, onUnauthorized)).json() as Promise<AccountInfo>;

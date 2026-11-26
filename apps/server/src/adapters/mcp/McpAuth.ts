@@ -1,6 +1,6 @@
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import type { McpAccess, McpPrincipal } from "../../use-cases/McpAccess.js";
-import { RateWindow } from "./RateWindow.js";
+import { RateWindow } from "../RateWindow.js";
 
 export type McpAuthFailureReason =
   | "credentials_missing"

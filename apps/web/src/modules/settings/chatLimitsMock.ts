@@ -9,6 +9,8 @@ export type MockChatLimitsOptions = {
   default?: number;
   min?: number;
   max?: number;
+  /** Simulates the network guard: reads still work, writes only work on the computer. */
+  localOnly?: boolean;
 };
 
 const json = (status: number, body: unknown) =>
@@ -41,6 +43,7 @@ export function createMockChatLimitsApi(options: MockChatLimitsOptions = {}): Ap
     const method = (init.method ?? "GET").toUpperCase();
     if (method === "GET") return json(200, view());
     if (method !== "PUT") throw new ApiError(405, "Method not allowed.");
+    if (options.localOnly) throw new ApiError(403, "Forbidden", "local_only");
     if (locked) throw new ApiError(403, "The server manages this setting.", "llm_locked");
     let body: unknown;
     try {

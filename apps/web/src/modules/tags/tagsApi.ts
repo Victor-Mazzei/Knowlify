@@ -1,5 +1,5 @@
 import type { ApiFn } from "../../components/dialogs";
-import { parseApiError, readJson } from "../../services/api";
+import { formatError, LOCAL_ONLY_MESSAGE, parseApiError, readJson } from "../../services/api";
 import type { BookSelection, Tag, TagColor, TagWithCount } from "../../types";
 import { isTagColor } from "./tagColors";
 
@@ -77,6 +77,7 @@ export async function applyTags(
 export function tagErrorMessage(error: unknown): string {
   if (error instanceof Error && "code" in error) {
     const code = (error as { code?: unknown }).code;
+    if (code === "local_only") return LOCAL_ONLY_MESSAGE;
     if (code === "tag_name_taken") return "A tag with this name already exists.";
     if (code === "tag_limit_reached") return "You already have the maximum of 200 tags.";
     if (code === "book_tag_limit") return "A book cannot have more than 50 tags.";
@@ -84,5 +85,5 @@ export function tagErrorMessage(error: unknown): string {
     if (code === "selection_changed") return "The selection changed. Review the books and try again.";
     if (code === "selection_too_large") return "This selection is too large. Narrow the filters and try again.";
   }
-  return error instanceof Error ? error.message : "Something went wrong. Please try again.";
+  return formatError(error);
 }

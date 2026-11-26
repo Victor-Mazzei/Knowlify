@@ -37,10 +37,12 @@ import compress from "@fastify/compress";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyRequest } from "fastify";
-import { REDACT_PATHS, SafeLogController, safeErrorForLog, safeRequestForLog } from "./adapters/logging/safeLogger.js";
+import { REDACT_PATHS, SafeLogController, safeErrorForLog, safeLogMethod, safeRequestForLog } from "./adapters/logging/safeLogger.js";
 import { safeErrorType } from "./adapters/logging/safeError.js";
 import { existsSync } from "node:fs";
 import { basicAuth } from "./adapters/http/auth.js";
+import { AuthFailureLimiter } from "./adapters/http/authFailureLimiter.js";
+import { networkGuard } from "./adapters/http/networkGuard.js";
 import { config, defaultPasswordWarning } from "./config.js";
 import { openDb } from "./adapters/storage/db.js";
 import { Library } from "./use-cases/Library.js";
@@ -541,6 +543,7 @@ export async function buildApp(
         level: config.logLevel,
         redact: REDACT_PATHS,
         serializers: { req: safeRequestForLog, err: safeErrorForLog },
+        hooks: { logMethod: safeLogMethod },
         ...(typeof logger === "object" ? { stream: logger.stream } : {}),
       },
       logController: new SafeLogController({
@@ -599,6 +602,14 @@ export async function buildApp(
     // Refresh planner statistics after a session with heavy inserts/deletes (ADR-D1).
     if (db.open) db.pragma("optimize");
   });
+  // LAN share guard (ADR-L4): the first `onRequest` hook, before CORS and authentication,
+  // so every route (API, OPDS, KOSync, MCP, `/health` and the static UI) passes through it.
+  // Off by default; Docker and a public reverse proxy keep the historical behaviour.
+  const lanGuard = config.networkGuard === "lan";
+  // The failure limiter is tied to the guard: behind a proxy without `trustProxy` every
+  // client shares one address, and the limit would deny service to the operator.
+  const authFailures = lanGuard ? new AuthFailureLimiter() : undefined;
+  if (lanGuard) app.addHook("onRequest", networkGuard(app.log));
   // The browser app reflects any Origin for its own /api calls, but /mcp is a
   // non-browser endpoint: CORS must stay disabled there (ADR-5). The preflight route
   // then falls through to the MCP route, which never emits Access-Control-Allow-Origin.
@@ -618,7 +629,7 @@ export async function buildApp(
   });
   await app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
   await registerHttpCompression(app);
-  app.addHook("onRequest", basicAuth(services.credentials));
+  app.addHook("onRequest", basicAuth(services.credentials, authFailures));
 
   app.get("/health", async () => ({ ok: true }));
   const buildInfo = loadBuildInfo({ warn: (message) => app.log.warn(message) });
@@ -683,7 +694,7 @@ export async function buildApp(
   await app.register(fsRoutes, { prefix: "/api", ...services });
   await app.register(sourceRoutes, { prefix: "/api", ...services });
   await app.register(opdsRoutes, { prefix: "/opds", ...services });
-  await app.register(kosyncRoutes, { prefix: "/kosync", ...services });
+  await app.register(kosyncRoutes, { prefix: "/kosync", ...services, failures: authFailures });
 
   if (config.webDir && existsSync(config.webDir)) {
     await app.register(fastifyStatic, { root: config.webDir });

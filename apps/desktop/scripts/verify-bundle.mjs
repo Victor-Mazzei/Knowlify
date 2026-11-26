@@ -518,6 +518,16 @@ export async function verifyBundle({
     if (packagedServer.type !== 'module') fail('packaged server package.json lost "type": "module"');
     logLine(`server version ${packagedServer.version}`);
 
+    // The server serves this copy to browsers on the local network; the app's
+    // own webview keeps using the Tauri frontendDist.
+    const webIndex = (await listFiles(root))
+      .find(file => pathEndsWithSegments(file, ['server', 'web', 'index.html']));
+    if (!webIndex) {
+      fail('server/web/index.html is missing from the bundle; run prepare-server after building the web app');
+    }
+    if ((await stat(webIndex)).size === 0) fail('server/web/index.html is empty');
+    logLine('server/web/index.html present');
+
     const license = (await listFiles(root)).find(file => pathEndsWithSegments(file, LICENSE_SEGMENTS));
     if (!license) fail(`${LICENSE_DIR} is missing from the bundle`);
     if ((await stat(license)).size === 0) fail(`${LICENSE_DIR} is empty`);

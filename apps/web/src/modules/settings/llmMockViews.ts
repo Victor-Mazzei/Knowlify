@@ -16,6 +16,7 @@ export const MOCK_LLM_SCENARIOS = [
   "headers",
   "headers-unreadable",
   "anthropic",
+  "local_only",
 ] as const;
 
 export type MockLlmScenario = (typeof MOCK_LLM_SCENARIOS)[number];

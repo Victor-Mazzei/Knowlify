@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { config } from "../../config.js";
 import type { SyncProgress } from "../../use-cases/Progress.js";
 import { safeAddress } from "../outboundDebug.js";
+import type { AuthFailureLimiter } from "./authFailureLimiter.js";
 
 interface Progress {
   document: string;
@@ -12,9 +13,24 @@ interface Progress {
   device_id: string;
 }
 
-export async function kosyncRoutes(app: FastifyInstance, opts: { syncProgress: SyncProgress; credentials: CredentialVerifier }) {
+export async function kosyncRoutes(app: FastifyInstance, opts: {
+  syncProgress: SyncProgress;
+  credentials: CredentialVerifier;
+  /** Only wired with the LAN guard; the key is the socket address, never X-Forwarded-For. */
+  failures?: AuthFailureLimiter;
+}) {
   app.addHook("preHandler", async (req, reply) => {
+    const peer = req.socket.remoteAddress ?? "";
+    if (opts.failures) {
+      const verdict = opts.failures.blocked(peer);
+      if (verdict.blocked) {
+        // Category and peer only; the KOSync headers never reach the log.
+        req.log.debug(`auth rate-limited provider=kosync ip=${safeAddress(peer)}`);
+        return reply.header("Retry-After", String(verdict.retryAfterSec)).code(429).send({ message: "Too many attempts" });
+      }
+    }
     const fail = (reason: "credentials_missing" | "credentials_invalid") => {
+      opts.failures?.recordFailure(peer);
       // Category only: the KOSync header carries an md5 and is never logged.
       req.log.debug(`auth failed provider=kosync ip=${safeAddress(req.ip)} reason=${reason}`);
       return reply.code(401).send({ message: "Unauthorized" });

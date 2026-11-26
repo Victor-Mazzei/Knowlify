@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { ApiError, LOCAL_ONLY_MESSAGE } from "../../services/api";
 import type { Tag } from "../../types";
 import { tagErrorMessage } from "./tagsApi";
 import { useTags } from "./useTags";
@@ -82,6 +83,10 @@ describe("useTags", () => {
     );
     expect(tagErrorMessage(Object.assign(new Error("conflict"), { code: "book_tag_limit" }))).toBe(
       "A book cannot have more than 50 tags.",
+    );
+    expect(tagErrorMessage(new ApiError(403, "Forbidden", "local_only"))).toBe(LOCAL_ONLY_MESSAGE);
+    expect(tagErrorMessage(Object.assign(new Error("forbidden"), { code: "local_only" }))).toBe(
+      LOCAL_ONLY_MESSAGE,
     );
     expect(tagErrorMessage(new Error("offline"))).toBe("offline");
   });

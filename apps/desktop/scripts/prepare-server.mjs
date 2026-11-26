@@ -18,6 +18,7 @@ import { hostTarget, loadManifest, targetInfo } from './node-runtime.mjs';
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const desktopDir = fileURLToPath(new URL('../', import.meta.url));
 const defaultResourcesDir = join(desktopDir, 'src-tauri', 'resources');
+const defaultWebDistDir = join(root, 'apps', 'web', 'dist');
 
 const PRUNED_DIRECTORIES = new Set(['test', 'tests', '__tests__', 'docs', '.github']);
 const LICENSE_FILE = /^(?:license|notice|copying|readme)/i;
@@ -145,6 +146,22 @@ async function assertDirectory(directory, label) {
   } catch {
     fail(`${label} was not created: ${directory}`);
   }
+}
+
+export function webBuildMissingMessage(webDistDir) {
+  return `web build not found at ${webDistDir}/index.html; run "npm run build -w @knowlify/web" before prepare-server`;
+}
+
+/**
+ * Copies the web build that the local server serves when sharing is enabled.
+ * The desktop app keeps using its own `frontendDist`; only external browsers
+ * need this copy.
+ */
+export async function copyWebBuild(sourceDir, destinationDir) {
+  if (!existsSync(join(sourceDir, 'index.html'))) fail(webBuildMissingMessage(sourceDir));
+  await rm(destinationDir, { recursive: true, force: true });
+  await cp(sourceDir, destinationDir, { recursive: true });
+  return destinationDir;
 }
 
 /** Removes the multi-platform payloads that `npm ci` cannot filter on its own. */
@@ -376,6 +393,7 @@ async function createInstallWorkspace(directory) {
 export async function prepareServer({
   target = hostTarget(),
   resourcesDir = defaultResourcesDir,
+  webDistDir = defaultWebDistDir,
   log = console.log,
   env = process.env,
   skipBuild = false,
@@ -384,12 +402,16 @@ export async function prepareServer({
   const manifest = await loadManifest();
   assertBundledNodeMajor(nodeVersion, manifest.version);
   const serverDir = join(resourcesDir, 'server');
+  // Fail before destroying resourcesDir: a clean checkout must build the web app
+  // first, because the packaged server serves that copy to the LAN.
+  if (!existsSync(join(webDistDir, 'index.html'))) fail(webBuildMissingMessage(webDistDir));
   if (!skipBuild) {
     run(npmBin(), ['run', 'build', '-w', '@knowlify/server'], { cwd: root, env, log, label: 'build server' });
   }
   await rm(serverDir, { recursive: true, force: true });
   await mkdir(serverDir, { recursive: true });
   await cp(join(root, 'apps/server/dist'), join(serverDir, 'dist'), { recursive: true });
+  await copyWebBuild(webDistDir, join(serverDir, 'web'));
   const server = JSON.parse(await readFile(join(root, 'apps/server/package.json'), 'utf8'));
   await writeFile(join(serverDir, 'package.json'), `${JSON.stringify(buildServerManifest(server), null, 2)}\n`);
 

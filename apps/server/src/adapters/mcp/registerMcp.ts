@@ -16,7 +16,7 @@ import type { Favorites } from "../../use-cases/Favorites.js";
 import type { Indexing } from "../../use-cases/Indexing.js";
 import { authInfoFor, McpAuth } from "./McpAuth.js";
 import { createMcpHandlers } from "./buildMcpServer.js";
-import { RateWindow } from "./RateWindow.js";
+import { RateWindow } from "../RateWindow.js";
 import {
   MAX_JSONRPC_ID_BYTES,
   WRITE_TOOL_SET,

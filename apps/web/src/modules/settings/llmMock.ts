@@ -101,6 +101,9 @@ export function createMockLlmApi(options: MockLlmOptions = {}): ApiFn {
     const method = (init.method ?? "GET").toUpperCase();
     const body = readBody(init);
 
+    // The network guard blocks every non-GET `/api/settings/*` request from a phone.
+    if (scenario === "local_only" && method !== "GET") fail(403, "Forbidden", "local_only");
+
     if (url.pathname === "/api/settings/llm" && method === "GET") return json(200, view);
 
     if (url.pathname === "/api/settings/llm" && method === "PUT") {
