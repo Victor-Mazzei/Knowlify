@@ -5,6 +5,7 @@ import {
   DESKTOP_CONNECTION_RESERVE,
   DESKTOP_RESERVE_STYLE,
   MIN_TRANSCRIPT_HEIGHT,
+  TRANSCRIPT_BASIS,
   TRANSCRIPT_STYLE,
 } from "./tutorLayout";
 
@@ -20,9 +21,13 @@ describe("tutor layout rules", () => {
   });
 
   it("keeps a useful transcript height in rem and viewport units", () => {
-    expect(MIN_TRANSCRIPT_HEIGHT).toContain("7.5rem");
-    expect(MIN_TRANSCRIPT_HEIGHT).toContain("25dvh");
-    expect(TRANSCRIPT_STYLE).toMatchObject({ "--tutor-min-thread": MIN_TRANSCRIPT_HEIGHT });
+    expect(MIN_TRANSCRIPT_HEIGHT).toBe("7.5rem");
+    expect(TRANSCRIPT_BASIS).toContain("7.5rem");
+    expect(TRANSCRIPT_BASIS).toContain("25dvh");
+    expect(TRANSCRIPT_STYLE).toMatchObject({
+      "--tutor-min-thread": MIN_TRANSCRIPT_HEIGHT,
+      "--tutor-thread-basis": TRANSCRIPT_BASIS,
+    });
   });
 
   it("reserves the desktop connection button in font-relative units and safe-area", () => {

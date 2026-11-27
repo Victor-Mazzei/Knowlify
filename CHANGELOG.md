@@ -15,6 +15,14 @@ release time, keep `## [Unreleased]` at the top (empty) and insert a new
 comparison links at the bottom, then run `npm run version:set -- X.Y.Z`.
 -->
 
+## [2.5.1] - 2026-11-27
+
+### Fixed
+
+- The tutor page no longer changes width when you switch between Ask and Session. On systems with classic scrollbars (for example macOS with "Show scroll bars: Always"), the columns, the message area and the text lines moved by about 15 px because the browser did not reserve room for the scrollbar. The tutor columns now always show their scrollbars on those systems, and the page is sized by its layout instead of its content.
+- On a short desktop window, the one-time mode hint is hidden first, so the page does not start to scroll only because Ask has more controls. The message area keeps a minimum height of 120 px.
+- Known limits: in windows with an effective height of about 400 px or less (for example a 390 px high phone screen, or 1280x600 at 150% zoom), the message field can sit below the fold and you scroll the tutor page to reach it. In the desktop app at high zoom and a small window, the "Connection settings" button can cover the message field.
+
 ## [2.5.0] - 2026-11-25
 
 ### Added
@@ -457,7 +465,8 @@ First versioned release. It records the state of Knowlify when semantic versioni
 - `/api/fs` and source creation are limited to configured browse roots.
 - Retrieved passages and reader excerpts are treated as untrusted data in the prompt.
 
-[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.5.1...HEAD
+[2.5.1]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.4.0...v2.5.0
 [2.4.0]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.2...v2.4.0
 [2.3.2]: https://github.com/Victor-Mazzei/Knowlify/compare/v2.3.1...v2.3.2

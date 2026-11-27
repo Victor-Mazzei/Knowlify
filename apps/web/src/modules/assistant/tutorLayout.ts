@@ -11,7 +11,10 @@ export const COMPACT_TUTOR_QUERY = "(max-height: 620px)";
 export const COMPACT_HEADER_QUERY = "(max-width: 520px), (max-height: 620px)";
 
 /** The transcript never collapses below a useful height. */
-export const MIN_TRANSCRIPT_HEIGHT = "max(7.5rem, 25dvh)";
+export const MIN_TRANSCRIPT_HEIGHT = "7.5rem";
+
+/** Preferred transcript height on a roomy page; it may shrink to the floor above. */
+export const TRANSCRIPT_BASIS = "max(7.5rem, 25dvh)";
 
 /**
  * Desktop shell reserve for the injected "Connection settings" button:
@@ -25,6 +28,7 @@ export const DESKTOP_CONNECTION_RESERVE =
 
 export const TRANSCRIPT_STYLE = {
   "--tutor-min-thread": MIN_TRANSCRIPT_HEIGHT,
+  "--tutor-thread-basis": TRANSCRIPT_BASIS,
 } as CSSProperties;
 
 export const DESKTOP_RESERVE_STYLE = {
